@@ -1,5 +1,15 @@
+// Check if we're on a Shorts page
+function isShortsPage() {
+    return location.pathname.startsWith('/shorts');
+}
+
 // Function to create playback speed buttons
 function createSpeedControls() {
+    // Skip creating controls on Shorts pages
+    if (isShortsPage()) {
+        return;
+    }
+    
     const rightControls = document.querySelector('.ytp-right-controls');
     if (!rightControls) return;
 

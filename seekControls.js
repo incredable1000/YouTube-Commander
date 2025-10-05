@@ -164,6 +164,11 @@ function createSeekButtons() {
 
 // Create and show seek indicator
 function showSeekIndicator(direction, seconds) {
+    // Skip showing seek indicator on Shorts pages
+    if (isShortsPage()) {
+        return;
+    }
+    
     const video = getActiveVideo();
     const player = getActivePlayer();
     if (!video || !player) return;
