@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Commander",
+  "version": "1.0.0",
+  "description": "Take full command of your YouTube experience with quality control, custom navigation, and playback features.",
+  "icons": {
+    "16": "icon.png",
+    "32": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "activeTab",
+    "identity",
+    "alarms",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://www.googleapis.com/*"
+  ],
+  "oauth2": {
+    "client_id": "4674177287-rnna7qq3levmb0uh8uent1lv21h04vkv.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/drive.file"
+    ]
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "css": ["styles.css", "scrollToTop.css"],
+      "js": [
+        "seekControls.js",
+        "scrollToTop.js",
+        "playbackControls.js",
+        "playlistControls.js",
+        "qualityControls-wrapper.js",
+        "shortsCounter.js",
+        "watchedHistory.js"
+      ]
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["qualityControls.js"],
+      "world": "MAIN",
+      "run_at": "document_end"
+    }
+  ]
+}

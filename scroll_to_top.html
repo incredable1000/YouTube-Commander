@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scroll to Top - YouTube Style</title>
+    <style>
+        #scrollToTopBtn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: white;
+            color: #030303;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+            transition: background-color 0.2s;
+            z-index: 1000;
+        }
+
+        #scrollToTopBtn:hover {
+            background-color: #f2f2f2;
+        }
+
+        #scrollToTopBtn svg {
+            width: 24px;
+            height: 24px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Adding some content to enable scrolling -->
+    <div style="height: 200vh; padding: 20px;">
+        <h1>Scroll down to see the button</h1>
+        <p style="margin-bottom: 50px;">Keep scrolling...</p>
+        <!-- Adding more content to make scrolling more obvious -->
+        <div style="margin-bottom: 50px;">
+            <h2>Section 1</h2>
+            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+        </div>
+        <div style="margin-bottom: 50px;">
+            <h2>Section 2</h2>
+            <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+        </div>
+        <div style="margin-bottom: 50px;">
+            <h2>Section 3</h2>
+            <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p>
+        </div>
+        <div style="margin-bottom: 50px;">
+            <h2>Section 4</h2>
+            <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+        </div>
+    </div>
+
+    <button id="scrollToTopBtn" aria-label="Scroll to top" style="display: none;">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z" transform="rotate(-90 12 12)"/>
+        </svg>
+    </button>
+
+    <script>
+        const scrollToTopBtn = document.getElementById('scrollToTopBtn');
+
+        // Show/hide button based on scroll position
+        function toggleScrollButton() {
+            if (window.scrollY > 100) {
+                scrollToTopBtn.style.display = 'flex';
+                scrollToTopBtn.style.opacity = '1';
+            } else {
+                scrollToTopBtn.style.opacity = '0';
+                setTimeout(() => {
+                    if (window.scrollY <= 100) {
+                        scrollToTopBtn.style.display = 'none';
+                    }
+                }, 200);
+            }
+        }
+
+        // Add scroll event listener
+        window.addEventListener('scroll', toggleScrollButton);
+        
+        // Initial check in case page is loaded scrolled down
+        toggleScrollButton();
+
+        // Smooth scroll to top when button is clicked
+        scrollToTopBtn.addEventListener('click', () => {
+            window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        });
+    </script>
+</body>
+</html>
