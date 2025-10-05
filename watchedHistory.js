@@ -294,6 +294,27 @@ async function isVideoWatched(videoId) {
 // Track processed videos to prevent duplicates
 const processedVideos = new Set();
 
+// Check if we're on a Shorts page
+function isShortsPage() {
+    return location.pathname.startsWith('/shorts');
+}
+
+// Get the active video element
+function getActiveVideo() {
+    if (isShortsPage()) {
+        const renderer = getActiveShortsRenderer();
+        if (renderer) {
+            // Video inside the active Shorts renderer
+            const v = renderer.querySelector('video.html5-main-video');
+            if (v) return v;
+        }
+        // Last resort: any Shorts video (not ideal but better than null)
+        return document.querySelector('ytd-shorts video.html5-main-video');
+    }
+    // Regular watch page
+    return document.querySelector('video.html5-main-video');
+}
+
 // Get the active Shorts renderer
 function getActiveShortsRenderer() {
     // First try YouTube's explicit marker
@@ -960,6 +981,14 @@ function showExportReminder() {
             reminder.remove();
         }
     }, 10000);
+}
+
+// Add missing helper functions
+function refreshWatchedBadges() {
+    debugLog('Badge', 'Refreshing watched badges');
+    markWatchedVideosOnPage().catch(e => 
+        debugLog('Badge', 'Error refreshing badges:', e)
+    );
 }
 
 // Listen for sync messages from background script
