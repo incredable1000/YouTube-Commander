@@ -281,6 +281,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ success: true });
         return true;
     }
+    else if (message.type === 'HISTORY_UPDATED') {
+        // Broadcast to all YouTube tabs that history was updated
+        chrome.tabs.query({ url: 'https://www.youtube.com/*' }, (tabs) => {
+            tabs.forEach(tab => {
+                // Don't send back to the sender tab
+                if (tab.id !== sender.tab?.id) {
+                    chrome.tabs.sendMessage(tab.id, { type: 'HISTORY_UPDATED' }).catch(() => {
+                        // Ignore errors for tabs that might not have the content script loaded
+                    });
+                }
+            });
+        });
+    }
 });
 
 

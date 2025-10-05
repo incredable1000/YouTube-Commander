@@ -34,6 +34,10 @@ async function addToWatchedHistory(videoId) {
                     debugLog('Watch', `Added video to history: ${videoId}`);
                     // Notify background script about the change for potential sync
                     chrome.runtime.sendMessage({ type: 'HISTORY_UPDATED' });
+                    // Immediately update markers on current page
+                    setTimeout(() => {
+                        markWatchedVideosOnPage();
+                    }, 100);
                     resolve();
                 };
                 request.onerror = () => reject(request.error);
@@ -638,8 +642,16 @@ async function initialize() {
             
             // Watch for navigation and content changes
             setupNavigationObserver();
-
-            // More aggressive periodic check with visibility check
+            
+            // Set up Shorts scroll detection if on Shorts page
+            if (isShortsPage()) {
+                setupShortsScrollDetection();
+            }
+            
+            // Set up real-time updates
+            setupRealTimeUpdates();
+            
+            // Periodic checks
             const checkAndMarkVideos = () => {
                 if (!document.hidden) {
                     debugLog('Periodic', 'Checking for new videos');
@@ -983,6 +995,72 @@ function showExportReminder() {
     }, 10000);
 }
 
+// Set up real-time updates for cross-tab communication and page focus
+function setupRealTimeUpdates() {
+    debugLog('RealTime', 'Setting up real-time updates');
+    
+    // Listen for page visibility changes (when user switches back to tab)
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            debugLog('RealTime', 'Page became visible, refreshing markers');
+            setTimeout(() => {
+                markWatchedVideosOnPage();
+            }, 200);
+        }
+    });
+    
+    // Listen for window focus events
+    window.addEventListener('focus', () => {
+        debugLog('RealTime', 'Window focused, refreshing markers');
+        setTimeout(() => {
+            markWatchedVideosOnPage();
+        }, 200);
+    });
+    
+    // Listen for storage changes (cross-tab communication)
+    window.addEventListener('storage', (e) => {
+        if (e.key && e.key.includes('youtube-commander')) {
+            debugLog('RealTime', 'Storage change detected, refreshing markers');
+            setTimeout(() => {
+                markWatchedVideosOnPage();
+            }, 200);
+        }
+    });
+    
+    // Enhanced navigation detection for YouTube SPA
+    let lastUrl = location.href;
+    const urlObserver = new MutationObserver(() => {
+        if (location.href !== lastUrl) {
+            lastUrl = location.href;
+            debugLog('RealTime', 'URL changed, refreshing markers');
+            setTimeout(() => {
+                markWatchedVideosOnPage();
+            }, 500);
+        }
+    });
+    
+    urlObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+    
+    // Listen for YouTube's custom navigation events
+    document.addEventListener('yt-navigate-finish', () => {
+        debugLog('RealTime', 'YouTube navigation finished, refreshing markers');
+        setTimeout(() => {
+            markWatchedVideosOnPage();
+        }, 500);
+    });
+    
+    // Periodic refresh when page is visible (every 10 seconds)
+    setInterval(() => {
+        if (!document.hidden) {
+            debugLog('RealTime', 'Periodic refresh of markers');
+            markWatchedVideosOnPage();
+        }
+    }, 10000);
+}
+
 // Add missing helper functions
 function refreshWatchedBadges() {
     debugLog('Badge', 'Refreshing watched badges');
@@ -1015,6 +1093,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Handle sync updates if needed
         sendResponse({ success: true });
         return true;
+    }
+    else if (message.type === 'HISTORY_UPDATED') {
+        // Another tab updated history, refresh markers
+        debugLog('RealTime', 'History updated in another tab, refreshing markers');
+        setTimeout(() => {
+            markWatchedVideosOnPage();
+        }, 200);
     }
 });
 
