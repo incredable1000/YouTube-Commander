@@ -61,7 +61,16 @@ function rotateVideo() {
     }
 
     const video = getActiveVideo();
-    if (!video) return;
+    if (!video) {
+        console.log('No video element found for rotation');
+        return;
+    }
+
+    console.log('Current video element:', video);
+    
+    // Store current playback state to restore after rotation
+    const wasPlaying = !video.paused;
+    const currentTime = video.currentTime;
 
     // Increment rotation by 90 degrees
     currentRotation = (currentRotation + 90) % 360;
@@ -73,10 +82,22 @@ function rotateVideo() {
     if (currentRotation === 0) {
         video.style.transform = '';
         video.style.transformOrigin = '';
+        console.log('Reset video transform to default');
     } else {
         video.style.transform = `rotate(${currentRotation}deg) scale(${scale})`;
         video.style.transformOrigin = 'center center';
+        console.log(`Applied transform: rotate(${currentRotation}deg) scale(${scale})`);
     }
+    
+    // Force video refresh to prevent blank screen
+    setTimeout(() => {
+        if (video.currentTime !== currentTime) {
+            video.currentTime = currentTime;
+        }
+        if (wasPlaying && video.paused) {
+            video.play().catch(e => console.log('Could not resume playback:', e));
+        }
+    }, 50);
     
     // Show rotation indicator
     showRotationIndicator(currentRotation);
@@ -205,11 +226,11 @@ function resetRotation() {
     currentRotation = 0;
     const video = getActiveVideo();
     if (video) {
+        console.log('Resetting video rotation transforms');
+        // Only reset transform-related properties, avoid touching other styles
         video.style.transform = '';
         video.style.transformOrigin = '';
-        // Remove any inline styles that might interfere
-        video.style.width = '';
-        video.style.height = '';
+        // Don't touch width/height as they might be managed by YouTube
     }
 }
 
@@ -261,8 +282,17 @@ function initializeRotation() {
         return;
     }
     
-    createRotationButton();
-    resetRotation(); // Reset rotation on page load
+    console.log('Initializing video rotation on regular video page');
+    
+    // Wait for video to be ready before creating button
+    setTimeout(() => {
+        createRotationButton();
+        // Only reset rotation if we're not in the middle of playback
+        const video = getActiveVideo();
+        if (video && (video.paused || video.currentTime === 0)) {
+            resetRotation();
+        }
+    }, 100);
 }
 
 // Utility functions (reused from seekControls.js)
