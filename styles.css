@@ -242,3 +242,132 @@
         transform: scale(0.9);
     }
 }
+
+/* Video Rotation Styles */
+.custom-rotation-button {
+    position: relative;
+    width: 48px;
+    height: 48px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    transition: background-color 0.2s;
+    margin: 0;
+    padding: 0;
+    outline: none;
+}
+
+.custom-rotation-button:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.custom-rotation-button:focus {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.custom-rotation-button svg {
+    width: 24px;
+    height: 24px;
+    fill: #fff;
+    opacity: 0.9;
+    transition: opacity 0.2s, transform 0.3s;
+    pointer-events: none;
+}
+
+.custom-rotation-button:hover svg {
+    opacity: 1;
+    transform: rotate(90deg);
+}
+
+/* Video rotation transform with smooth transition */
+.html5-main-video {
+    transition: transform 0.3s ease-in-out;
+}
+
+/* Rotation Indicator Styles */
+.custom-rotation-indicator {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: rotationFadeInOut 2s cubic-bezier(0.4, 0, 1, 1);
+    pointer-events: none;
+    width: 110px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.rotation-indicator-circle {
+    width: 110px;
+    height: 110px;
+    background: rgba(28, 28, 28, 0.5);
+    border-radius: 50%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    gap: 4px;
+    padding-top: 6px;
+}
+
+.rotation-indicator-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: rotationSpin 1s ease-in-out;
+}
+
+.rotation-indicator-icon svg {
+    width: 32px;
+    height: 32px;
+    fill: white;
+    opacity: 0.9;
+}
+
+.rotation-indicator-text {
+    color: rgba(255, 255, 255, 0.9);
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.2px;
+    margin-bottom: 4px;
+    text-align: center;
+    line-height: 1.2;
+}
+
+@keyframes rotationSpin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(90deg);
+    }
+}
+
+@keyframes rotationFadeInOut {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) scale(0.5);
+    }
+    10% {
+        opacity: 1;
+        transform: translateX(-50%) scale(1.1);
+    }
+    20% {
+        transform: translateX(-50%) scale(1);
+    }
+    50% {
+        opacity: 1;
+        transform: translateX(-50%) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(-50%) scale(0.9);
+    }
+}

@@ -45,7 +45,8 @@
         "playlistControls.js",
         "qualityControls-wrapper.js",
         "shortsCounter.js",
-        "watchedHistory.js"
+        "watchedHistory.js",
+        "videoRotation.js"
       ]
     },
     {
