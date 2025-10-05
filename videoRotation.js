@@ -54,6 +54,12 @@ function createRotationButton() {
 
 // Function to rotate the video
 function rotateVideo() {
+    // Don't allow rotation on Shorts pages
+    if (isShortsPage()) {
+        console.log('Video rotation is disabled on Shorts pages');
+        return;
+    }
+
     const video = getActiveVideo();
     if (!video) return;
 
@@ -213,8 +219,13 @@ function initializeRotationButton() {
     }, 1000);
 }
 
-// Watch for player changes
+// Watch for player changes (only on regular video pages)
 const rotationObserver = new MutationObserver((mutations) => {
+    // Don't run observer logic on Shorts pages
+    if (isShortsPage()) {
+        return;
+    }
+    
     const hasButton = document.querySelector('.custom-rotation-button');
     const hasPlayer = document.querySelector('.html5-main-video');
     
@@ -223,13 +234,26 @@ const rotationObserver = new MutationObserver((mutations) => {
     }
 });
 
-rotationObserver.observe(document.body, {
-    childList: true,
-    subtree: true
-});
+// Only start observing if not on Shorts page
+if (!isShortsPage()) {
+    rotationObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+}
 
 // Function to initialize everything
 function initializeRotation() {
+    if (isShortsPage()) {
+        // Remove rotation button if it exists and we're on Shorts
+        const existingButton = document.querySelector('.custom-rotation-button');
+        if (existingButton) {
+            existingButton.remove();
+        }
+        resetRotation(); // Reset any existing rotation
+        return;
+    }
+    
     createRotationButton();
     resetRotation(); // Reset rotation on page load
 }
@@ -285,12 +309,32 @@ function getActivePlayer() {
 document.addEventListener('yt-navigate-finish', function() {
     console.log('YouTube navigation detected, reinitializing rotation controls');
     setTimeout(() => {
+        // Stop observer if we're navigating to Shorts
+        if (isShortsPage()) {
+            rotationObserver.disconnect();
+            console.log('Disconnected rotation observer on Shorts page');
+        } else {
+            // Restart observer if we're on regular video page
+            rotationObserver.disconnect(); // Disconnect first to avoid duplicates
+            rotationObserver.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+            console.log('Reconnected rotation observer on regular video page');
+        }
+        
         initializeRotation();
     }, 500);
 });
 
-// Initialize on page load
-window.addEventListener('load', initializeRotation);
+// Initialize on page load (only if not on Shorts)
+window.addEventListener('load', () => {
+    if (!isShortsPage()) {
+        initializeRotation();
+    }
+});
 
-// Initial load
-initializeRotation();
+// Initial load (only if not on Shorts)
+if (!isShortsPage()) {
+    initializeRotation();
+}
