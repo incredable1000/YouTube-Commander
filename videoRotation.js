@@ -195,6 +195,13 @@ function showRotationIndicator(angle) {
 
 // Function to reset rotation when video changes
 function resetRotation() {
+    // Don't manipulate videos on Shorts pages
+    if (isShortsPage()) {
+        console.log('Skipping reset rotation on Shorts page');
+        currentRotation = 0;
+        return;
+    }
+    
     currentRotation = 0;
     const video = getActiveVideo();
     if (video) {
@@ -260,7 +267,15 @@ function initializeRotation() {
 
 // Utility functions (reused from seekControls.js)
 function isShortsPage() {
-    return location.pathname.startsWith("/shorts");
+    const isShorts = location.pathname.startsWith("/shorts") || 
+                     location.pathname.includes("/shorts/") ||
+                     document.querySelector('ytd-shorts') !== null;
+    
+    if (isShorts) {
+        console.log('Detected Shorts page:', location.pathname);
+    }
+    
+    return isShorts;
 }
 
 function getActiveShortsRenderer() {
