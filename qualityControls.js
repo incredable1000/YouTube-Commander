@@ -22,46 +22,42 @@ const lockQuality = (preferredQuality = 'hd1080') => {
 
     if (player && typeof player.getAvailableQualityLevels === 'function') {
         const qualityLevels = player.getAvailableQualityLevels();
-        console.log('Available quality levels:', qualityLevels);
-        console.log('Setting quality to:', preferredQuality);
 
         if (qualityLevels.includes(preferredQuality)) {
             player.setPlaybackQualityRange(preferredQuality, preferredQuality);
             player.setPlaybackQuality(preferredQuality);
-            console.log('Quality locked at:', preferredQuality);
-
-            // Try to disable adaptive streaming
-            try {
-                const config = player.getPlayerResponse()?.streamingData;
-                if (config && config.adaptiveFormats) {
-                    config.adaptiveFormats = config.adaptiveFormats.filter(format =>
-                        format.qualityLabel === preferredQuality
-                    );
-                    console.log('Adaptive streaming disabled');
-                }
-            } catch (e) {
-                console.log('Could not disable adaptive streaming');
-            }
         } else if (qualityLevels.length > 0) {
             // Find the highest available quality that's not higher than preferred
             const qualityOrder = ['highres', 'hd1440', 'hd1080', 'hd720', 'large', 'medium', 'small', 'tiny'];
             const preferredIndex = qualityOrder.indexOf(preferredQuality);
             let bestQuality = qualityLevels[0];
             
-            for (const quality of qualityLevels) {
-                const qualityIndex = qualityOrder.indexOf(quality);
-                if (qualityIndex >= preferredIndex) {
-                    bestQuality = quality;
-                    break;
+            // If preferred quality is 4K (highres), try to find it or the closest
+            if (preferredQuality === 'highres') {
+                // Look for 4K variants
+                const fourKQualities = qualityLevels.filter(q => 
+                    q === 'highres' || q.includes('2160') || q.includes('4K')
+                );
+                if (fourKQualities.length > 0) {
+                    bestQuality = fourKQualities[0];
+                } else {
+                    // Fallback to highest available
+                    bestQuality = qualityLevels[0];
+                }
+            } else {
+                // Find best quality within the limit
+                for (const quality of qualityLevels) {
+                    const qualityIndex = qualityOrder.indexOf(quality);
+                    if (qualityIndex >= preferredIndex) {
+                        bestQuality = quality;
+                        break;
+                    }
                 }
             }
             
             player.setPlaybackQualityRange(bestQuality, bestQuality);
             player.setPlaybackQuality(bestQuality);
-            console.log('Preferred quality not available. Using quality:', bestQuality);
         }
-    } else {
-        console.log('Player or quality functions not available yet');
     }
 };
 
@@ -70,51 +66,107 @@ function isVideoPage() {
     return window.location.pathname.includes('/watch');
 }
 
+// Track last processed video to avoid redundant quality setting
+let lastVideoId = null;
+
 // Function to handle quality control with retry
 function handleQualityControl(quality = null) {
     if (!isVideoPage()) return;
 
+    // Check if this is the same video to avoid redundant processing
+    const currentVideoId = new URLSearchParams(window.location.search).get('v');
+    if (currentVideoId === lastVideoId && !quality) {
+        return; // Same video, no need to reprocess unless explicitly requested
+    }
+    lastVideoId = currentVideoId;
+
     // Use provided quality or fall back to user's preferred quality
     const targetQuality = quality || userPreferredQuality;
-    console.log('Handling quality control. Target quality:', targetQuality);
 
     let attempts = 0;
-    const maxAttempts = 10;
+    const maxAttempts = 30; // Increased for very slow connections (60+ seconds total)
+    let lastAttemptTime = Date.now();
     
     const attemptSetQuality = () => {
         if (attempts >= maxAttempts) {
-            console.log('Max attempts reached, giving up');
             return;
         }
         
         const player = document.querySelector('#movie_player');
         if (player && typeof player.getAvailableQualityLevels === 'function') {
-            console.log('Player ready, setting quality to:', targetQuality);
-            lockQuality(targetQuality);
-        } else {
-            console.log('Player not ready, attempt:', attempts + 1);
-            attempts++;
-            setTimeout(() => attemptSetQuality(), 1000);
+            // Check if quality levels are actually available (player fully loaded)
+            const qualityLevels = player.getAvailableQualityLevels();
+            if (qualityLevels && qualityLevels.length > 0) {
+                lockQuality(targetQuality);
+                return; // Success, stop retrying
+            }
         }
+        
+        attempts++;
+        const currentTime = Date.now();
+        const timeSinceLastAttempt = currentTime - lastAttemptTime;
+        lastAttemptTime = currentTime;
+        
+        // Adaptive delay: start with 1s, increase to 4s for very slow connections
+        const delay = Math.min(1000 + (attempts * 100), 4000);
+        setTimeout(() => attemptSetQuality(), delay);
     };
     
     attemptSetQuality();
+    
+    // Also listen for video events that indicate the player is ready
+    const video = document.querySelector('video');
+    if (video) {
+        const onVideoReady = () => {
+            // Give a small delay for player API to be fully ready
+            setTimeout(() => {
+                const player = document.querySelector('#movie_player');
+                if (player && typeof player.getAvailableQualityLevels === 'function') {
+                    const qualityLevels = player.getAvailableQualityLevels();
+                    if (qualityLevels && qualityLevels.length > 0) {
+                        lockQuality(targetQuality);
+                    }
+                }
+            }, 500);
+        };
+        
+        // Listen for multiple video events that indicate readiness
+        video.addEventListener('loadedmetadata', onVideoReady, { once: true });
+        video.addEventListener('canplay', onVideoReady, { once: true });
+        video.addEventListener('playing', onVideoReady, { once: true });
+    }
 }
 
-// Set up mutation observer to detect video changes
+// Set up mutation observer to detect video changes (throttled)
+let observerTimeout = null;
 const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-        if (mutation.addedNodes.length) {
-            // Use the stored preferred quality
-            handleQualityControl();
+    // Throttle the observer to prevent excessive calls
+    if (observerTimeout) return;
+    
+    observerTimeout = setTimeout(() => {
+        observerTimeout = null;
+        // Only process if we're on a video page and there are significant changes
+        if (isVideoPage()) {
+            const hasVideoElement = mutations.some(mutation => 
+                Array.from(mutation.addedNodes).some(node => 
+                    node.nodeType === 1 && (
+                        node.id === 'movie_player' || 
+                        node.querySelector && node.querySelector('#movie_player')
+                    )
+                )
+            );
+            
+            if (hasVideoElement) {
+                handleQualityControl();
+            }
         }
-    }
+    }, 1000); // Throttle to once per second
 });
 
-// Start observing
+// Start observing with reduced scope
 observer.observe(document.body, {
     childList: true,
-    subtree: true
+    subtree: false // Reduced scope to prevent excessive triggering
 });
 
 // Handle YouTube's navigation events
@@ -126,10 +178,13 @@ handleQualityControl();
 // Also try when the page loads
 window.addEventListener('load', () => handleQualityControl());
 
+// No fallback - just use the quality from settings
+
 // Listen for messages from the content script
 window.addEventListener('message', (event) => {
     if (event.data.type === 'SET_QUALITY') {
-        console.log('Received quality change message:', event.data.quality);
+        // Force quality change by resetting lastVideoId
+        lastVideoId = null;
         handleQualityControl(event.data.quality);
     }
 });

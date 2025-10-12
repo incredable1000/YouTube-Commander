@@ -87,6 +87,18 @@ function saveSettings() {
             showStatus('Error saving settings', false);
         } else {
             showStatus('Settings saved!', true);
+            
+            // Notify content script about quality change
+            chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+                if (tabs[0]?.url?.includes('youtube.com')) {
+                    chrome.tabs.sendMessage(tabs[0].id, {
+                        type: 'QUALITY_CHANGED',
+                        quality: settings.maxQuality
+                    }).catch(() => {
+                        // Ignore errors if content script isn't ready
+                    });
+                }
+            });
         }
     });
 }
