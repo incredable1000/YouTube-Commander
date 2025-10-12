@@ -51,7 +51,7 @@
     },
     {
       "matches": ["https://www.youtube.com/*"],
-      "js": ["qualityControls.js"],
+      "js": ["qualityControls.js", "audioTrackControls.js"],
       "world": "MAIN",
       "run_at": "document_end"
     }

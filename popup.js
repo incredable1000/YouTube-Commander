@@ -307,6 +307,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Handle backup reminder toggle
     document.getElementById('backupReminders').addEventListener('change', toggleBackupReminders);
 
+    // Load auto-switch to original audio setting
+    chrome.storage.local.get(['autoSwitchToOriginal'], (result) => {
+        const enabled = result.autoSwitchToOriginal !== false; // Default to true
+        document.getElementById('autoSwitchToOriginal').checked = enabled;
+    });
+
+    // Handle auto-switch to original audio toggle
+    document.getElementById('autoSwitchToOriginal').addEventListener('change', toggleAutoSwitchToOriginal);
+
     // Handle watched history export
     document.getElementById('exportHistory').addEventListener('click', async () => {
         try {
@@ -424,6 +433,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
         event.target.value = '';
     });
+
+    // Auto-switch to original audio track setting
+    async function toggleAutoSwitchToOriginal() {
+        const checkbox = document.getElementById('autoSwitchToOriginal');
+        
+        try {
+            await chrome.storage.local.set({ autoSwitchToOriginal: checkbox.checked });
+            
+            // Notify content script about the setting change
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab?.url?.includes('youtube.com')) {
+                chrome.tabs.sendMessage(tab.id, {
+                    action: 'updateAutoSwitchSetting',
+                    enabled: checkbox.checked
+                }).catch(() => {
+                    // Ignore errors if content script isn't ready
+                });
+            }
+            
+        } catch (error) {
+            console.error('Error updating auto-switch setting:', error);
+            checkbox.checked = !checkbox.checked; // Revert on error
+        }
+    }
 
 
 });
