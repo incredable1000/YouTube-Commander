@@ -1,8 +1,6 @@
 // Audio Track Controls for YouTube Commander (MAIN World Version)
 // Uses YouTube's internal player API instead of HTML5 audioTracks
 
-console.log('[YT-Commander] Loading audioTrackControls.js in MAIN world...');
-
 // Set loading flag
 window.ytCommanderAudioTracksLoading = true;
 
@@ -20,15 +18,11 @@ class YouTubeAudioTrackManager {
 
     // Initialize the manager
     async initialize() {
-        console.log('[YT-Commander] Initializing YouTube Audio Track Manager...');
-        
         try {
             await this.findPlayer();
             await this.loadSettings();
             this.setupObservers();
             this.isInitialized = true;
-            
-            console.log('[YT-Commander] Audio Track Manager initialized successfully');
             return true;
         } catch (error) {
             console.error('[YT-Commander] Error initializing Audio Track Manager:', error);
@@ -54,11 +48,6 @@ class YouTubeAudioTrackManager {
         }
         
         this.player = playerElement;
-        console.log('[YT-Commander] Found YouTube player element');
-        console.log('[YT-Commander] Player has getAudioTrack:', typeof playerElement.getAudioTrack === 'function');
-        console.log('[YT-Commander] Player has setAudioTrack:', typeof playerElement.setAudioTrack === 'function');
-        console.log('[YT-Commander] Player has getAvailableAudioTracks:', typeof playerElement.getAvailableAudioTracks === 'function');
-        
         return playerElement;
     }
 
@@ -92,8 +81,6 @@ class YouTubeAudioTrackManager {
                     };
                 });
 
-                console.log('[YT-Commander] Found audio tracks in captions:', tracks);
-                console.log('[YT-Commander] Default audio track index:', defaultIndex);
                 return tracks;
             }
 
@@ -112,12 +99,10 @@ class YouTubeAudioTrackManager {
                         index: index
                     }));
 
-                    console.log('[YT-Commander] Found audio tracks in adaptiveFormats:', tracks);
                     return tracks;
                 }
             }
 
-            console.log('[YT-Commander] No audio tracks found');
             return [];
         } catch (error) {
             console.error('[YT-Commander] Error getting audio tracks:', error);
@@ -195,110 +180,46 @@ class YouTubeAudioTrackManager {
     // Try to switch audio track using YouTube's internal methods
     switchToTrack(trackIndex) {
         try {
-            console.log('[YT-Commander] Attempting to switch to track:', trackIndex);
-            
             const tracks = this.getAvailableAudioTracks();
             const targetTrack = tracks[trackIndex];
             
             if (!targetTrack) {
-                console.log('[YT-Commander] Invalid track index:', trackIndex);
                 return false;
             }
 
-            console.log('[YT-Commander] Target track:', targetTrack);
-
             // Method 1: Try YouTube's internal player API
             if (this.player && typeof this.player.setAudioTrack === 'function') {
-                console.log('[YT-Commander] Using player.setAudioTrack method');
-                
-                // First, let's see what the current audio track looks like
-                const currentTrack = this.player.getAudioTrack();
-                console.log('[YT-Commander] Current audio track:', currentTrack);
-                
-                // Get available tracks from the player
                 const availableTracks = this.player.getAvailableAudioTracks();
-                console.log('[YT-Commander] Available tracks from player:', availableTracks);
                 
                 // Try to find the matching track in the player's format
                 let playerTrack = null;
                 if (availableTracks && availableTracks.length > 0) {
-                    // Try to match by language or index
                     playerTrack = availableTracks.find(track => 
                         track.language === targetTrack.language || 
                         track.id === targetTrack.id
                     );
                     
-                    // If no match found, try by index
                     if (!playerTrack && availableTracks[trackIndex]) {
                         playerTrack = availableTracks[trackIndex];
                     }
                 }
                 
-                console.log('[YT-Commander] Target player track:', playerTrack);
-                
                 if (playerTrack) {
-                    // Try different parameter formats
-                    console.log('[YT-Commander] Attempting setAudioTrack with player track...');
-                    
-                    // Method 1a: Use the track object from player
                     let result = this.player.setAudioTrack(playerTrack);
-                    console.log('[YT-Commander] setAudioTrack with track object result:', result);
                     
                     if (!result) {
-                        // Method 1b: Use track ID
                         result = this.player.setAudioTrack(playerTrack.id);
-                        console.log('[YT-Commander] setAudioTrack with track ID result:', result);
                     }
                     
                     if (!result) {
-                        // Method 1c: Use track index
                         result = this.player.setAudioTrack(trackIndex);
-                        console.log('[YT-Commander] setAudioTrack with index result:', result);
                     }
-                    
-                    // Check if the track actually changed
-                    setTimeout(() => {
-                        const newTrack = this.player.getAudioTrack();
-                        console.log('[YT-Commander] Audio track after switch attempt:', newTrack);
-                        const changed = newTrack.id !== currentTrack.id;
-                        console.log('[YT-Commander] Track actually changed:', changed);
-                    }, 500);
                     
                     return result || false;
-                } else {
-                    console.log('[YT-Commander] Could not find matching track in player format');
                 }
             }
 
-            // Method 2: Try accessing the player's internal state
-            if (window.ytplayer?.config?.args?.player_response) {
-                console.log('[YT-Commander] Trying ytplayer config method');
-                const playerResponse = JSON.parse(window.ytplayer.config.args.player_response);
-                if (playerResponse.captions?.playerCaptionsTracklistRenderer) {
-                    playerResponse.captions.playerCaptionsTracklistRenderer.defaultAudioTrackIndex = trackIndex;
-                    window.ytplayer.config.args.player_response = JSON.stringify(playerResponse);
-                    
-                    // Try to reload the player
-                    if (this.player?.loadVideoById) {
-                        const videoData = this.player.getVideoData();
-                        this.player.loadVideoById(videoData.video_id);
-                        return true;
-                    }
-                }
-            }
-
-            // Method 3: Try using YouTube's settings API
-            if (window.yt?.player?.Application?.create) {
-                console.log('[YT-Commander] Trying YouTube settings API');
-                const app = window.yt.player.Application.create();
-                if (app?.setAudioTrack) {
-                    app.setAudioTrack(targetTrack.id);
-                    return true;
-                }
-            }
-
-            // Method 4: Programmatically interact with settings menu
-            console.log('[YT-Commander] Falling back to UI interaction');
+            // Fallback: UI interaction
             return this.switchViaUI(trackIndex);
 
         } catch (error) {
@@ -310,19 +231,12 @@ class YouTubeAudioTrackManager {
     // Switch audio track by interacting with YouTube's UI
     switchViaUI(trackIndex) {
         try {
-            console.log('[YT-Commander] Attempting UI-based track switching');
-            
-            // Click settings button
             const settingsButton = document.querySelector('.ytp-settings-button');
-            if (!settingsButton) {
-                console.log('[YT-Commander] Settings button not found');
-                return false;
-            }
+            if (!settingsButton) return false;
 
             settingsButton.click();
             
             setTimeout(() => {
-                // Look for audio track menu item
                 const menuItems = document.querySelectorAll('.ytp-menuitem');
                 let audioMenuItem = null;
                 
@@ -335,11 +249,9 @@ class YouTubeAudioTrackManager {
                 }
                 
                 if (audioMenuItem) {
-                    console.log('[YT-Commander] Found audio menu item:', audioMenuItem.textContent);
                     audioMenuItem.click();
                     
                     setTimeout(() => {
-                        // Look for the specific track option
                         const trackItems = document.querySelectorAll('.ytp-menuitem');
                         const tracks = this.getAvailableAudioTracks();
                         const targetTrack = tracks[trackIndex];
@@ -349,24 +261,18 @@ class YouTubeAudioTrackManager {
                             const targetLabel = targetTrack.label.toLowerCase();
                             
                             if (text.includes(targetLabel) || text.includes(targetTrack.language)) {
-                                console.log('[YT-Commander] Clicking track option:', item.textContent);
                                 item.click();
                                 return true;
                             }
                         }
-                        
-                        console.log('[YT-Commander] Target track option not found in UI');
                     }, 200);
                 } else {
-                    console.log('[YT-Commander] Audio track menu item not found');
-                    // Close settings menu
                     settingsButton.click();
                 }
             }, 200);
             
             return false;
         } catch (error) {
-            console.error('[YT-Commander] Error in UI-based switching:', error);
             return false;
         }
     }
@@ -403,7 +309,6 @@ class YouTubeAudioTrackManager {
         const tracks = this.getAvailableAudioTracks();
         
         if (tracks.length === 0) {
-            console.log('[YT-Commander] No tracks available to switch to');
             return false;
         }
         
@@ -411,31 +316,24 @@ class YouTubeAudioTrackManager {
         let originalTrack = tracks.find(track => track.isOriginal);
         
         if (originalTrack) {
-            console.log('[YT-Commander] Switching to detected original track:', originalTrack);
             return this.switchToTrack(originalTrack.index);
         }
         
         // Fallback strategies if no track is marked as original
-        console.log('[YT-Commander] No track marked as original, using fallback detection...');
-        
-        // Strategy 1: If there are 2 tracks, prefer the non-English one
         if (tracks.length === 2) {
             const nonEnglishTrack = tracks.find(track => !track.language.startsWith('en'));
             if (nonEnglishTrack) {
-                console.log('[YT-Commander] Using non-English track as original:', nonEnglishTrack);
                 return this.switchToTrack(nonEnglishTrack.index);
             }
         }
         
-        // Strategy 2: Use the default track
+        // Use the default track
         const defaultTrack = tracks.find(track => track.isDefault);
         if (defaultTrack) {
-            console.log('[YT-Commander] Using default track as original:', defaultTrack);
             return this.switchToTrack(defaultTrack.index);
         }
         
         // Final fallback: use first track
-        console.log('[YT-Commander] Using first track as fallback:', tracks[0]);
         return this.switchToTrack(0);
     }
 
@@ -446,9 +344,7 @@ class YouTubeAudioTrackManager {
                 const result = await chrome.storage.local.get(['autoSwitchToOriginal']);
                 this.autoSwitchEnabled = result.autoSwitchToOriginal !== false;
             }
-            console.log('[YT-Commander] Auto-switch enabled:', this.autoSwitchEnabled);
         } catch (error) {
-            console.log('[YT-Commander] Could not load settings, using defaults');
             this.autoSwitchEnabled = true;
         }
     }
@@ -483,18 +379,16 @@ class YouTubeAudioTrackManager {
             setTimeout(() => {
                 const tracks = this.getAvailableAudioTracks();
                 if (tracks.length > 1) {
-                    console.log('[YT-Commander] Multiple audio tracks detected, auto-switching...');
                     this.switchToOriginal();
                     this.hasAutoSwitched = true;
                 }
-            }, 1000); // Wait for player to be ready
+            }, 1000);
         }
     }
 
     // Update auto-switch setting
     updateAutoSwitchSetting(enabled) {
         this.autoSwitchEnabled = enabled;
-        console.log('[YT-Commander] Auto-switch setting updated:', enabled);
     }
 
     // Reset for new video
@@ -512,15 +406,7 @@ let audioTrackManager = null;
 async function initializeAudioTrackManager() {
     try {
         audioTrackManager = new YouTubeAudioTrackManager();
-        const success = await audioTrackManager.initialize();
-        
-        if (success) {
-            console.log('[YT-Commander] Audio Track Manager ready');
-        } else {
-            console.log('[YT-Commander] Audio Track Manager initialization failed');
-        }
-        
-        return success;
+        return await audioTrackManager.initialize();
     } catch (error) {
         console.error('[YT-Commander] Failed to initialize Audio Track Manager:', error);
         return false;
@@ -629,14 +515,10 @@ window.testYTCommanderAudioTracks = function() {
 
 // Initialize when page is ready
 function initialize() {
-    console.log('[YT-Commander] Starting audio track controls initialization...');
-    
-    // Wait for YouTube to be ready
     const checkReady = () => {
         if (window.ytInitialPlayerResponse || document.querySelector('video')) {
             initializeAudioTrackManager().then(() => {
                 window.ytCommanderAudioTracksLoading = false;
-                console.log('[YT-Commander] Audio track controls ready! Test with: testYTCommanderAudioTracks()');
             });
         } else {
             setTimeout(checkReady, 500);
@@ -653,4 +535,4 @@ if (document.readyState === 'loading') {
     initialize();
 }
 
-console.log('[YT-Commander] Audio Track Controls script loaded in MAIN world');
+// Script loaded
