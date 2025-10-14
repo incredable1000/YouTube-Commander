@@ -356,26 +356,25 @@ function handleVideoPlayback() {
         if (!video) return;
         
         debugLog('Video', `Found video element for ${videoId}`);
-        let playTime = 0;
-        let lastUpdateTime = 0;
 
-        // Mark as watched when video plays for 2 seconds
-        const timeUpdateHandler = async () => {
-            const currentTime = video.currentTime;
-            if (currentTime > lastUpdateTime) {
-                playTime += currentTime - lastUpdateTime;
-                if (playTime >= 2 && !processedVideos.has(videoId)) {
-                    debugLog('Video', `Marking video as watched: ${videoId}`);
-                    processedVideos.add(videoId);
-                    await addToWatchedHistory(videoId);
-                    await markWatchedVideosOnPage();
-                    video.removeEventListener('timeupdate', timeUpdateHandler);
-                }
+        // Mark as watched immediately when video starts playing
+        const playHandler = async () => {
+            if (!processedVideos.has(videoId)) {
+                debugLog('Video', `Marking video as watched: ${videoId}`);
+                processedVideos.add(videoId);
+                await addToWatchedHistory(videoId);
+                await markWatchedVideosOnPage();
+                video.removeEventListener('play', playHandler);
             }
-            lastUpdateTime = currentTime;
         };
 
-        video.addEventListener('timeupdate', timeUpdateHandler);
+        // Save immediately when video starts playing
+        video.addEventListener('play', playHandler);
+        
+        // Also check if video is already playing (in case we missed the play event)
+        if (!video.paused && !processedVideos.has(videoId)) {
+            playHandler();
+        }
     };
 
     // Try to find video element based on page type
@@ -435,26 +434,24 @@ function createShortsObserver() {
                 if (!video) continue;
 
                 debugLog('Shorts', `Found video element for Short in feed: ${videoId}`);
-                let playTime = 0;
-                let lastUpdateTime = 0;
 
-                // Mark Short as watched when played for 2 seconds
-                const timeUpdateHandler = async () => {
-                    const currentTime = video.currentTime;
-                    if (currentTime > lastUpdateTime) {
-                        playTime += currentTime - lastUpdateTime;
-                        if (playTime >= 2 && !processedVideos.has(videoId)) {
-                            debugLog('Shorts', `Marking Short as watched: ${videoId}`);
-                            processedVideos.add(videoId);
-                            await addToWatchedHistory(videoId);
-                            await markWatchedVideosOnPage();
-                            video.removeEventListener('timeupdate', timeUpdateHandler);
-                        }
+                // Mark Short as watched immediately when it starts playing
+                const playHandler = async () => {
+                    if (!processedVideos.has(videoId)) {
+                        debugLog('Shorts', `Marking Short as watched: ${videoId}`);
+                        processedVideos.add(videoId);
+                        await addToWatchedHistory(videoId);
+                        await markWatchedVideosOnPage();
+                        video.removeEventListener('play', playHandler);
                     }
-                    lastUpdateTime = currentTime;
                 };
 
-                video.addEventListener('timeupdate', timeUpdateHandler);
+                video.addEventListener('play', playHandler);
+                
+                // Also check if video is already playing
+                if (!video.paused && !processedVideos.has(videoId)) {
+                    playHandler();
+                }
             }
         },
         { threshold: 0.7 } // Require 70% visibility
