@@ -9,27 +9,112 @@
 }
 
 .custom-seek-button {
-    background: rgba(255, 255, 255, 0.2);
+    background: transparent;
     border: none;
-    border-radius: 4px;
     color: white;
-    padding: 4px 8px;
-    font-size: 12px;
+    padding: 4px 6px;
+    font-size: 16px;
+    font-weight: 600;
     cursor: pointer;
     font-family: 'YouTube Noto', Roboto, Arial, sans-serif;
-    transition: background-color 0.2s;
-    height: 24px;
+    transition: all 0.2s ease;
+    height: auto;
     display: inline-flex !important;
     align-items: center;
-    min-width: 40px;
+    min-width: 32px;
     justify-content: center;
     outline: none;
-    margin: 0 1px;
+    margin: 0 3px;
     user-select: none;
+    opacity: 0.8;
 }
 
 .custom-seek-button:hover {
-    background: rgba(255, 255, 255, 0.3);
+    opacity: 1;
+    transform: scale(1.1);
+    text-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+}
+
+.custom-seek-button:active {
+    transform: scale(0.9);
+}
+
+/* Modern YouTube-style seek indicators */
+.modern-seek-indicator {
+    position: absolute;
+    z-index: 9999;
+    pointer-events: none;
+    animation: seekIndicatorFade 1.5s ease-out forwards;
+}
+
+.modern-seek-indicator.forward {
+    right: 20%;
+    animation: seekIndicatorSlideRight 1.5s ease-out forwards;
+}
+
+.modern-seek-indicator.backward {
+    left: 20%;
+    animation: seekIndicatorSlideLeft 1.5s ease-out forwards;
+}
+
+.seek-amount {
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 24px;
+    font-weight: 500;
+    font-family: 'YouTube Noto', Roboto, Arial, sans-serif;
+    text-align: center;
+    min-width: 60px;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Modern seek indicator animations */
+@keyframes seekIndicatorSlideRight {
+    0% {
+        opacity: 0;
+        transform: translateX(-20px) scale(0.8);
+    }
+    20% {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(20px) scale(0.9);
+    }
+}
+
+@keyframes seekIndicatorSlideLeft {
+    0% {
+        opacity: 0;
+        transform: translateX(20px) scale(0.8);
+    }
+    20% {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(-20px) scale(0.9);
+    }
+}
+
+@keyframes seekIndicatorFade {
+    0% {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    20% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(0.9);
+    }
 }
 
 /* Ensure buttons are visible in theater mode */

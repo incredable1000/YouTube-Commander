@@ -1,4 +1,6 @@
 
+import browser from "webextension-polyfill";
+
 // Google Drive API configuration
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
 const UPLOAD_API_BASE = 'https://www.googleapis.com/upload/drive/v3';
@@ -8,22 +10,61 @@ let driveAccessToken = null;
 let syncInProgress = false;
 
 // Startup-only reminder: no fixed times, just once per browser launch
-chrome.runtime.onInstalled.addListener(() => {
+browser.runtime.onInstalled.addListener(async () => {
     // Ensure default enabled flag exists
-    chrome.storage.local.get(['backupRemindersEnabled'], (result) => {
-        if (result.backupRemindersEnabled === undefined) {
-            chrome.storage.local.set({ backupRemindersEnabled: true });
-        }
-    });
+    const result = await browser.storage.local.get(['backupRemindersEnabled']);
+    if (result.backupRemindersEnabled === undefined) {
+        await browser.storage.local.set({ backupRemindersEnabled: true });
+    }
 });
 
-// Show reminder once when the browser starts (if enabled)
-chrome.runtime.onStartup.addListener(() => {
-    chrome.storage.local.get(['backupRemindersEnabled'], (result) => {
-        if (result.backupRemindersEnabled !== false) {
-            showBackupReminder();
+// Show reminder when the browser starts (if enabled)
+browser.runtime.onStartup.addListener(async () => {
+    console.log('Browser startup detected');
+    await checkAndShowStartupReminder();
+});
+
+// Check for first run after browser restart
+async function checkAndShowStartupReminder() {
+    try {
+        const result = await browser.storage.local.get(['backupRemindersEnabled', 'lastStartupReminder']);
+        
+        if (result.backupRemindersEnabled === false) {
+            console.log('Backup reminders disabled, skipping');
+            return;
         }
-    });
+        
+        const now = Date.now();
+        const lastReminder = result.lastStartupReminder || 0;
+        const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
+        
+        // Only show reminder if it's been more than 1 hour since last one
+        if (now - lastReminder > oneHour) {
+            console.log('Showing startup backup reminder');
+            await browser.storage.local.set({ lastStartupReminder: now });
+            setTimeout(() => {
+                showBackupReminder();
+            }, 3000); // 3 second delay
+        } else {
+            console.log('Startup reminder shown recently, skipping');
+        }
+    } catch (error) {
+        console.error('Error checking startup reminder:', error);
+    }
+}
+
+// Fallback: Check when popup is opened (in case onStartup doesn't fire)
+chrome.action.onClicked.addListener(async () => {
+    await checkAndShowStartupReminder();
+});
+
+// Also check when any tab becomes active (covers more scenarios)
+chrome.tabs.onActivated.addListener(async () => {
+    // Only check once per session to avoid spam
+    if (!chrome.runtime.startupReminderChecked) {
+        chrome.runtime.startupReminderChecked = true;
+        await checkAndShowStartupReminder();
+    }
 });
 
 // Removed time-based checks and alarms; startup reminder handles the UX now
@@ -233,7 +274,7 @@ async function performDriveSync() {
 // Listen for messages from content scripts and popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'OPEN_NEW_TAB') {
-        chrome.tabs.create({ url: message.url });
+        chrome.tabs.create({ url: message.url, active: false });
     }
     else if (message.type === 'GET_WATCHED_IDS') {
         chrome.storage.local.get(['watchedIds'], (result) => {

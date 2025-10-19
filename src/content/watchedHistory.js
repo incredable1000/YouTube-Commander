@@ -1,3 +1,10 @@
+/**
+ * Watched History - Working legacy implementation
+ * Track and mark watched YouTube videos
+ */
+
+import { getCurrentVideoId, isVideoPage } from './utils/youtube.js';
+
 // IndexedDB setup and operations
 const DB_NAME = 'YouTubeCommanderDB';
 const DB_VERSION = 1;
@@ -1100,6 +1107,81 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 });
 
-// Start initialization
-debugLog('Start', 'Extension script loaded');
-initialize();
+// Export watched history as text (for background script)
+async function exportWatchedHistory() {
+    try {
+        const videos = await getAllWatchedVideos();
+        const textContent = videos.map(video => 
+            `${video.videoId}\t${new Date(video.timestamp).toISOString()}`
+        ).join('\n');
+        
+        debugLog('Export', `Exported ${videos.length} watched videos`);
+        return textContent;
+    } catch (error) {
+        debugLog('Export', 'Failed to export watched history:', error);
+        return '';
+    }
+}
+
+// Get watched videos count
+async function getWatchedVideoCount() {
+    try {
+        const videos = await getAllWatchedVideos();
+        return videos.length;
+    } catch (error) {
+        debugLog('Watch', 'Error getting video count:', error);
+        return 0;
+    }
+}
+
+// Main initialization function for the new system
+async function initWatchedHistory() {
+    debugLog('Start', 'Initializing watched history for new system');
+    return await initialize();
+}
+
+// Global test functions
+window.testWatchedHistory = async function() {
+    console.log('=== WATCHED HISTORY DEBUG TEST ===');
+    console.log('Initialized:', isInitialized);
+    console.log('Database:', !!db);
+    
+    try {
+        const videos = await getAllWatchedVideos();
+        console.log('Total watched videos:', videos.length);
+        console.log('First 5 videos:', videos.slice(0, 5));
+        
+        const exportContent = await exportWatchedHistory();
+        console.log('Export content length:', exportContent.length);
+        console.log('Export preview:', exportContent.substring(0, 200));
+    } catch (error) {
+        console.error('Test error:', error);
+    }
+    
+    console.log('=== END DEBUG TEST ===');
+};
+
+window.addCurrentVideoToHistory = async function() {
+    const videoId = getCurrentVideoId();
+    if (videoId) {
+        console.log('Adding current video to history:', videoId);
+        await addToWatchedHistory(videoId);
+        console.log('Video added, refreshing markers...');
+        setTimeout(() => {
+            markWatchedVideosOnPage();
+        }, 500);
+    } else {
+        console.log('No current video ID found');
+    }
+};
+
+// Export for the new system
+export {
+    initWatchedHistory,
+    addToWatchedHistory,
+    isVideoWatched,
+    getAllWatchedVideos,
+    getWatchedVideoCount,
+    clearWatchedHistory,
+    exportWatchedHistory
+};
