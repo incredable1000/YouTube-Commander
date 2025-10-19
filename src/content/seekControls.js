@@ -315,6 +315,58 @@ function setupNavigationObserver() {
 }
 
 /**
+ * Update settings from popup
+ */
+function updateSettings(newSettings) {
+    // Update seek times and shortcuts
+    if (newSettings.shortSeek !== undefined) settings.shortSeek = newSettings.shortSeek;
+    if (newSettings.mediumSeek !== undefined) settings.mediumSeek = newSettings.mediumSeek;
+    if (newSettings.longSeek !== undefined) settings.longSeek = newSettings.longSeek;
+    if (newSettings.shortSeekKey !== undefined) settings.shortSeekKey = newSettings.shortSeekKey;
+    if (newSettings.mediumSeekKey !== undefined) settings.mediumSeekKey = newSettings.mediumSeekKey;
+    if (newSettings.longSeekKey !== undefined) settings.longSeekKey = newSettings.longSeekKey;
+    
+    logger.info('Settings updated from popup', settings);
+    
+    // Recreate shortcuts and buttons with new settings
+    setupKeyboardShortcuts();
+    createSeekButtons();
+}
+
+/**
+ * Enable seek controls
+ */
+function enable() {
+    if (!buttonsContainer) {
+        initSeekControls();
+    } else if (buttonsContainer.style.display === 'none') {
+        buttonsContainer.style.display = '';
+    }
+    
+    // Re-enable keyboard shortcuts
+    if (keyboardShortcuts.length === 0) {
+        setupKeyboardShortcuts();
+    }
+    
+    logger.info('Seek controls enabled');
+}
+
+/**
+ * Disable seek controls
+ */
+function disable() {
+    if (buttonsContainer) {
+        buttonsContainer.style.display = 'none';
+    }
+    
+    // Disable keyboard shortcuts
+    keyboardShortcuts.forEach(cleanup => cleanup());
+    keyboardShortcuts = [];
+    
+    logger.info('Seek controls disabled');
+}
+
+/**
  * Cleanup function
  */
 function cleanup() {
@@ -340,5 +392,8 @@ if (document.readyState === 'loading') {
 export {
     initSeekControls,
     performSeek,
+    updateSettings,
+    enable,
+    disable,
     cleanup
 };

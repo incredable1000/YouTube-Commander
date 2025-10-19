@@ -155,6 +155,29 @@ function initScrollToTop() {
 }
 
 /**
+ * Enable the scroll-to-top feature
+ */
+function enable() {
+    if (!scrollButton) {
+        initScrollToTop();
+    } else if (scrollButton.style.display === 'none') {
+        scrollButton.style.display = '';
+        toggleButtonVisibility();
+    }
+    logger.info('Scroll-to-top enabled');
+}
+
+/**
+ * Disable the scroll-to-top feature
+ */
+function disable() {
+    if (scrollButton) {
+        scrollButton.style.display = 'none';
+    }
+    logger.info('Scroll-to-top disabled');
+}
+
+/**
  * Cleanup function
  */
 function cleanup() {
@@ -179,5 +202,7 @@ if (document.readyState === 'loading') {
 // Export for potential external use
 export {
     initScrollToTop,
+    enable,
+    disable,
     cleanup
 };
