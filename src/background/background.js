@@ -1,4 +1,6 @@
 
+import browser from "webextension-polyfill";
+
 // Google Drive API configuration
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
 const UPLOAD_API_BASE = 'https://www.googleapis.com/upload/drive/v3';
@@ -8,22 +10,20 @@ let driveAccessToken = null;
 let syncInProgress = false;
 
 // Startup-only reminder: no fixed times, just once per browser launch
-chrome.runtime.onInstalled.addListener(() => {
+browser.runtime.onInstalled.addListener(async () => {
     // Ensure default enabled flag exists
-    chrome.storage.local.get(['backupRemindersEnabled'], (result) => {
-        if (result.backupRemindersEnabled === undefined) {
-            chrome.storage.local.set({ backupRemindersEnabled: true });
-        }
-    });
+    const result = await browser.storage.local.get(['backupRemindersEnabled']);
+    if (result.backupRemindersEnabled === undefined) {
+        await browser.storage.local.set({ backupRemindersEnabled: true });
+    }
 });
 
 // Show reminder once when the browser starts (if enabled)
-chrome.runtime.onStartup.addListener(() => {
-    chrome.storage.local.get(['backupRemindersEnabled'], (result) => {
-        if (result.backupRemindersEnabled !== false) {
-            showBackupReminder();
-        }
-    });
+browser.runtime.onStartup.addListener(async () => {
+    const result = await browser.storage.local.get(['backupRemindersEnabled']);
+    if (result.backupRemindersEnabled !== false) {
+        showBackupReminder();
+    }
 });
 
 // Removed time-based checks and alarms; startup reminder handles the UX now
@@ -233,7 +233,7 @@ async function performDriveSync() {
 // Listen for messages from content scripts and popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'OPEN_NEW_TAB') {
-        chrome.tabs.create({ url: message.url });
+        chrome.tabs.create({ url: message.url, active: false });
     }
     else if (message.type === 'GET_WATCHED_IDS') {
         chrome.storage.local.get(['watchedIds'], (result) => {
