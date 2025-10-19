@@ -63,6 +63,31 @@ function setupMessageListeners() {
 }
 
 /**
+ * Update settings from popup
+ */
+function updateSettings(newSettings) {
+    const quality = newSettings.maxQuality || DEFAULT_SETTINGS.maxQuality;
+    logger.info('Settings updated from popup', { quality });
+    sendQualityToPage(quality);
+}
+
+/**
+ * Enable quality controls
+ */
+function enable() {
+    logger.info('Quality controls enabled');
+    // Quality controls are always active when enabled
+}
+
+/**
+ * Disable quality controls
+ */
+function disable() {
+    logger.info('Quality controls disabled');
+    // Could send a message to stop quality management
+}
+
+/**
  * Initialize quality controls wrapper
  */
 async function initQualityWrapper() {
@@ -87,5 +112,8 @@ initQualityWrapper();
 // Export for potential external use
 export {
     initQualityWrapper,
-    sendQualityToPage
+    sendQualityToPage,
+    updateSettings,
+    enable,
+    disable
 };

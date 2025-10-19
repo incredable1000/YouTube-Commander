@@ -130,6 +130,12 @@ function updateModuleSettings() {
         seekModule.updateSettings(currentSettings);
     }
     
+    // Update quality controls settings
+    const qualityModule = moduleInstances['qualityControlsWrapper'];
+    if (qualityModule && qualityModule.updateSettings) {
+        qualityModule.updateSettings(currentSettings);
+    }
+    
     // Add other modules here as needed
     logger.debug('Module settings updated');
 }
