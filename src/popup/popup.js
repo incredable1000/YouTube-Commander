@@ -56,10 +56,10 @@ function setupToggleSwitches() {
         'scrollToggle': 'scrollEnabled',
         'shortsToggle': 'shortsEnabled',
         'rotationToggle': 'rotationEnabled',
-        'playlistToggle': 'playlistEnabled',
-        'backupToggle': 'backupEnabled'
+        'playlistToggle': 'playlistEnabled'
     };
     
+    // Handle regular toggles
     Object.entries(toggles).forEach(([toggleId, settingKey]) => {
         const toggle = document.getElementById(toggleId);
         if (toggle) {
@@ -83,6 +83,25 @@ function setupToggleSwitches() {
             });
         }
     });
+    
+    // Handle backup toggle separately (uses local storage)
+    const backupToggle = document.getElementById('backupToggle');
+    if (backupToggle) {
+        backupToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isActive = backupToggle.classList.contains('active');
+            
+            if (isActive) {
+                backupToggle.classList.remove('active');
+                chrome.storage.local.set({ backupRemindersEnabled: false });
+                showStatus('Backup reminders disabled', 'success');
+            } else {
+                backupToggle.classList.add('active');
+                chrome.storage.local.set({ backupRemindersEnabled: true });
+                showStatus('Backup reminders enabled', 'success');
+            }
+        });
+    }
 }
 
 // Format shortcut for display
@@ -148,9 +167,20 @@ function loadSettings() {
             'scrollToggle': 'scrollEnabled',
             'shortsToggle': 'shortsEnabled',
             'rotationToggle': 'rotationEnabled',
-            'playlistToggle': 'playlistEnabled',
-            'backupToggle': 'backupEnabled'
+            'playlistToggle': 'playlistEnabled'
         };
+        
+        // Load backup toggle separately (uses different storage)
+        chrome.storage.local.get(['backupRemindersEnabled'], (result) => {
+            const backupToggle = document.getElementById('backupToggle');
+            if (backupToggle) {
+                if (result.backupRemindersEnabled !== false) {
+                    backupToggle.classList.add('active');
+                } else {
+                    backupToggle.classList.remove('active');
+                }
+            }
+        });
         
         Object.entries(toggles).forEach(([toggleId, settingKey]) => {
             const toggle = document.getElementById(toggleId);
@@ -168,16 +198,48 @@ function loadSettings() {
     });
 }
 
-// Load watched history statistics
-function loadWatchedHistoryStats() {
-    chrome.runtime.sendMessage({ type: 'GET_WATCHED_COUNT' }, (response) => {
-        if (response && typeof response.count === 'number') {
-            document.getElementById('watchedCount').textContent = response.count;
+// Load watched history statistics (using legacy direct approach)
+async function loadWatchedHistoryStats() {
+    try {
+        const tabs = await chrome.tabs.query({ url: '*://*.youtube.com/*' });
+        if (tabs.length === 0) {
+            document.getElementById('watchedCount').textContent = '0';
+            document.getElementById('todayCount').textContent = '0';
+            return;
         }
-    });
-    
-    // Get today's count (simplified - just show total for now)
-    document.getElementById('todayCount').textContent = '0';
+
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tabs[0].id },
+            func: () => {
+                return new Promise((resolve) => {
+                    const request = indexedDB.open('YouTubeCommanderDB', 1);
+                    request.onerror = () => resolve({ total: 0, today: 0 });
+                    request.onsuccess = () => {
+                        const db = request.result;
+                        const transaction = db.transaction(['watchedVideos'], 'readonly');
+                        const store = transaction.objectStore('watchedVideos');
+                        const getAll = store.getAll();
+                        getAll.onsuccess = () => {
+                            const videos = getAll.result;
+                            const today = new Date();
+                            const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+                            const todayVideos = videos.filter(v => v.timestamp >= todayStart);
+                            resolve({ total: videos.length, today: todayVideos.length });
+                        };
+                        getAll.onerror = () => resolve({ total: 0, today: 0 });
+                    };
+                });
+            }
+        });
+        
+        const stats = result[0].result;
+        document.getElementById('watchedCount').textContent = stats.total;
+        document.getElementById('todayCount').textContent = stats.today;
+    } catch (error) {
+        console.error('Stats loading error:', error);
+        document.getElementById('watchedCount').textContent = '0';
+        document.getElementById('todayCount').textContent = '0';
+    }
 }
 
 // Save settings (auto-save)
@@ -308,23 +370,51 @@ function handleShortcutInput(event) {
     currentInput = null;
 }
 
-// Export history functionality
-function exportHistory() {
-    chrome.runtime.sendMessage({ type: 'EXPORT_WATCHED_HISTORY' }, (response) => {
-        if (response && response.success) {
-            const blob = new Blob([response.content], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `youtube-commander-history-${new Date().toISOString().split('T')[0]}.txt`;
-            a.click();
-            URL.revokeObjectURL(url);
-            
-            showStatus('History exported successfully!', 'success');
-        } else {
-            showStatus('Failed to export history', 'error');
+// Export history functionality (using legacy direct approach)
+async function exportHistory() {
+    try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab.url.includes('youtube.com')) {
+            showStatus('Please open YouTube to export history', 'error');
+            return;
         }
-    });
+
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: () => {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open('YouTubeCommanderDB', 1);
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => {
+                        const db = request.result;
+                        const transaction = db.transaction(['watchedVideos'], 'readonly');
+                        const store = transaction.objectStore('watchedVideos');
+                        const getAll = store.getAll();
+                        getAll.onsuccess = () => {
+                            const videos = getAll.result;
+                            // Create simple TXT content with just video IDs (legacy format)
+                            const content = videos.map(v => v.videoId).join('\n');
+                            
+                            const blob = new Blob([content], { type: 'text/plain' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `youtube-watched-history-${new Date().toISOString().split('T')[0]}.txt`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                            resolve(videos.length);
+                        };
+                        getAll.onerror = () => reject(getAll.error);
+                    };
+                });
+            }
+        });
+        
+        showStatus(`Exported ${result[0].result} videos`, 'success');
+    } catch (error) {
+        console.error('Export error:', error);
+        showStatus('Error exporting history', 'error');
+    }
 }
 
 // Import history functionality
@@ -333,19 +423,143 @@ function importHistory() {
     fileInput.click();
 }
 
-function handleFileImport(event) {
+async function handleFileImport(event) {
     const file = event.target.files[0];
     if (!file) return;
     
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        const content = e.target.result;
-        // Process the imported content here
-        showStatus('History imported successfully!', 'success');
+    try {
+        const content = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = reject;
+            reader.readAsText(file);
+        });
+        
+        // Parse video IDs based on file type
+        let videoIds = [];
+        const fileName = file.name.toLowerCase();
+        
+        console.log('Import file:', fileName, 'Content length:', content.length);
+        console.log('First 200 chars:', content.substring(0, 200));
+        
+        if (fileName.endsWith('.csv')) {
+            // Parse CSV format
+            const lines = content.split('\n').filter(line => line.trim());
+            // Skip header if present
+            const dataLines = lines[0].includes('Video ID') ? lines.slice(1) : lines;
+            
+            videoIds = dataLines.map(line => {
+                // Extract video ID from first column (handle quoted values)
+                const match = line.match(/^"?([^",]+)"?/);
+                return match ? match[1].trim() : null;
+            }).filter(id => id && id.length === 11); // YouTube video IDs are 11 characters
+            
+        } else {
+            // Parse TXT format (legacy - one video ID per line)
+            videoIds = content.split('\n')
+                .map(line => line.trim())
+                .filter(id => id && id.length >= 10 && id.length <= 12); // Be more flexible with ID length
+        }
+        
+        console.log('Parsed video IDs:', videoIds.length, videoIds.slice(0, 5));
+        
+        if (videoIds.length === 0) {
+            showStatus('No valid video IDs found in file', 'error');
+            console.log('No video IDs found. File content:', content);
+            return;
+        }
+        
+        // Import to database
+        const tabs = await chrome.tabs.query({ url: '*://*.youtube.com/*' });
+        if (tabs.length === 0) {
+            showStatus('Please open YouTube to import history', 'error');
+            return;
+        }
+        
+        // Process in chunks for large files (like legacy code)
+        showStatus(`Processing ${videoIds.length} video IDs...`, 'info');
+        
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tabs[0].id },
+            func: (videoIds) => {
+                return new Promise((resolve, reject) => {
+                    console.log('Starting import of', videoIds.length, 'video IDs');
+                    
+                    const request = indexedDB.open('YouTubeCommanderDB', 1);
+                    request.onerror = () => {
+                        console.error('Database open failed:', request.error);
+                        reject(request.error);
+                    };
+                    
+                    request.onsuccess = () => {
+                        const db = request.result;
+                        
+                        // Process in chunks to avoid overwhelming the database
+                        const chunkSize = 1000;
+                        let currentIndex = 0;
+                        let totalImported = 0;
+                        
+                        function processChunk() {
+                            const chunk = videoIds.slice(currentIndex, currentIndex + chunkSize);
+                            if (chunk.length === 0) {
+                                console.log('Import completed. Total imported:', totalImported);
+                                resolve(totalImported);
+                                return;
+                            }
+                            
+                            console.log(`Processing chunk ${Math.floor(currentIndex/chunkSize) + 1}, items ${currentIndex + 1} to ${currentIndex + chunk.length}`);
+                            
+                            const transaction = db.transaction(['watchedVideos'], 'readwrite');
+                            const store = transaction.objectStore('watchedVideos');
+                            
+                            let chunkImported = 0;
+                            let chunkProcessed = 0;
+                            
+                            chunk.forEach(videoId => {
+                                const putRequest = store.put({ 
+                                    videoId: videoId, 
+                                    timestamp: Date.now() 
+                                });
+                                
+                                putRequest.onsuccess = () => {
+                                    chunkImported++;
+                                    chunkProcessed++;
+                                    if (chunkProcessed === chunk.length) {
+                                        totalImported += chunkImported;
+                                        currentIndex += chunkSize;
+                                        // Small delay before next chunk
+                                        setTimeout(processChunk, 10);
+                                    }
+                                };
+                                
+                                putRequest.onerror = () => {
+                                    chunkProcessed++;
+                                    if (chunkProcessed === chunk.length) {
+                                        totalImported += chunkImported;
+                                        currentIndex += chunkSize;
+                                        setTimeout(processChunk, 10);
+                                    }
+                                };
+                            });
+                        }
+                        
+                        processChunk();
+                    };
+                });
+            },
+            args: [videoIds]
+        });
+        
+        const importedCount = result[0].result;
+        showStatus(`Successfully imported ${importedCount} videos!`, 'success');
         loadWatchedHistoryStats(); // Refresh stats
-    };
-    reader.readAsText(file);
+        
+    } catch (error) {
+        console.error('Import error:', error);
+        showStatus('Error importing file', 'error');
+    }
 }
+
 
 // Setup feature header click handlers
 function setupFeatureHeaders() {

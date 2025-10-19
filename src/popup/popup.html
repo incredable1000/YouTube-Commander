@@ -116,6 +116,22 @@
             transform: translateX(20px);
         }
         
+        .toggle-switch.small-toggle {
+            width: 36px;
+            height: 20px;
+        }
+        
+        .toggle-switch.small-toggle .toggle-slider {
+            width: 16px;
+            height: 16px;
+            top: 2px;
+            left: 2px;
+        }
+        
+        .toggle-switch.small-toggle.active .toggle-slider {
+            transform: translateX(16px);
+        }
+        
         .feature-content {
             padding: 16px;
             display: none;
@@ -467,8 +483,14 @@
                     <button class="btn btn-secondary" id="exportHistory">Export</button>
                     <button class="btn btn-secondary" id="importHistory">Import</button>
                 </div>
+                <div class="setting-row" style="margin-top: 12px;">
+                    <div class="setting-label" style="font-size: 13px;">Backup Reminders</div>
+                    <div class="toggle-switch active small-toggle" id="backupToggle">
+                        <div class="toggle-slider"></div>
+                    </div>
+                </div>
                 <div id="historyStatus" class="status"></div>
-                <div class="note">Visual markers appear on watched video thumbnails. Export to Google Drive for backup.</div>
+                <div class="note">Visual markers appear on watched video thumbnails. Enable backup reminders to get notifications for Google Drive exports.</div>
             </div>
         </div>
 
@@ -536,21 +558,6 @@
             </div>
         </div>
 
-        <!-- Backup Reminders Feature -->
-        <div class="feature-card">
-            <div class="feature-header" data-feature="backup">
-                <div class="feature-title">
-                    <div class="feature-name">Backup Reminders</div>
-                    <div class="feature-description">Google Drive backup notifications</div>
-                </div>
-                <div class="toggle-switch active" id="backupToggle">
-                    <div class="toggle-slider"></div>
-                </div>
-            </div>
-            <div class="feature-content" id="backupContent">
-                <div class="note">Reminds you to backup your watched history to Google Drive when you open the browser</div>
-            </div>
-        </div>
 
         <!-- Status Display -->
         <div id="status" class="status"></div>
@@ -560,7 +567,7 @@
         <div class="version">YouTube Commander v2.0</div>
     </div>
 
-    <input type="file" id="historyFileInput" accept=".txt" class="hidden">
+    <input type="file" id="historyFileInput" accept=".txt,.csv" class="hidden">
     <script type="module" src="popup.js"></script>
 </body>
 </html>
