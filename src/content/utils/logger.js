@@ -45,6 +45,76 @@ function formatMessage(level, category, message) {
 }
 
 /**
+ * Serialize error objects for proper logging
+ * @param {any} data - Data to serialize
+ * @returns {any} Serialized data
+ */
+function serializeError(data) {
+    if (data === null || data === undefined) {
+        return data;
+    }
+    
+    if (data instanceof Error) {
+        return {
+            name: data.name,
+            message: data.message,
+            stack: data.stack,
+            cause: data.cause
+        };
+    }
+    
+    if (typeof data === 'object') {
+        // Handle DOM elements and other non-serializable objects
+        if (data.nodeType || data instanceof Node || data instanceof Element) {
+            return `[DOM Element: ${data.tagName || data.nodeName || 'Unknown'}]`;
+        }
+        
+        // Handle functions
+        if (typeof data === 'function') {
+            return `[Function: ${data.name || 'anonymous'}]`;
+        }
+        
+        // Handle arrays
+        if (Array.isArray(data)) {
+            try {
+                return data.map(item => serializeError(item));
+            } catch (e) {
+                return `[Array with ${data.length} items - serialization failed]`;
+            }
+        }
+        
+        // Handle regular objects
+        try {
+            // Try to get meaningful properties
+            const serialized = {};
+            const keys = Object.getOwnPropertyNames(data).slice(0, 10); // Limit to first 10 properties
+            
+            for (const key of keys) {
+                try {
+                    const value = data[key];
+                    if (typeof value === 'function') {
+                        serialized[key] = '[Function]';
+                    } else if (value && typeof value === 'object' && value !== data) {
+                        // Avoid circular references
+                        serialized[key] = Object.prototype.toString.call(value);
+                    } else {
+                        serialized[key] = value;
+                    }
+                } catch (e) {
+                    serialized[key] = '[Inaccessible]';
+                }
+            }
+            
+            return Object.keys(serialized).length > 0 ? serialized : `[Object: ${Object.prototype.toString.call(data)}]`;
+        } catch (e) {
+            return `[Object: ${Object.prototype.toString.call(data)} - serialization failed: ${e.message}]`;
+        }
+    }
+    
+    return data;
+}
+
+/**
  * Log error message
  * @param {string} category - Log category
  * @param {string} message - Log message
@@ -52,7 +122,8 @@ function formatMessage(level, category, message) {
  */
 export function logError(category, message, data = null) {
     if (currentLogLevel >= LOG_LEVELS.ERROR) {
-        console.error(formatMessage('ERROR', category, message), data || '');
+        const serializedData = data ? serializeError(data) : '';
+        console.error(formatMessage('ERROR', category, message), serializedData);
     }
 }
 
@@ -64,7 +135,8 @@ export function logError(category, message, data = null) {
  */
 export function logWarn(category, message, data = null) {
     if (currentLogLevel >= LOG_LEVELS.WARN) {
-        console.warn(formatMessage('WARN', category, message), data || '');
+        const serializedData = data ? serializeError(data) : '';
+        console.warn(formatMessage('WARN', category, message), serializedData);
     }
 }
 
@@ -76,7 +148,8 @@ export function logWarn(category, message, data = null) {
  */
 export function logInfo(category, message, data = null) {
     if (currentLogLevel >= LOG_LEVELS.INFO) {
-        console.log(formatMessage('INFO', category, message), data || '');
+        const serializedData = data ? serializeError(data) : '';
+        console.log(formatMessage('INFO', category, message), serializedData);
     }
 }
 
@@ -88,7 +161,8 @@ export function logInfo(category, message, data = null) {
  */
 export function logDebug(category, message, data = null) {
     if (currentLogLevel >= LOG_LEVELS.DEBUG) {
-        console.log(formatMessage('DEBUG', category, message), data || '');
+        const serializedData = data ? serializeError(data) : '';
+        console.log(formatMessage('DEBUG', category, message), serializedData);
     }
 }
 

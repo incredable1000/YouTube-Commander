@@ -879,52 +879,119 @@ function setupNavigationObserver() {
 
 // Import watched history
 async function importWatchedHistory(videoIds) {
-    debugLog('Import', 'Starting import of watched history');
+    console.log('🔥 importWatchedHistory called with:', videoIds.length, 'IDs');
+    console.log('🔥 Sample IDs:', videoIds.slice(0, 5));
+    console.log('🔥 Database state - db:', !!db, 'isInitialized:', isInitialized);
+    
+    debugLog('Import', `Starting import of ${videoIds.length} watched videos`);
+    
     try {
         if (!db || !isInitialized) {
+            console.log('🔥 Database not ready, reinitializing...');
             debugLog('Import', 'Database not initialized, reinitializing...');
             await reinitializeExtension();
+            console.log('🔥 After reinit - db:', !!db, 'isInitialized:', isInitialized);
         }
 
         return new Promise((resolve, reject) => {
             try {
+                console.log('🔥 Creating transaction...');
                 const transaction = db.transaction([STORE_NAME], 'readwrite');
                 const store = transaction.objectStore(STORE_NAME);
+                
+                console.log('🔥 Transaction created, getting existing entries...');
 
                 // Get all existing entries first
                 const getAllRequest = store.getAll();
+                
                 getAllRequest.onsuccess = () => {
-                    const existingEntries = getAllRequest.result;
+                    console.log('🔥 Got existing entries:', getAllRequest.result?.length || 0);
+                    const existingEntries = getAllRequest.result || [];
                     const existingIds = new Set(existingEntries.map(entry => entry.videoId));
                     let importCount = 0;
+                    let processedCount = 0;
+                    let skippedCount = 0;
+
+                    console.log('🔥 Processing video IDs...');
+                    debugLog('Import', `Processing ${videoIds.length} video IDs, ${existingIds.size} existing entries`);
 
                     // Process each video ID
-                    videoIds.forEach(videoId => {
+                    videoIds.forEach((videoId, index) => {
+                        processedCount++;
+                        
                         if (videoId && videoId.trim()) {
                             const trimmedId = videoId.trim();
-                            store.put({ videoId: trimmedId });
+                            
                             if (!existingIds.has(trimmedId)) {
-                                importCount++;
+                                const putRequest = store.put({ videoId: trimmedId, timestamp: Date.now() });
+                                
+                                putRequest.onsuccess = () => {
+                                    importCount++;
+                                    if (importCount % 1000 === 0) {
+                                        console.log(`🔥 Imported ${importCount} entries so far...`);
+                                    }
+                                };
+                                
+                                putRequest.onerror = (e) => {
+                                    console.error('🔥 Error importing ID:', trimmedId, e);
+                                };
+                            } else {
+                                skippedCount++;
                             }
+                        } else {
+                            console.warn('🔥 Invalid video ID at index', index, ':', videoId);
                         }
                     });
 
-                    transaction.oncomplete = () => {
-                        debugLog('Import', `Import completed. Added ${importCount} new entries`);
-                        resolve(importCount);
+                    console.log('🔥 All IDs processed, waiting for transaction to complete...');
+                    console.log('🔥 Stats - Processed:', processedCount, 'Skipped:', skippedCount, 'To Import:', importCount);
+                };
+                
+                getAllRequest.onerror = (e) => {
+                    console.error('🔥 Error getting existing entries:', e);
+                    reject(e);
+                };
+
+                transaction.oncomplete = () => {
+                    console.log('🔥 Transaction completed successfully!');
+                    debugLog('Import', `Import completed. Added entries to database`);
+                    
+                    // Verify the import by counting entries
+                    const verifyTransaction = db.transaction([STORE_NAME], 'readonly');
+                    const verifyStore = verifyTransaction.objectStore(STORE_NAME);
+                    const countRequest = verifyStore.count();
+                    
+                    countRequest.onsuccess = () => {
+                        const totalCount = countRequest.result;
+                        console.log('🔥 Verification - Total entries in DB:', totalCount);
+                        resolve(totalCount);
+                    };
+                    
+                    countRequest.onerror = () => {
+                        console.log('🔥 Could not verify count, resolving anyway');
+                        resolve(0);
                     };
                 };
 
-                transaction.onerror = () => {
+                transaction.onerror = (e) => {
+                    console.error('🔥 Transaction error:', e);
                     debugLog('Import', 'Error during import:', transaction.error);
                     reject(transaction.error);
                 };
+                
+                transaction.onabort = (e) => {
+                    console.error('🔥 Transaction aborted:', e);
+                    reject(new Error('Transaction aborted'));
+                };
+                
             } catch (error) {
+                console.error('🔥 Error in import transaction:', error);
                 debugLog('Import', 'Error in import transaction:', error);
                 reject(error);
             }
         });
     } catch (error) {
+        console.error('🔥 Error in importWatchedHistory:', error);
         debugLog('Import', 'Error in importWatchedHistory:', error);
         throw error;
     }
@@ -1175,6 +1242,9 @@ window.addCurrentVideoToHistory = async function() {
     }
 };
 
+// Make importWatchedHistory available globally for popup script access
+window.importWatchedHistory = importWatchedHistory;
+
 // Export for the new system
 export {
     initWatchedHistory,
@@ -1183,5 +1253,6 @@ export {
     getAllWatchedVideos,
     getWatchedVideoCount,
     clearWatchedHistory,
-    exportWatchedHistory
+    exportWatchedHistory,
+    importWatchedHistory
 };

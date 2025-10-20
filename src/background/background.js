@@ -9,17 +9,26 @@ const UPLOAD_API_BASE = 'https://www.googleapis.com/upload/drive/v3';
 let driveAccessToken = null;
 let syncInProgress = false;
 
-// Startup-only reminder: no fixed times, just once per browser launch
-browser.runtime.onInstalled.addListener(async () => {
+// Extension installation and startup handling
+chrome.runtime.onInstalled.addListener(async (details) => {
     // Ensure default enabled flag exists
-    const result = await browser.storage.local.get(['backupRemindersEnabled']);
+    const result = await chrome.storage.local.get(['backupRemindersEnabled']);
     if (result.backupRemindersEnabled === undefined) {
-        await browser.storage.local.set({ backupRemindersEnabled: true });
+        await chrome.storage.local.set({ backupRemindersEnabled: true });
+    }
+    
+    // Trigger reminder check on install/startup
+    if (details.reason === 'startup' || details.reason === 'install') {
+        console.log('Extension startup/install detected:', details.reason);
+        // Wait a bit for things to settle
+        setTimeout(() => {
+            checkAndShowStartupReminder();
+        }, 5000);
     }
 });
 
 // Show reminder when the browser starts (if enabled)
-browser.runtime.onStartup.addListener(async () => {
+chrome.runtime.onStartup.addListener(async () => {
     console.log('Browser startup detected');
     await checkAndShowStartupReminder();
 });
@@ -27,7 +36,7 @@ browser.runtime.onStartup.addListener(async () => {
 // Check for first run after browser restart
 async function checkAndShowStartupReminder() {
     try {
-        const result = await browser.storage.local.get(['backupRemindersEnabled', 'lastStartupReminder']);
+        const result = await chrome.storage.local.get(['backupRemindersEnabled', 'lastStartupReminder']);
         
         if (result.backupRemindersEnabled === false) {
             console.log('Backup reminders disabled, skipping');
@@ -41,7 +50,7 @@ async function checkAndShowStartupReminder() {
         // Only show reminder if it's been more than 1 hour since last one
         if (now - lastReminder > oneHour) {
             console.log('Showing startup backup reminder');
-            await browser.storage.local.set({ lastStartupReminder: now });
+            await chrome.storage.local.set({ lastStartupReminder: now });
             setTimeout(() => {
                 showBackupReminder();
             }, 3000); // 3 second delay
@@ -67,33 +76,74 @@ chrome.tabs.onActivated.addListener(async () => {
     }
 });
 
+// Additional trigger: when YouTube tab is opened
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete' && tab.url && tab.url.includes('youtube.com')) {
+        // Only check once per session to avoid spam
+        if (!chrome.runtime.youtubeReminderChecked) {
+            chrome.runtime.youtubeReminderChecked = true;
+            console.log('YouTube tab detected, checking for backup reminder');
+            await checkAndShowStartupReminder();
+        }
+    }
+});
+
 // Removed time-based checks and alarms; startup reminder handles the UX now
 
 // Show backup reminder notification
 async function showBackupReminder() {
-    // Get video count for the reminder
-    const videoCount = await getWatchedVideoCount();
-    
-    chrome.notifications.create('backupReminder', {
-        type: 'basic',
-        iconUrl: 'icon.png',
-        title: '📥 YouTube Commander Backup Reminder',
-        message: `You have ${videoCount} watched videos. Time to backup your history to Google Drive!`,
-        buttons: [
-            { title: '📤 Export Now' },
-            { title: '⏰ Remind Later' }
-        ],
-        requireInteraction: true
-    });
+    try {
+        // Get video count for the reminder
+        const videoCount = await getWatchedVideoCount();
+        
+        chrome.notifications.create('backupReminder', {
+            type: 'basic',
+            iconUrl: 'assets/icon.png', // Use correct path
+            title: 'YouTube Commander Backup Reminder',
+            message: `You have ${videoCount} watched videos. Time to backup your history to Google Drive!`,
+            buttons: [
+                { title: 'Export Now' },
+                { title: 'Remind Later' }
+            ],
+            requireInteraction: true
+        }, (notificationId) => {
+            if (chrome.runtime.lastError) {
+                console.warn('Failed to create notification:', chrome.runtime.lastError.message);
+            } else {
+                console.log('Backup reminder notification created:', notificationId);
+            }
+        });
+    } catch (error) {
+        console.error('Error showing backup reminder:', error);
+    }
 }
 
-// Get count of watched videos
+// Get count of watched videos (using new stats approach)
 async function getWatchedVideoCount() {
     return new Promise((resolve) => {
         chrome.tabs.query({ url: 'https://www.youtube.com/*' }, (tabs) => {
             if (tabs.length > 0) {
-                chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_WATCHED_COUNT' }, (response) => {
-                    resolve(response?.count || 0);
+                chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_WATCHED_STATS' }, (response) => {
+                    // Check for runtime errors
+                    if (chrome.runtime.lastError) {
+                        console.warn('Failed to get watched stats from content script:', chrome.runtime.lastError.message);
+                        // Fallback to storage
+                        chrome.storage.local.get(['lastVideoCount'], (result) => {
+                            resolve(result.lastVideoCount || 0);
+                        });
+                        return;
+                    }
+                    
+                    if (response && response.success) {
+                        // Cache the count for future fallback use
+                        chrome.storage.local.set({ lastVideoCount: response.total });
+                        resolve(response.total || 0);
+                    } else {
+                        // Fallback to storage
+                        chrome.storage.local.get(['lastVideoCount'], (result) => {
+                            resolve(result.lastVideoCount || 0);
+                        });
+                    }
                 });
             } else {
                 // Fallback: try to get count from storage
@@ -114,7 +164,11 @@ chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) =
                 if (tabs.length > 0) {
                     chrome.tabs.update(tabs[0].id, { active: true });
                     // Send message to show export reminder
-                    chrome.tabs.sendMessage(tabs[0].id, { type: 'SHOW_EXPORT_REMINDER' });
+                    chrome.tabs.sendMessage(tabs[0].id, { type: 'SHOW_EXPORT_REMINDER' }, (response) => {
+                        if (chrome.runtime.lastError) {
+                            console.warn('Failed to send export reminder message:', chrome.runtime.lastError.message);
+                        }
+                    });
                 } else {
                     chrome.tabs.create({ url: 'https://www.youtube.com' });
                 }
@@ -215,6 +269,13 @@ async function getWatchedHistoryText() {
         chrome.tabs.query({ url: 'https://www.youtube.com/*' }, (tabs) => {
             if (tabs.length > 0) {
                 chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_ALL_WATCHED_VIDEOS' }, (response) => {
+                    // Check for runtime errors
+                    if (chrome.runtime.lastError) {
+                        console.warn('Failed to get watched history from content script:', chrome.runtime.lastError.message);
+                        resolve('');
+                        return;
+                    }
+                    
                     if (response && response.success) {
                         const videos = response.videos || [];
                         const textContent = videos.map(video => 
@@ -285,7 +346,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     else if (message.type === 'REFRESH_BADGES') {
         chrome.tabs.query({ url: 'https://www.youtube.com/*' }, (tabs) => {
             tabs.forEach(tab => {
-                chrome.tabs.sendMessage(tab.id, { type: 'REFRESH_BADGE' });
+                chrome.tabs.sendMessage(tab.id, { type: 'REFRESH_BADGE' }, (response) => {
+                    if (chrome.runtime.lastError) {
+                        // Ignore connection errors for inactive tabs
+                        console.debug('Tab not responsive for badge refresh:', tab.id);
+                    }
+                });
             });
         });
     }
@@ -310,7 +376,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     else if (message.type === 'GET_ALL_WATCHED_VIDEOS') {
         chrome.tabs.query({ url: 'https://www.youtube.com/*' }, (tabs) => {
             if (tabs.length > 0) {
-                chrome.tabs.sendMessage(tabs[0].id, message, sendResponse);
+                chrome.tabs.sendMessage(tabs[0].id, message, (response) => {
+                    if (chrome.runtime.lastError) {
+                        console.warn('Failed to get watched videos:', chrome.runtime.lastError.message);
+                        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+                    } else {
+                        sendResponse(response);
+                    }
+                });
             } else {
                 sendResponse({ success: false, error: 'No YouTube tabs found' });
             }
@@ -328,12 +401,56 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             tabs.forEach(tab => {
                 // Don't send back to the sender tab
                 if (tab.id !== sender.tab?.id) {
-                    chrome.tabs.sendMessage(tab.id, { type: 'HISTORY_UPDATED' }).catch(() => {
-                        // Ignore errors for tabs that might not have the content script loaded
+                    chrome.tabs.sendMessage(tab.id, { type: 'HISTORY_UPDATED' }, (response) => {
+                        if (chrome.runtime.lastError) {
+                            // Ignore connection errors for inactive tabs
+                            console.debug('Tab not responsive for history update:', tab.id);
+                        }
                     });
                 }
             });
         });
+    }
+    else if (message.type === 'PROCESS_IMPORT_BATCH') {
+        // Handle import batch processing when script injection fails
+        chrome.storage.local.get([message.storageKey], async (result) => {
+            const batchData = result[message.storageKey];
+            if (!batchData) {
+                sendResponse({ success: false, error: 'Batch data not found' });
+                return;
+            }
+            
+            // Try to send to content script on the specified tab
+            chrome.tabs.sendMessage(message.tabId, {
+                type: 'IMPORT_WATCHED_VIDEOS',
+                videoIds: batchData.videoIds
+            }, (response) => {
+                // Clean up storage
+                chrome.storage.local.remove([message.storageKey]);
+                
+                if (chrome.runtime.lastError) {
+                    console.warn('Background script import failed:', chrome.runtime.lastError.message);
+                    sendResponse({ success: false, error: chrome.runtime.lastError.message, count: 0 });
+                } else {
+                    sendResponse({ success: true, count: response?.count || 0 });
+                }
+            });
+        });
+        return true;
+    }
+    else if (message.type === 'GET_WATCHED_STATS') {
+        // Handle stats requests when content script communication fails
+        chrome.tabs.sendMessage(message.tabId, {
+            type: 'GET_WATCHED_STATS'
+        }, (response) => {
+            if (chrome.runtime.lastError) {
+                console.warn('Background script stats failed:', chrome.runtime.lastError.message);
+                sendResponse({ success: false, error: chrome.runtime.lastError.message });
+            } else {
+                sendResponse(response || { success: false, error: 'No response from content script' });
+            }
+        });
+        return true;
     }
 });
 

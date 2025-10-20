@@ -46,52 +46,14 @@ function toggleFeature(featureName) {
     }
 }
 
-// Toggle switch functionality
-function setupToggleSwitches() {
-    const toggles = {
-        'seekToggle': 'seekEnabled',
-        'qualityToggle': 'qualityEnabled',
-        'audioToggle': 'audioEnabled',
-        'historyToggle': 'historyEnabled',
-        'scrollToggle': 'scrollEnabled',
-        'shortsToggle': 'shortsEnabled',
-        'rotationToggle': 'rotationEnabled',
-        'playlistToggle': 'playlistEnabled'
-    };
-    
-    // Handle regular toggles
-    Object.entries(toggles).forEach(([toggleId, settingKey]) => {
-        const toggle = document.getElementById(toggleId);
-        if (toggle) {
-            toggle.addEventListener('click', (e) => {
-                e.stopPropagation(); // Prevent card expansion when clicking toggle
-                const isActive = toggle.classList.contains('active');
-                
-                if (isActive) {
-                    toggle.classList.remove('active');
-                    currentSettings[settingKey] = false;
-                } else {
-                    toggle.classList.add('active');
-                    currentSettings[settingKey] = true;
-                }
-                
-                // Save immediately with all current settings
-                saveSettings();
-                
-                // Show visual feedback
-                showStatus('Feature ' + (currentSettings[settingKey] ? 'enabled' : 'disabled'), 'success');
-            });
-        }
-    });
-    
-    // Handle backup toggle separately (uses local storage)
+// Backup toggle (only remaining toggle)
+function setupBackupToggle() {
     const backupToggle = document.getElementById('backupToggle');
     if (backupToggle) {
         backupToggle.addEventListener('click', (e) => {
             e.stopPropagation();
-            const isActive = backupToggle.classList.contains('active');
             
-            if (isActive) {
+            if (backupToggle.classList.contains('active')) {
                 backupToggle.classList.remove('active');
                 chrome.storage.local.set({ backupRemindersEnabled: false });
                 showStatus('Backup reminders disabled', 'success');
@@ -158,19 +120,7 @@ function loadSettings() {
             }
         });
         
-        // Load feature toggles
-        const toggles = {
-            'seekToggle': 'seekEnabled',
-            'qualityToggle': 'qualityEnabled',
-            'audioToggle': 'audioEnabled',
-            'historyToggle': 'historyEnabled',
-            'scrollToggle': 'scrollEnabled',
-            'shortsToggle': 'shortsEnabled',
-            'rotationToggle': 'rotationEnabled',
-            'playlistToggle': 'playlistEnabled'
-        };
-        
-        // Load backup toggle separately (uses different storage)
+        // Load backup toggle (uses different storage)
         chrome.storage.local.get(['backupRemindersEnabled'], (result) => {
             const backupToggle = document.getElementById('backupToggle');
             if (backupToggle) {
@@ -182,59 +132,94 @@ function loadSettings() {
             }
         });
         
-        Object.entries(toggles).forEach(([toggleId, settingKey]) => {
-            const toggle = document.getElementById(toggleId);
-            if (toggle) {
-                if (settings[settingKey]) {
-                    toggle.classList.add('active');
-                } else {
-                    toggle.classList.remove('active');
-                }
-            }
-        });
-        
         // Load watched history stats
         loadWatchedHistoryStats();
     });
 }
 
-// Load watched history statistics (using legacy direct approach)
+// Load watched history statistics (using content script approach)
 async function loadWatchedHistoryStats() {
     try {
-        const tabs = await chrome.tabs.query({ url: '*://*.youtube.com/*' });
-        if (tabs.length === 0) {
-            document.getElementById('watchedCount').textContent = '0';
-            document.getElementById('todayCount').textContent = '0';
-            return;
-        }
-
-        const result = await chrome.scripting.executeScript({
-            target: { tabId: tabs[0].id },
-            func: () => {
-                return new Promise((resolve) => {
-                    const request = indexedDB.open('YouTubeCommanderDB', 1);
-                    request.onerror = () => resolve({ total: 0, today: 0 });
-                    request.onsuccess = () => {
-                        const db = request.result;
-                        const transaction = db.transaction(['watchedVideos'], 'readonly');
-                        const store = transaction.objectStore('watchedVideos');
-                        const getAll = store.getAll();
-                        getAll.onsuccess = () => {
-                            const videos = getAll.result;
-                            const today = new Date();
-                            const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-                            const todayVideos = videos.filter(v => v.timestamp >= todayStart);
-                            resolve({ total: videos.length, today: todayVideos.length });
-                        };
-                        getAll.onerror = () => resolve({ total: 0, today: 0 });
-                    };
-                });
+        // Get the active tab specifically
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!activeTab || !activeTab.url.includes('youtube.com')) {
+            // Try to find any YouTube tab as fallback
+            const tabs = await chrome.tabs.query({ url: '*://*.youtube.com/*' });
+            if (tabs.length === 0) {
+                document.getElementById('watchedCount').textContent = '0';
+                document.getElementById('todayCount').textContent = '0';
+                return;
             }
-        });
+            // Use first YouTube tab found
+            const targetTab = tabs[0];
+            
+            try {
+                // Try content script message first
+                const response = await chrome.tabs.sendMessage(targetTab.id, {
+                    type: 'GET_WATCHED_STATS'
+                });
+                
+                if (response && response.success) {
+                    document.getElementById('watchedCount').textContent = response.total || 0;
+                    document.getElementById('todayCount').textContent = response.today || 0;
+                    return;
+                }
+            } catch (messageError) {
+                console.warn('Stats via content script failed:', messageError);
+            }
+            
+            // Fallback to background script
+            try {
+                const bgResponse = await chrome.runtime.sendMessage({
+                    type: 'GET_WATCHED_STATS',
+                    tabId: targetTab.id
+                });
+                
+                if (bgResponse && bgResponse.success) {
+                    document.getElementById('watchedCount').textContent = bgResponse.total || 0;
+                    document.getElementById('todayCount').textContent = bgResponse.today || 0;
+                    return;
+                }
+            } catch (bgError) {
+                console.warn('Stats via background script failed:', bgError);
+            }
+        } else {
+            // We're on a YouTube tab, try content script directly
+            try {
+                const response = await chrome.tabs.sendMessage(activeTab.id, {
+                    type: 'GET_WATCHED_STATS'
+                });
+                
+                if (response && response.success) {
+                    document.getElementById('watchedCount').textContent = response.total || 0;
+                    document.getElementById('todayCount').textContent = response.today || 0;
+                    return;
+                }
+            } catch (messageError) {
+                console.warn('Stats via content script failed:', messageError);
+                
+                // Fallback to background script
+                try {
+                    const bgResponse = await chrome.runtime.sendMessage({
+                        type: 'GET_WATCHED_STATS',
+                        tabId: activeTab.id
+                    });
+                    
+                    if (bgResponse && bgResponse.success) {
+                        document.getElementById('watchedCount').textContent = bgResponse.total || 0;
+                        document.getElementById('todayCount').textContent = bgResponse.today || 0;
+                        return;
+                    }
+                } catch (bgError) {
+                    console.warn('Stats via background script failed:', bgError);
+                }
+            }
+        }
         
-        const stats = result[0].result;
-        document.getElementById('watchedCount').textContent = stats.total;
-        document.getElementById('todayCount').textContent = stats.today;
+        // If all methods fail, show 0
+        document.getElementById('watchedCount').textContent = '0';
+        document.getElementById('todayCount').textContent = '0';
+        
     } catch (error) {
         console.error('Stats loading error:', error);
         document.getElementById('watchedCount').textContent = '0';
@@ -469,89 +454,83 @@ async function handleFileImport(event) {
             return;
         }
         
-        // Import to database
-        const tabs = await chrome.tabs.query({ url: '*://*.youtube.com/*' });
-        if (tabs.length === 0) {
-            showStatus('Please open YouTube to import history', 'error');
+        // Get the active tab specifically for better permission handling
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!activeTab || !activeTab.url.includes('youtube.com')) {
+            showStatus('Please make sure you are on a YouTube page and try again', 'error');
             return;
         }
         
-        // Process in chunks for large files (like legacy code)
-        showStatus(`Processing ${videoIds.length} video IDs...`, 'info');
+        // For large imports, process in smaller batches to avoid memory issues
+        const batchSize = 5000; // Process 5k at a time to avoid memory issues
+        let totalImported = 0;
+        let currentIndex = 0;
         
-        const result = await chrome.scripting.executeScript({
-            target: { tabId: tabs[0].id },
-            func: (videoIds) => {
-                return new Promise((resolve, reject) => {
-                    console.log('Starting import of', videoIds.length, 'video IDs');
+        showStatus(`Processing ${videoIds.length} video IDs in batches...`, 'info');
+        
+        while (currentIndex < videoIds.length) {
+            const batch = videoIds.slice(currentIndex, currentIndex + batchSize);
+            const progress = Math.round((currentIndex / videoIds.length) * 100);
+            
+            showStatus(`Processing batch ${Math.floor(currentIndex/batchSize) + 1}... (${progress}%)`, 'info');
+            
+            try {
+                let batchImported = 0;
+                
+                // Use content script message approach since script injection is blocked
+                console.log(`⚡ Processing batch ${Math.floor(currentIndex/batchSize) + 1} with ${batch.length} IDs via content script`);
+                
+                try {
+                    // Try content script first
+                    const response = await chrome.tabs.sendMessage(activeTab.id, {
+                        type: 'IMPORT_WATCHED_VIDEOS',
+                        videoIds: batch
+                    });
                     
-                    const request = indexedDB.open('YouTubeCommanderDB', 1);
-                    request.onerror = () => {
-                        console.error('Database open failed:', request.error);
-                        reject(request.error);
-                    };
+                    if (response && response.success) {
+                        batchImported = response.count || 0;
+                        console.log(`⚡ Batch ${Math.floor(currentIndex/batchSize) + 1} imported ${batchImported} videos via content script`);
+                    } else {
+                        throw new Error(response?.error || 'Content script import failed');
+                    }
+                } catch (messageError) {
+                    console.warn('Content script import failed, trying storage fallback:', messageError);
                     
-                    request.onsuccess = () => {
-                        const db = request.result;
-                        
-                        // Process in chunks to avoid overwhelming the database
-                        const chunkSize = 1000;
-                        let currentIndex = 0;
-                        let totalImported = 0;
-                        
-                        function processChunk() {
-                            const chunk = videoIds.slice(currentIndex, currentIndex + chunkSize);
-                            if (chunk.length === 0) {
-                                console.log('Import completed. Total imported:', totalImported);
-                                resolve(totalImported);
-                                return;
-                            }
-                            
-                            console.log(`Processing chunk ${Math.floor(currentIndex/chunkSize) + 1}, items ${currentIndex + 1} to ${currentIndex + chunk.length}`);
-                            
-                            const transaction = db.transaction(['watchedVideos'], 'readwrite');
-                            const store = transaction.objectStore('watchedVideos');
-                            
-                            let chunkImported = 0;
-                            let chunkProcessed = 0;
-                            
-                            chunk.forEach(videoId => {
-                                const putRequest = store.put({ 
-                                    videoId: videoId, 
-                                    timestamp: Date.now() 
-                                });
-                                
-                                putRequest.onsuccess = () => {
-                                    chunkImported++;
-                                    chunkProcessed++;
-                                    if (chunkProcessed === chunk.length) {
-                                        totalImported += chunkImported;
-                                        currentIndex += chunkSize;
-                                        // Small delay before next chunk
-                                        setTimeout(processChunk, 10);
-                                    }
-                                };
-                                
-                                putRequest.onerror = () => {
-                                    chunkProcessed++;
-                                    if (chunkProcessed === chunk.length) {
-                                        totalImported += chunkImported;
-                                        currentIndex += chunkSize;
-                                        setTimeout(processChunk, 10);
-                                    }
-                                };
-                            });
+                    // Fallback: Store in chrome.storage and let background script handle it
+                    const storageKey = `import_batch_${Date.now()}_${Math.random()}`;
+                    await chrome.storage.local.set({
+                        [storageKey]: {
+                            videoIds: batch,
+                            timestamp: Date.now()
                         }
-                        
-                        processChunk();
-                    };
-                });
-            },
-            args: [videoIds]
-        });
+                    });
+                    
+                    // Notify background script to process the batch
+                    const bgResponse = await chrome.runtime.sendMessage({
+                        type: 'PROCESS_IMPORT_BATCH',
+                        storageKey: storageKey,
+                        tabId: activeTab.id
+                    });
+                    
+                    batchImported = bgResponse?.count || 0;
+                    console.log(`⚡ Batch ${Math.floor(currentIndex/batchSize) + 1} imported ${batchImported} videos via background script`);
+                }
+                    console.log(`⚡ Batch ${Math.floor(currentIndex/batchSize) + 1} imported ${batchImported} videos`);
+                
+                totalImported += batchImported;
+                currentIndex += batchSize;
+                
+                // Small delay between batches to prevent overwhelming the system
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+            } catch (error) {
+                console.error('Error processing batch:', error);
+                showStatus(`Error processing batch at ${currentIndex}. Continuing...`, 'warning');
+                currentIndex += batchSize; // Skip this batch and continue
+            }
+        }
         
-        const importedCount = result[0].result;
-        showStatus(`Successfully imported ${importedCount} videos!`, 'success');
+        showStatus(`Successfully imported ${totalImported} videos!`, 'success');
         loadWatchedHistoryStats(); // Refresh stats
         
     } catch (error) {
@@ -592,8 +571,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Add a small delay to ensure DOM is fully ready
     setTimeout(() => {
-        console.log('Setting up toggle switches...'); // Debug log
-        setupToggleSwitches();
+        console.log('Setting up backup toggle...'); // Debug log
+        setupBackupToggle();
         setupShortcutRecording();
         setupAutoSave();
         setupFeatureHeaders();

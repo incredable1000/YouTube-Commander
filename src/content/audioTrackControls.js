@@ -867,7 +867,7 @@ async function initAudioTrackControls() {
 function handleNavigation() {
     // This function is now handled by the setupObservers method in the manager
     // The new system provides better detection for both regular videos and Shorts
-    this.debugLog && this.debugLog('Legacy handleNavigation called - functionality moved to setupObservers');
+    console.log('[YT-Commander][AudioTracks] Legacy handleNavigation called - functionality moved to setupObservers');
 }
 
 // Global API for external access
@@ -927,10 +927,14 @@ window.ytCommanderAudioTracks = {
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-        initAudioTrackControls();
+        initAudioTrackControls().catch(error => {
+            console.error('[YT-Commander][AudioTracks] Failed to initialize during DOMContentLoaded:', error);
+        });
         handleNavigation();
     });
 } else {
-    initAudioTrackControls();
+    initAudioTrackControls().catch(error => {
+        console.error('[YT-Commander][AudioTracks] Failed to initialize:', error);
+    });
     handleNavigation();
 }

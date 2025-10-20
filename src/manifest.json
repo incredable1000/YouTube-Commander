@@ -22,8 +22,7 @@
     "notifications"
   ],
   "host_permissions": [
-    "https://www.youtube.com/*",
-    "https://www.googleapis.com/*"
+    "<all_urls>"
   ],
   "oauth2": {
     "client_id": "4674177287-rnna7qq3levmb0uh8uent1lv21h04vkv.apps.googleusercontent.com",
