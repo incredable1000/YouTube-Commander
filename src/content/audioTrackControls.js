@@ -548,6 +548,12 @@ class YouTubeAudioTrackManager {
         // 3. Shorts-specific observer (for scrolling through shorts)
         this.setupShortsObserver();
         
+        // 4. Video play event observer (for when video actually starts playing)
+        this.setupVideoPlayObserver();
+        
+        // 5. Tab focus observer (for when tab gains focus)
+        this.setupTabFocusObserver();
+        
         this.debugLog('All observers set up');
     }
 
@@ -672,6 +678,54 @@ class YouTubeAudioTrackManager {
     }
 
     /**
+     * Set up video play event observer to detect when video starts playing
+     */
+    setupVideoPlayObserver() {
+        this.handleVideoPlay = () => {
+            if (!this.isValidPage()) return;
+            
+            this.debugLog('Video play event detected - checking for audio track switch');
+            
+            // Only auto-switch if we haven't done it yet for this video
+            if (!this.hasAutoSwitched) {
+                this.scheduleAutoSwitch('video-play');
+            }
+        };
+
+        // Listen for play events on the document (event delegation)
+        document.addEventListener('play', this.handleVideoPlay, true);
+        
+        this.debugLog('Video play observer set up');
+    }
+
+    /**
+     * Set up tab focus observer to handle tab switching scenarios
+     */
+    setupTabFocusObserver() {
+        this.handleTabFocus = () => {
+            if (!this.isValidPage()) return;
+            
+            this.debugLog('Tab gained focus - checking for audio track switch');
+            
+            // Check if there's a video and it's playing or about to play
+            const video = document.querySelector('video');
+            if (video && !this.hasAutoSwitched) {
+                // Small delay to let YouTube initialize
+                setTimeout(() => {
+                    if (!this.hasAutoSwitched) {
+                        this.scheduleAutoSwitch('tab-focus');
+                    }
+                }, 500);
+            }
+        };
+
+        // Listen for window focus events
+        window.addEventListener('focus', this.handleTabFocus);
+        
+        this.debugLog('Tab focus observer set up');
+    }
+
+    /**
      * Extract video ID from URL (DRY utility)
      */
     extractVideoId(url) {
@@ -727,7 +781,9 @@ class YouTubeAudioTrackManager {
             'navigation': 2000,        // Regular navigation
             'video-element-change': 1500, // Video element change
             'shorts-scroll': 1000,     // Shorts scrolling (faster)
-            'initial': 3000           // Initial load
+            'initial': 3000,          // Initial load
+            'video-play': 100,        // Video started playing (immediate)
+            'tab-focus': 800          // Tab gained focus (quick)
         };
         
         const delay = delays[reason] || 2000;
@@ -768,6 +824,11 @@ class YouTubeAudioTrackManager {
     cleanup() {
         this.observers.forEach(observer => observer.disconnect());
         this.observers = [];
+        
+        // Remove event listeners
+        document.removeEventListener('play', this.handleVideoPlay, true);
+        window.removeEventListener('focus', this.handleTabFocus);
+        
         this.isInitialized = false;
         this.debugLog('Audio Track Manager cleaned up');
     }
