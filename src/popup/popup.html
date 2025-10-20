@@ -176,34 +176,6 @@
             box-shadow: 0 0 0 2px rgba(255,0,0,0.2);
         }
         
-        .shortcut-input {
-            background: #333;
-            border: 1px solid #555;
-            border-radius: 6px;
-            padding: 8px 12px;
-            color: #f1f1f1;
-            font-size: 13px;
-            width: 120px;
-            text-align: center;
-            cursor: pointer;
-        }
-        
-        .shortcut-input:focus {
-            outline: none;
-            border-color: #ff0000;
-            box-shadow: 0 0 0 2px rgba(255,0,0,0.2);
-        }
-        
-        .shortcut-input.recording {
-            background: #4a1a1a;
-            border-color: #ff0000;
-            animation: pulse 1s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
         
         .quality-select {
             background: #333;
@@ -393,19 +365,7 @@
                     <input type="number" id="longSeek" class="setting-input" min="1" max="300" value="30">
                     <span class="unit">sec</span>
                 </div>
-                <div class="setting-row">
-                    <div class="setting-label">Short Seek Key</div>
-                    <input type="text" id="shortSeekKey" class="shortcut-input" readonly>
-                </div>
-                <div class="setting-row">
-                    <div class="setting-label">Medium Seek Key</div>
-                    <input type="text" id="mediumSeekKey" class="shortcut-input" readonly>
-                </div>
-                <div class="setting-row">
-                    <div class="setting-label">Long Seek Key</div>
-                    <input type="text" id="longSeekKey" class="shortcut-input" readonly>
-                </div>
-                <div class="note">Click on a shortcut field and press your desired key combination</div>
+                <div class="note">Use ←/→ for short seek, Shift+←/→ for medium seek, and Ctrl+Shift+←/→ for long seek</div>
             </div>
         </div>
 

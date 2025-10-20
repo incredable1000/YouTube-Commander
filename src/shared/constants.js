@@ -13,8 +13,8 @@ export const DEFAULT_SETTINGS = {
     shortSeek: 3,
     mediumSeek: 10,
     longSeek: 30,
-    shortSeekKey: { ctrl: false, shift: true, key: 'ArrowRight' },
-    mediumSeekKey: { ctrl: true, shift: false, key: 'ArrowRight' },
+    shortSeekKey: { ctrl: false, shift: false, key: 'ArrowRight' },
+    mediumSeekKey: { ctrl: false, shift: true, key: 'ArrowRight' },
     longSeekKey: { ctrl: true, shift: true, key: 'ArrowRight' },
     
     // Quality controls

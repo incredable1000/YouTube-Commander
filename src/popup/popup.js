@@ -16,8 +16,8 @@ const defaultSettings = {
     shortSeek: 3,
     mediumSeek: 10,
     longSeek: 30,
-    shortSeekKey: { ctrl: false, shift: true, key: 'ArrowRight' },
-    mediumSeekKey: { ctrl: true, shift: false, key: 'ArrowRight' },
+    shortSeekKey: { ctrl: false, shift: false, key: 'ArrowRight' },
+    mediumSeekKey: { ctrl: false, shift: true, key: 'ArrowRight' },
     longSeekKey: { ctrl: true, shift: true, key: 'ArrowRight' },
     
     // Quality settings
@@ -27,9 +27,7 @@ const defaultSettings = {
     fullWindowShortcut: 'f'
 };
 
-// Current recording state
-let isRecording = false;
-let currentInput = null;
+// Current settings
 let currentSettings = {};
 
 // Feature toggle functionality (expand/collapse cards)
@@ -105,20 +103,7 @@ function loadSettings() {
         document.getElementById('longSeek').value = settings.longSeek;
         document.getElementById('maxQuality').value = settings.maxQuality;
         
-        // Load shortcuts
-        const shortcutInputs = {
-            'shortSeekKey': settings.shortSeekKey,
-            'mediumSeekKey': settings.mediumSeekKey,
-            'longSeekKey': settings.longSeekKey
-        };
-        
-        Object.entries(shortcutInputs).forEach(([inputId, shortcut]) => {
-            const input = document.getElementById(inputId);
-            if (input && shortcut) {
-                input.value = formatShortcut(shortcut);
-                input.dataset.shortcut = JSON.stringify(shortcut);
-            }
-        });
+        // Fixed shortcuts are now hardcoded in defaultSettings
         
         // Load backup toggle (uses different storage)
         chrome.storage.local.get(['backupRemindersEnabled'], (result) => {
@@ -237,17 +222,10 @@ function saveSettings(showMessage = false) {
         maxQuality: document.getElementById('maxQuality').value
     };
     
-    // Save shortcuts
-    ['shortSeekKey', 'mediumSeekKey', 'longSeekKey'].forEach(key => {
-        const input = document.getElementById(key);
-        if (input && input.dataset.shortcut) {
-            try {
-                settings[key] = JSON.parse(input.dataset.shortcut);
-            } catch (e) {
-                console.error('Error parsing shortcut:', e);
-            }
-        }
-    });
+    // Use fixed shortcuts from defaultSettings
+    settings.shortSeekKey = defaultSettings.shortSeekKey;
+    settings.mediumSeekKey = defaultSettings.mediumSeekKey;
+    settings.longSeekKey = defaultSettings.longSeekKey;
     
     chrome.storage.sync.set(settings, () => {
         if (showMessage) {
@@ -300,60 +278,6 @@ function showStatus(message, type = 'info') {
     }, 3000);
 }
 
-// Handle shortcut recording
-function setupShortcutRecording() {
-    const shortcutInputs = document.querySelectorAll('.shortcut-input');
-    
-    shortcutInputs.forEach(input => {
-        input.addEventListener('click', () => {
-            if (isRecording && currentInput !== input) {
-                // Stop previous recording
-                currentInput.classList.remove('recording');
-            }
-            
-            isRecording = true;
-            currentInput = input;
-            input.classList.add('recording');
-            input.value = 'Press keys...';
-        });
-    });
-}
-
-// Handle keyboard events for shortcut recording
-function handleShortcutInput(event) {
-    if (!isRecording || !currentInput) return;
-    
-    // Ignore modifier keys by themselves
-    if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) {
-        return;
-    }
-    
-    event.preventDefault();
-    event.stopPropagation();
-    
-    const shortcut = {
-        ctrl: event.ctrlKey,
-        shift: event.shiftKey,
-        alt: event.altKey,
-        key: event.key
-    };
-    
-    // Validate that we have a proper key combination
-    if (!shortcut.key || shortcut.key.length === 0) {
-        return;
-    }
-    
-    currentInput.value = formatShortcut(shortcut);
-    currentInput.dataset.shortcut = JSON.stringify(shortcut);
-    currentInput.classList.remove('recording');
-    
-    // Auto-save the shortcut
-    saveSettings();
-    showStatus('Shortcut updated!', 'success');
-    
-    isRecording = false;
-    currentInput = null;
-}
 
 // Export history functionality (using legacy direct approach)
 async function exportHistory() {
@@ -573,7 +497,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
         console.log('Setting up backup toggle...'); // Debug log
         setupBackupToggle();
-        setupShortcutRecording();
         setupAutoSave();
         setupFeatureHeaders();
     }, 100);
@@ -583,8 +506,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('importHistory').addEventListener('click', importHistory);
     document.getElementById('historyFileInput').addEventListener('change', handleFileImport);
     
-    // Keyboard event listener for shortcut recording
-    document.addEventListener('keydown', handleShortcutInput);
     
     // Auto-refresh stats every 5 seconds
     setInterval(loadWatchedHistoryStats, 5000);
