@@ -638,43 +638,41 @@ class YouTubeAudioTrackManager {
     }
 
     /**
-     * Set up Shorts-specific observer for scrolling
+     * Set up Shorts-specific observer for scrolling (using same approach as shorts counter)
      */
     setupShortsObserver() {
-        // Shorts container observer
-        const shortsObserver = new MutationObserver((mutations) => {
+        let lastShortsUrl = location.href;
+        
+        // Use the same reliable URL-based detection as shorts counter
+        const shortsObserver = new MutationObserver(() => {
+            // Only check if we're on Shorts page
             if (!this.isShortsPage()) return;
             
-            let shortsChanged = false;
-            
-            mutations.forEach(mutation => {
-                mutation.addedNodes.forEach(node => {
-                    if (node.nodeType === 1) {
-                        // Check for shorts video containers
-                        const shortsContainers = node.matches && node.matches('ytd-shorts, ytd-reel-video-renderer') ? [node] :
-                                               node.querySelectorAll ? node.querySelectorAll('ytd-shorts, ytd-reel-video-renderer') : [];
-                        
-                        if (shortsContainers.length > 0) {
-                            shortsChanged = true;
-                            this.debugLog('New shorts video detected');
-                        }
-                    }
+            const currentUrl = location.href;
+            if (currentUrl !== lastShortsUrl) {
+                this.debugLog('Shorts URL changed - new video detected', { 
+                    from: lastShortsUrl, 
+                    to: currentUrl 
                 });
-            });
-            
-            if (shortsChanged) {
+                
+                lastShortsUrl = currentUrl;
+                
+                // Reset auto-switch state for new Shorts video
                 this.resetAutoSwitchState();
+                
+                // Schedule auto-switch with shorter delay for Shorts scrolling
                 this.scheduleAutoSwitch('shorts-scroll');
             }
         });
 
+        // Use throttled observation like shorts counter (500ms delay)
         shortsObserver.observe(document.body, {
             childList: true,
             subtree: true
         });
 
         this.observers.push(shortsObserver);
-        this.debugLog('Shorts observer set up');
+        this.debugLog('Shorts observer set up (URL-based detection)');
     }
 
     /**
@@ -780,7 +778,7 @@ class YouTubeAudioTrackManager {
         const delays = {
             'navigation': 2000,        // Regular navigation
             'video-element-change': 1500, // Video element change
-            'shorts-scroll': 1000,     // Shorts scrolling (faster)
+            'shorts-scroll': 500,      // Shorts scrolling (very fast)
             'initial': 3000,          // Initial load
             'video-play': 100,        // Video started playing (immediate)
             'tab-focus': 800          // Tab gained focus (quick)

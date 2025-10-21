@@ -308,7 +308,7 @@ async function exportHistory() {
                             const url = URL.createObjectURL(blob);
                             const a = document.createElement('a');
                             a.href = url;
-                            a.download = `youtube-watched-history-${new Date().toISOString().split('T')[0]}.txt`;
+                            a.download = `youtube-watched-history.txt`;
                             a.click();
                             URL.revokeObjectURL(url);
                             resolve(videos.length);
