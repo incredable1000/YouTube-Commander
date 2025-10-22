@@ -599,6 +599,42 @@ class YouTubeAudioTrackManager {
 
         this.observers.push(urlObserver);
         this.debugLog('URL change observer set up');
+        
+        // Add YouTube-specific navigation event listeners
+        this.setupYouTubeNavigationEvents();
+    }
+    
+    /**
+     * Set up YouTube-specific navigation event listeners
+     * This is crucial for detecting navigation from any page to Shorts videos
+     */
+    setupYouTubeNavigationEvents() {
+        // Listen for YouTube's navigation start event
+        this.handleYTNavigateStart = () => {
+            this.debugLog('YouTube navigation started');
+        };
+        
+        // Listen for YouTube's navigation finish event
+        this.handleYTNavigateFinish = () => {
+            this.debugLog('YouTube navigation finished - checking for audio track switch');
+            
+            // Only proceed if we're on a valid page
+            if (this.isValidPage()) {
+                // Reset auto-switch flag for new video
+                this.resetAutoSwitchState();
+                
+                // Schedule auto-switch with appropriate delay for YouTube navigation
+                this.scheduleAutoSwitch('yt-navigate');
+            } else {
+                this.debugLog('Navigation to non-video page, skipping auto-switch');
+            }
+        };
+        
+        // Add event listeners
+        document.addEventListener('yt-navigate-start', this.handleYTNavigateStart);
+        document.addEventListener('yt-navigate-finish', this.handleYTNavigateFinish);
+        
+        this.debugLog('YouTube navigation event listeners set up');
     }
 
     /**
@@ -781,7 +817,8 @@ class YouTubeAudioTrackManager {
             'shorts-scroll': 500,      // Shorts scrolling (very fast)
             'initial': 3000,          // Initial load
             'video-play': 100,        // Video started playing (immediate)
-            'tab-focus': 800          // Tab gained focus (quick)
+            'tab-focus': 800,         // Tab gained focus (quick)
+            'yt-navigate': 1000       // YouTube navigation events (medium delay)
         };
         
         const delay = delays[reason] || 2000;
@@ -826,6 +863,14 @@ class YouTubeAudioTrackManager {
         // Remove event listeners
         document.removeEventListener('play', this.handleVideoPlay, true);
         window.removeEventListener('focus', this.handleTabFocus);
+        
+        // Remove YouTube navigation event listeners
+        if (this.handleYTNavigateStart) {
+            document.removeEventListener('yt-navigate-start', this.handleYTNavigateStart);
+        }
+        if (this.handleYTNavigateFinish) {
+            document.removeEventListener('yt-navigate-finish', this.handleYTNavigateFinish);
+        }
         
         this.isInitialized = false;
         this.debugLog('Audio Track Manager cleaned up');
