@@ -11,6 +11,7 @@ const defaultSettings = {
     rotationEnabled: true,
     playlistEnabled: true,
     backupEnabled: true,
+    deleteVideosEnabled: false,
     
     // Seek settings
     shortSeek: 3,
@@ -41,6 +42,43 @@ function toggleFeature(featureName) {
     } else {
         content.classList.add('expanded');
         header.classList.add('expanded');
+    }
+}
+
+// Setup delete videos toggle
+function setupDeleteVideosToggle() {
+    const deleteVideosToggle = document.getElementById('deleteVideosToggle');
+    if (deleteVideosToggle) {
+        deleteVideosToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            
+            const isEnabled = deleteVideosToggle.classList.contains('active');
+            
+            if (isEnabled) {
+                deleteVideosToggle.classList.remove('active');
+                currentSettings.deleteVideosEnabled = false;
+                showStatus('Delete videos disabled - showing markers', 'success');
+            } else {
+                deleteVideosToggle.classList.add('active');
+                currentSettings.deleteVideosEnabled = true;
+                showStatus('Delete videos enabled - removing from page', 'success');
+            }
+            
+            // Save the setting
+            chrome.storage.sync.set({ deleteVideosEnabled: currentSettings.deleteVideosEnabled });
+            
+            // Notify content scripts of settings change
+            chrome.tabs.query({ url: '*://*.youtube.com/*' }, (tabs) => {
+                tabs.forEach(tab => {
+                    chrome.tabs.sendMessage(tab.id, { 
+                        type: 'SETTINGS_UPDATED', 
+                        settings: currentSettings 
+                    }).catch(() => {
+                        // Ignore errors for tabs that don't have content scripts
+                    });
+                });
+            });
+        });
     }
 }
 
@@ -104,6 +142,16 @@ function loadSettings() {
         document.getElementById('maxQuality').value = settings.maxQuality;
         
         // Fixed shortcuts are now hardcoded in defaultSettings
+        
+        // Load delete videos toggle
+        const deleteVideosToggle = document.getElementById('deleteVideosToggle');
+        if (deleteVideosToggle) {
+            if (settings.deleteVideosEnabled) {
+                deleteVideosToggle.classList.add('active');
+            } else {
+                deleteVideosToggle.classList.remove('active');
+            }
+        }
         
         // Load backup toggle (uses different storage)
         chrome.storage.local.get(['backupRemindersEnabled'], (result) => {
@@ -495,7 +543,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Add a small delay to ensure DOM is fully ready
     setTimeout(() => {
-        console.log('Setting up backup toggle...'); // Debug log
+        console.log('Setting up toggles...'); // Debug log
+        setupDeleteVideosToggle();
         setupBackupToggle();
         setupAutoSave();
         setupFeatureHeaders();

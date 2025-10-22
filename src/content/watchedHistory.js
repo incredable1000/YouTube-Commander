@@ -14,6 +14,11 @@ let isInitialized = false;
 let initializationRetries = 0;
 const MAX_RETRIES = 3;
 
+// Settings for the delete videos feature
+let currentSettings = {
+    deleteVideosEnabled: false
+};
+
 // Debug logging function
 function debugLog(category, message, data = null) {
     const timestamp = new Date().toISOString();
@@ -114,6 +119,38 @@ async function updateWatchedHistoryFromSync(videos) {
     } catch (error) {
         debugLog('Sync', 'Error in updateWatchedHistoryFromSync:', error);
         throw error;
+    }
+}
+
+// Remove watched video from page (delete ytd-rich-item-renderer elements)
+function removeFromWatchedHistory(container, videoId) {
+    debugLog('Remove', `Removing watched video from page: ${videoId}`);
+    
+    // Find the correct container to remove (ytd-rich-item-renderer)
+    let targetContainer = container;
+    
+    // Walk up the DOM tree to find ytd-rich-item-renderer
+    while (targetContainer && !targetContainer.matches('ytd-rich-item-renderer')) {
+        targetContainer = targetContainer.parentElement;
+    }
+    
+    if (targetContainer && targetContainer.matches('ytd-rich-item-renderer')) {
+        debugLog('Remove', `Found ytd-rich-item-renderer for ${videoId}, removing with animation`);
+        
+        // Add fade-out animation
+        targetContainer.style.transition = 'opacity 300ms ease-out, transform 300ms ease-out';
+        targetContainer.style.opacity = '0';
+        targetContainer.style.transform = 'scale(0.95)';
+        
+        // Remove from DOM after animation
+        setTimeout(() => {
+            if (targetContainer.parentNode) {
+                targetContainer.parentNode.removeChild(targetContainer);
+                debugLog('Remove', `Successfully removed ytd-rich-item-renderer for ${videoId}`);
+            }
+        }, 300);
+    } else {
+        debugLog('Remove', `Could not find ytd-rich-item-renderer for ${videoId}, container:`, container);
     }
 }
 
@@ -512,37 +549,43 @@ async function markWatchedVideosOnPage() {
 
                 const isWatched = await isVideoWatched(videoId);
                 if (isWatched) {
-                    debugLog('Marker', `Adding marker for watched video: ${videoId}`);
-                    
-                    // Try multiple possible thumbnail containers
-                    const thumbnail = container.querySelector(`
-                        a#thumbnail, 
-                        .ytd-thumbnail, 
-                        .thumbnail-container,
-                        .ytThumbnailViewModelHost,
-                        .shortsLockupViewModelHostThumbnailContainer
-                    `);
-
-                    if (thumbnail) {
-                        // Add watched attribute for the overlay
-                        thumbnail.setAttribute('watched', 'true');
-                        
-                        // Add the corner marker if not already present
-                        if (!thumbnail.querySelector('.yt-commander-watched')) {
-                            // Only set position relative if it's not already positioned
-                            const computedStyle = window.getComputedStyle(thumbnail);
-                            if (computedStyle.position === 'static') {
-                                thumbnail.style.position = 'relative';
-                            }
-                            
-                            const marker = indicatorTemplate.cloneNode(true);
-                            thumbnail.appendChild(marker);
-                            debugLog('Marker', 'Added marker to thumbnail', { videoId, thumbnail });
-                        } else {
-                            debugLog('Marker', 'Marker already exists on thumbnail', { videoId, thumbnail });
-                        }
+                    // Check if delete videos mode is enabled
+                    if (currentSettings.deleteVideosEnabled) {
+                        debugLog('Remove', `Removing watched video from page: ${videoId}`);
+                        removeFromWatchedHistory(container, videoId);
                     } else {
-                        debugLog('Marker', 'Could not find thumbnail', { videoId });
+                        debugLog('Marker', `Adding marker for watched video: ${videoId}`);
+                        
+                        // Try multiple possible thumbnail containers
+                        const thumbnail = container.querySelector(`
+                            a#thumbnail, 
+                            .ytd-thumbnail, 
+                            .thumbnail-container,
+                            .ytThumbnailViewModelHost,
+                            .shortsLockupViewModelHostThumbnailContainer
+                        `);
+
+                        if (thumbnail) {
+                            // Add watched attribute for the overlay
+                            thumbnail.setAttribute('watched', 'true');
+                            
+                            // Add the corner marker if not already present
+                            if (!thumbnail.querySelector('.yt-commander-watched')) {
+                                // Only set position relative if it's not already positioned
+                                const computedStyle = window.getComputedStyle(thumbnail);
+                                if (computedStyle.position === 'static') {
+                                    thumbnail.style.position = 'relative';
+                                }
+                                
+                                const marker = indicatorTemplate.cloneNode(true);
+                                thumbnail.appendChild(marker);
+                                debugLog('Marker', 'Added marker to thumbnail', { videoId, thumbnail });
+                            } else {
+                                debugLog('Marker', 'Marker already exists on thumbnail', { videoId, thumbnail });
+                            }
+                        } else {
+                            debugLog('Marker', 'Could not find thumbnail', { videoId });
+                        }
                     }
                 }
             } catch (error) {
@@ -595,6 +638,15 @@ async function initialize() {
             
             await initDB();
             injectStyles();
+            
+            // Load initial settings
+            try {
+                const result = await chrome.storage.sync.get(['deleteVideosEnabled']);
+                currentSettings.deleteVideosEnabled = result.deleteVideosEnabled || false;
+                debugLog('Settings', `Loaded initial delete videos setting: ${currentSettings.deleteVideosEnabled}`);
+            } catch (error) {
+                debugLog('Settings', 'Error loading initial settings:', error);
+            }
             
             // Start observers with more comprehensive configuration
             const observerConfig = {
@@ -1171,6 +1223,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         setTimeout(() => {
             markWatchedVideosOnPage();
         }, 200);
+    }
+    else if (message.type === 'SETTINGS_UPDATED') {
+        // Settings updated from popup, update current settings
+        debugLog('Settings', 'Settings updated from popup:', message.settings);
+        if (message.settings) {
+            currentSettings.deleteVideosEnabled = message.settings.deleteVideosEnabled || false;
+            debugLog('Settings', `Delete videos mode: ${currentSettings.deleteVideosEnabled ? 'enabled' : 'disabled'}`);
+            
+            // Re-process the page with new settings
+            setTimeout(() => {
+                markWatchedVideosOnPage();
+            }, 100);
+        }
     }
 });
 
