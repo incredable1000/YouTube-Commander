@@ -103,6 +103,7 @@ async function initializeModules() {
             import('./playlistControls.js').catch(e => { logger.warn('Failed to import playlistControls:', e); throw e; }),
             import('./qualityControls-wrapper.js').catch(e => { logger.warn('Failed to import qualityControls-wrapper:', e); throw e; }),
             import('./watchedHistory.js').catch(e => { logger.warn('Failed to import watchedHistory:', e); throw e; }),
+            import('./videoMultiSelect.js').catch(e => { logger.warn('Failed to import videoMultiSelect:', e); throw e; }),
         ]);
         
         // Initialize successfully imported modules
@@ -117,7 +118,8 @@ async function initializeModules() {
                     'videoRotation',
                     'playlistControls',
                     'qualityControlsWrapper',
-                    'watchedHistory'
+                    'watchedHistory',
+                    'videoMultiSelect'
                 ];
                 const moduleName = moduleNames[index];
                 
@@ -136,6 +138,7 @@ async function initializeModules() {
                 if (module.initPlaylistControls) initPromises.push(module.initPlaylistControls());
                 if (module.initQualityWrapper) initPromises.push(module.initQualityWrapper());
                 if (module.initWatchedHistory) initPromises.push(module.initWatchedHistory());
+                // videoMultiSelect initializes itself, no init function needed
             } else {
                 logger.error(`Failed to load module:`, result.reason);
             }
@@ -180,34 +183,23 @@ async function loadSettings() {
     }
 }
 
-// Apply settings to enable/disable features
+// Apply settings to modules
 function applySettings() {
-    const featureMap = {
-        seekEnabled: 'seekControls',
-        qualityEnabled: 'qualityControlsWrapper', 
-        audioEnabled: 'audioTrackControls',
-        historyEnabled: 'watchedHistory',
-        scrollEnabled: 'scrollToTop',
-        shortsEnabled: 'shortsCounter',
-        rotationEnabled: 'videoRotation',
-        playlistEnabled: 'playlistControls'
-    };
-    
     // Update settings for modules that support it
     updateModuleSettings();
     
-    Object.entries(featureMap).forEach(([settingKey, moduleName]) => {
-        const isEnabled = currentSettings[settingKey] !== false; // Default to enabled
-        const moduleInstance = moduleInstances[moduleName];
-        
-        if (moduleInstance) {
-            if (isEnabled) {
-                enableFeature(moduleName, moduleInstance);
-            } else {
-                disableFeature(moduleName, moduleInstance);
-            }
+    // Handle specific toggleable features
+    const multiSelectModule = moduleInstances['videoMultiSelect'];
+    if (multiSelectModule) {
+        // videoMultiSelect module exports the instance as default
+        const instance = multiSelectModule.default || multiSelectModule;
+        if (instance && instance.updateSettings) {
+            logger.info('Updating videoMultiSelect settings:', currentSettings);
+            instance.updateSettings(currentSettings);
+        } else {
+            logger.warn('videoMultiSelect updateSettings method not found');
         }
-    });
+    }
 }
 
 // Update module settings

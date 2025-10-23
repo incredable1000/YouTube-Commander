@@ -33,6 +33,15 @@ export function getCurrentVideoId() {
 }
 
 /**
+ * Extract video ID from any YouTube URL
+ */
+export function getVideoId(url) {
+    if (!url) return null;
+    const videoMatch = url.match(/(?:v=|\/shorts\/)([^&\/]+)/);
+    return videoMatch ? videoMatch[1] : null;
+}
+
+/**
  * Get the active Shorts renderer element
  */
 export function getActiveShortsRenderer() {

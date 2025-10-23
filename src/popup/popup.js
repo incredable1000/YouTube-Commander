@@ -1,17 +1,9 @@
 // Modern YouTube Commander Popup Script
-// Default settings with feature toggles
+// Default settings
 const defaultSettings = {
-    // Feature toggles
-    seekEnabled: true,
-    qualityEnabled: true,
-    audioEnabled: true,
-    historyEnabled: true,
-    scrollEnabled: true,
-    shortsEnabled: true,
-    rotationEnabled: true,
-    playlistEnabled: true,
-    backupEnabled: true,
+    // Specific feature settings
     deleteVideosEnabled: false,
+    multiSelectEnabled: false,
     
     // Seek settings
     shortSeek: 3,
@@ -24,8 +16,6 @@ const defaultSettings = {
     // Quality settings
     maxQuality: 'hd1080',
     
-    // Legacy settings
-    fullWindowShortcut: 'f'
 };
 
 // Current settings
@@ -66,6 +56,43 @@ function setupDeleteVideosToggle() {
             
             // Save the setting
             chrome.storage.sync.set({ deleteVideosEnabled: currentSettings.deleteVideosEnabled });
+            
+            // Notify content scripts of settings change
+            chrome.tabs.query({ url: '*://*.youtube.com/*' }, (tabs) => {
+                tabs.forEach(tab => {
+                    chrome.tabs.sendMessage(tab.id, { 
+                        type: 'SETTINGS_UPDATED', 
+                        settings: currentSettings 
+                    }).catch(() => {
+                        // Ignore errors for tabs that don't have content scripts
+                    });
+                });
+            });
+        });
+    }
+}
+
+// Setup multi-select toggle
+function setupMultiSelectToggle() {
+    const multiSelectToggle = document.getElementById('multiSelectToggle');
+    if (multiSelectToggle) {
+        multiSelectToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            
+            const isEnabled = multiSelectToggle.classList.contains('active');
+            
+            if (isEnabled) {
+                multiSelectToggle.classList.remove('active');
+                currentSettings.multiSelectEnabled = false;
+                showStatus('Multi-select disabled', 'success');
+            } else {
+                multiSelectToggle.classList.add('active');
+                currentSettings.multiSelectEnabled = true;
+                showStatus('Multi-select enabled - checkboxes will appear on videos', 'success');
+            }
+            
+            // Save the setting
+            chrome.storage.sync.set({ multiSelectEnabled: currentSettings.multiSelectEnabled });
             
             // Notify content scripts of settings change
             chrome.tabs.query({ url: '*://*.youtube.com/*' }, (tabs) => {
@@ -150,6 +177,16 @@ function loadSettings() {
                 deleteVideosToggle.classList.add('active');
             } else {
                 deleteVideosToggle.classList.remove('active');
+            }
+        }
+        
+        // Load multi-select toggle
+        const multiSelectToggle = document.getElementById('multiSelectToggle');
+        if (multiSelectToggle) {
+            if (settings.multiSelectEnabled) {
+                multiSelectToggle.classList.add('active');
+            } else {
+                multiSelectToggle.classList.remove('active');
             }
         }
         
@@ -545,6 +582,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
         console.log('Setting up toggles...'); // Debug log
         setupDeleteVideosToggle();
+        setupMultiSelectToggle();
         setupBackupToggle();
         setupAutoSave();
         setupFeatureHeaders();
@@ -560,22 +598,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(loadWatchedHistoryStats, 5000);
 });
 
-// Test function to manually check toggles
-window.testToggles = function() {
-    console.log('=== TOGGLE TEST ===');
-    const toggles = ['seekToggle', 'qualityToggle', 'audioToggle', 'historyToggle'];
-    
-    toggles.forEach(toggleId => {
-        const toggle = document.getElementById(toggleId);
-        console.log(`${toggleId}:`, toggle);
-        if (toggle) {
-            console.log(`  - Classes: ${toggle.className}`);
-            console.log(`  - Active: ${toggle.classList.contains('active')}`);
-            console.log(`  - Event listeners: ${toggle.onclick ? 'onclick' : 'addEventListener'}`);
-        }
-    });
-    console.log('=== END TEST ===');
-};
 
 // Make functions globally available
 window.toggleFeature = toggleFeature;
