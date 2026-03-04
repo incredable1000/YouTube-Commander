@@ -1,1323 +1,1170 @@
 /**
- * Watched History - Working legacy implementation
- * Track and mark watched YouTube videos
+ * Watched History
+ * Tracks watched videos in IndexedDB and decorates YouTube thumbnails efficiently.
  */
 
-import { getCurrentVideoId, isVideoPage } from './utils/youtube.js';
+import { getCurrentVideoId } from './utils/youtube.js';
+import { createLogger } from './utils/logger.js';
 
-// IndexedDB setup and operations
+const logger = createLogger('WatchedHistory');
+
 const DB_NAME = 'YouTubeCommanderDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'watchedVideos';
+
+const FEED_RENDERER_SELECTOR = [
+    'ytd-rich-item-renderer',
+    'ytd-video-renderer',
+    'ytd-grid-video-renderer',
+    'ytd-compact-video-renderer',
+    'ytd-playlist-video-renderer',
+    'ytd-playlist-panel-video-renderer',
+    'ytd-reel-item-renderer',
+    'ytm-shorts-lockup-view-model'
+].join(', ');
+
+const VIDEO_LINK_SELECTOR = 'a[href*="/watch?v="], a[href*="/shorts/"]';
+const MARKER_CLASS = 'yt-commander-watched-marker';
+const HIDDEN_CLASS = 'yt-commander-hidden-video';
+const WATCHED_ATTR = 'data-yt-commander-watched';
+
+const RENDER_DEBOUNCE_MS = 120;
+const PLAYBACK_BIND_DELAY_MS = 250;
+const PLAYBACK_BIND_MAX_RETRIES = 12;
+const CACHE_REFRESH_DEBOUNCE_MS = 300;
+const MAX_PENDING_NODES = 2000;
+
 let db = null;
-let isInitialized = false;
-let initializationRetries = 0;
-const MAX_RETRIES = 3;
+let initialized = false;
+let initializingPromise = null;
 
-// Settings for the delete videos feature
-let currentSettings = {
-    deleteVideosEnabled: false
-};
+let isEnabled = true;
+let deleteVideosEnabled = false;
+let watchedIds = new Set();
 
-// Debug logging function
-function debugLog(category, message, data = null) {
-    const timestamp = new Date().toISOString();
-    const logMessage = `[YT-Commander][${timestamp}][${category}] ${message}`;
-    console.log(logMessage, data ? data : '');
-}
+let mutationObserver = null;
+let renderTimer = null;
+let playbackTimer = null;
+let cacheRefreshTimer = null;
+let fullScanRequested = false;
+let flushing = false;
+let flushAgain = false;
+let lastUrl = location.href;
 
-// Add a video to watched history and trigger sync
-async function addToWatchedHistory(videoId) {
-    if (!videoId) return;
-    
-    try {
-        if (!db || !isInitialized) {
-            debugLog('Watch', 'Database not initialized, reinitializing...');
-            await reinitializeExtension();
-        }
+const pendingContainers = new Set();
+const playbackBindings = new Map();
 
-        return new Promise((resolve, reject) => {
-            try {
-                const transaction = db.transaction([STORE_NAME], 'readwrite');
-                const store = transaction.objectStore(STORE_NAME);
-                const request = store.put({ videoId, timestamp: Date.now() });
+let runtimeMessageListener = null;
+let storageListener = null;
 
-                request.onsuccess = () => {
-                    debugLog('Watch', `Added video to history: ${videoId}`);
-                    // Notify background script about the change for potential sync
-                    chrome.runtime.sendMessage({ type: 'HISTORY_UPDATED' });
-                    // Immediately update markers on current page
-                    setTimeout(() => {
-                        markWatchedVideosOnPage();
-                    }, 100);
-                    resolve();
-                };
-                request.onerror = () => reject(request.error);
-            } catch (error) {
-                debugLog('Watch', 'Error adding to history:', error);
-                reject(error);
-            }
-        });
-    } catch (error) {
-        debugLog('Watch', 'Error in addToWatchedHistory:', error);
-    }
-}
+const teardownCallbacks = [];
 
-// Get all watched videos
-async function getAllWatchedVideos() {
-    try {
-        if (!db || !isInitialized) {
-            await reinitializeExtension();
-        }
-        return new Promise((resolve, reject) => {
-            try {
-                const transaction = db.transaction([STORE_NAME], 'readonly');
-                const store = transaction.objectStore(STORE_NAME);
-                const request = store.getAll();
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            } catch (error) {
-                debugLog('Watch', 'Error getting all videos:', error);
-                reject(error);
-            }
-        });
-    } catch (error) {
-        debugLog('Watch', 'Error in getAllWatchedVideos:', error);
-        return [];
-    }
-}
-
-// Update watched history from sync data
-async function updateWatchedHistoryFromSync(videos) {
-    try {
-        if (!db || !isInitialized) {
-            await reinitializeExtension();
-        }
-        return new Promise((resolve, reject) => {
-            try {
-                const transaction = db.transaction([STORE_NAME], 'readwrite');
-                const store = transaction.objectStore(STORE_NAME);
-                
-                let completed = 0;
-                videos.forEach(video => {
-                    const request = store.put(video);
-                    request.onsuccess = () => {
-                        completed++;
-                        if (completed === videos.length) {
-                            debugLog('Sync', `Updated ${videos.length} videos from sync`);
-                            markWatchedVideosOnPage();
-                            resolve();
-                        }
-                    };
-                    request.onerror = () => reject(request.error);
-                });
-            } catch (error) {
-                debugLog('Sync', 'Error updating from sync:', error);
-                reject(error);
-            }
-        });
-    } catch (error) {
-        debugLog('Sync', 'Error in updateWatchedHistoryFromSync:', error);
-        throw error;
-    }
-}
-
-// Remove watched video from page (delete ytd-rich-item-renderer elements)
-function removeFromWatchedHistory(container, videoId) {
-    debugLog('Remove', `Removing watched video from page: ${videoId}`);
-    
-    // Find the correct container to remove (ytd-rich-item-renderer)
-    let targetContainer = container;
-    
-    // Walk up the DOM tree to find ytd-rich-item-renderer
-    while (targetContainer && !targetContainer.matches('ytd-rich-item-renderer')) {
-        targetContainer = targetContainer.parentElement;
-    }
-    
-    if (targetContainer && targetContainer.matches('ytd-rich-item-renderer')) {
-        debugLog('Remove', `Found ytd-rich-item-renderer for ${videoId}, removing with animation`);
-        
-        // Add fade-out animation
-        targetContainer.style.transition = 'opacity 300ms ease-out, transform 300ms ease-out';
-        targetContainer.style.opacity = '0';
-        targetContainer.style.transform = 'scale(0.95)';
-        
-        // Remove from DOM after animation
-        setTimeout(() => {
-            if (targetContainer.parentNode) {
-                targetContainer.parentNode.removeChild(targetContainer);
-                debugLog('Remove', `Successfully removed ytd-rich-item-renderer for ${videoId}`);
-            }
-        }, 300);
-    } else {
-        debugLog('Remove', `Could not find ytd-rich-item-renderer for ${videoId}, container:`, container);
-    }
-}
-
-// Reinitialize the extension
-async function reinitializeExtension() {
-    debugLog('Init', 'Reinitializing extension...');
-    isInitialized = false;
-    db = null;
-    initializationRetries = 0;
-    videoIdCache.clear();
-    await initialize();
-}
-
-// Initialize IndexedDB
+/**
+ * Initialize IndexedDB for watched history.
+ * @returns {Promise<void>}
+ */
 async function initDB() {
-    debugLog('DB', 'Initializing IndexedDB...');
     return new Promise((resolve, reject) => {
-        try {
-            const request = indexedDB.open(DB_NAME, DB_VERSION);
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-            request.onerror = () => {
-                debugLog('DB', 'Error opening database:', request.error);
-                reject(request.error);
-            };
-
-            request.onsuccess = () => {
-                db = request.result;
-                debugLog('DB', 'Database opened successfully');
-                
-                db.onerror = (event) => {
-                    debugLog('DB', 'Database error:', event.target.error);
-                    reinitializeExtension();
-                };
-                
-                db.onclose = () => {
-                    debugLog('DB', 'Database connection closed');
-                    reinitializeExtension();
-                };
-                
-                resolve(db);
-            };
-
-            request.onupgradeneeded = (event) => {
-                debugLog('DB', 'Database upgrade needed');
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains(STORE_NAME)) {
-                    db.createObjectStore(STORE_NAME, { keyPath: 'videoId' });
-                    debugLog('DB', 'Created store:', STORE_NAME);
-                }
-            };
-        } catch (error) {
-            debugLog('DB', 'Error in initDB:', error);
-            reject(error);
-        }
-    });
-}
-
-// Inject CSS for watched indicator
-function injectStyles() {
-    if (!document.querySelector('#yt-commander-styles')) {
-        const style = document.createElement('style');
-        style.id = 'yt-commander-styles';
-        style.textContent = `
-            /* Custom watched indicator with full overlay */
-            .yt-commander-watched {
-                position: absolute !important;
-                top: 0 !important;
-                left: 0 !important;
-                width: 100% !important;
-                height: 100% !important;
-                pointer-events: none !important;
-                z-index: 10 !important;
-                border-radius: 12px !important;
-                background: rgba(0, 0, 0, 0.6) !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-            }
-            
-            /* Add green checkmark in center */
-            .yt-commander-watched::after {
-                content: '✓' !important;
-                width: 32px !important;
-                height: 32px !important;
-                background-color: #4CAF50 !important;
-                color: white !important;
-                border-radius: 50% !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                font-size: 18px !important;
-                font-weight: bold !important;
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
-            }
-            @keyframes yt-commander-swing {
-                0%, 100% { 
-                    transform: rotate(0deg) scale(1) !important;
-                }
-                25% { 
-                    transform: rotate(3deg) scale(1.05) !important;
-                }
-                75% { 
-                    transform: rotate(-3deg) scale(1.05) !important;
-                }
-            }
-            /* Only add positioning when absolutely necessary and don't force it on all elements */
-            
-            /* Ensure hover overlays work properly with watched indicator */
-            a#thumbnail[watched] #mouseover-overlay,
-            a#thumbnail[watched] #hover-overlays {
-                z-index: 500 !important;
-            }
-            
-            /* Make sure the watched indicator doesn't block hover detection */
-            .yt-commander-watched {
-                pointer-events: none !important;
-            }
-            
-            /* Ensure moving thumbnail (hover video) appears above watched indicator */
-            ytd-moving-thumbnail-renderer {
-                z-index: 600 !important;
-            }
-        `;
-        document.head.appendChild(style);
-        debugLog('Styles', 'CSS styles injected successfully');
-    }
-}
-
-// Create watched indicator element template
-const indicatorTemplate = document.createElement('div');
-indicatorTemplate.className = 'yt-commander-watched';
-
-// Extract video ID from URL
-function getVideoId(url) {
-    if (!url) return null;
-    const videoMatch = url.match(/(?:v=|\/shorts\/)([^&\/]+)/);
-    const videoId = videoMatch ? videoMatch[1] : null;
-    debugLog('VideoID', `Extracted video ID from URL: ${url}`, { videoId });
-    return videoId;
-}
-
-// Cache for video IDs to prevent repeated regex operations
-const videoIdCache = new Map();
-function getCachedVideoId(url) {
-    if (!url) return null;
-    if (videoIdCache.has(url)) {
-        return videoIdCache.get(url);
-    }
-    const videoId = getVideoId(url);
-    if (videoId) {
-        videoIdCache.set(url, videoId);
-    }
-    return videoId;
-}
-
-// Check if a video is watched
-async function isVideoWatched(videoId) {
-    if (!videoId) return false;
-    
-    try {
-        if (!db || !isInitialized) {
-            debugLog('Watch', 'Database not initialized, reinitializing...');
-            await reinitializeExtension();
-        }
-        
-        return new Promise((resolve, reject) => {
-            try {
-                const transaction = db.transaction([STORE_NAME], 'readonly');
-                const store = transaction.objectStore(STORE_NAME);
-                const request = store.get(videoId);
-
-                request.onsuccess = () => {
-                    const isWatched = !!request.result;
-                    debugLog('Watch', `Video ${videoId} watched status:`, isWatched);
-                    resolve(isWatched);
-                };
-                request.onerror = () => reject(request.error);
-            } catch (error) {
-                debugLog('Watch', 'Error checking video watched status:', error);
-                reject(error);
-            }
-        });
-    } catch (error) {
-        debugLog('Watch', 'Error in isVideoWatched:', error);
-        return false;
-    }
-}
-
-// Track processed videos to prevent duplicates
-const processedVideos = new Set();
-
-// Check if we're on a Shorts page
-function isShortsPage() {
-    return location.pathname.startsWith('/shorts');
-}
-
-// Get the active video element
-function getActiveVideo() {
-    if (isShortsPage()) {
-        const renderer = getActiveShortsRenderer();
-        if (renderer) {
-            // Video inside the active Shorts renderer
-            const v = renderer.querySelector('video.html5-main-video');
-            if (v) return v;
-        }
-        // Last resort: any Shorts video (not ideal but better than null)
-        return document.querySelector('ytd-shorts video.html5-main-video');
-    }
-    // Regular watch page
-    return document.querySelector('video.html5-main-video');
-}
-
-// Get the active Shorts renderer
-function getActiveShortsRenderer() {
-    // First try YouTube's explicit marker
-    let active = document.querySelector('ytd-reel-video-renderer[is-active]');
-    if (active) {
-        debugLog('Shorts', 'Found active Shorts renderer with is-active attribute');
-        return active;
-    }
-
-    // Then try finding the renderer in the viewport center
-    const renderers = Array.from(document.querySelectorAll('ytd-reel-video-renderer'));
-    const midY = window.innerHeight / 2;
-    for (const renderer of renderers) {
-        const rect = renderer.getBoundingClientRect();
-        if (rect.top <= midY && rect.bottom >= midY) {
-            debugLog('Shorts', 'Found active Shorts renderer in viewport center');
-            return renderer;
-        }
-    }
-    return null;
-}
-
-// Watch for video playback
-function handleVideoPlayback() {
-    debugLog('Video', 'Setting up video playback handler');
-    const url = window.location.href;
-    const videoId = getVideoId(url);
-    
-    if (!videoId || processedVideos.has(videoId)) {
-        return;
-    }
-
-    // Function to set up video tracking
-    const setupVideoTracking = (video) => {
-        if (!video) return;
-        
-        debugLog('Video', `Found video element for ${videoId}`);
-
-        // Mark as watched immediately when video starts playing
-        const playHandler = async () => {
-            if (!processedVideos.has(videoId)) {
-                debugLog('Video', `Marking video as watched: ${videoId}`);
-                processedVideos.add(videoId);
-                await addToWatchedHistory(videoId);
-                await markWatchedVideosOnPage();
-                video.removeEventListener('play', playHandler);
+        request.onupgradeneeded = (event) => {
+            const upgradedDb = event.target.result;
+            if (!upgradedDb.objectStoreNames.contains(STORE_NAME)) {
+                upgradedDb.createObjectStore(STORE_NAME, { keyPath: 'videoId' });
             }
         };
 
-        // Save immediately when video starts playing
-        video.addEventListener('play', playHandler);
-        
-        // Also check if video is already playing (in case we missed the play event)
-        if (!video.paused && !processedVideos.has(videoId)) {
-            playHandler();
-        }
-    };
+        request.onsuccess = () => {
+            db = request.result;
 
-    // Try to find video element based on page type
-    let video;
-    if (url.includes('/shorts/')) {
-        const renderer = getActiveShortsRenderer();
-        video = renderer ? renderer.querySelector('video') : document.querySelector('ytd-shorts video');
-    } else {
-        video = document.querySelector('video');
-    }
+            db.onclose = () => {
+                logger.warn('IndexedDB connection closed');
+                db = null;
+                initialized = false;
+            };
 
-    if (video) {
-        setupVideoTracking(video);
-    }
+            db.onerror = (event) => {
+                logger.error('IndexedDB runtime error', event.target?.error || event);
+            };
 
-    // Also watch for video element being added
-    const videoObserver = new MutationObserver((mutations) => {
-        for (const mutation of mutations) {
-            if (mutation.addedNodes) {
-                const newVideo = url.includes('/shorts/') ?
-                    (getActiveShortsRenderer()?.querySelector('video') || document.querySelector('ytd-shorts video')) :
-                    document.querySelector('video');
-                    
-                if (newVideo && !newVideo.hasAttribute('data-yt-commander-tracked')) {
-                    newVideo.setAttribute('data-yt-commander-tracked', 'true');
-                    setupVideoTracking(newVideo);
-                    videoObserver.disconnect();
-                    break;
-                }
-            }
-        }
-    });
+            resolve();
+        };
 
-    videoObserver.observe(document.body, {
-        childList: true,
-        subtree: true
+        request.onerror = () => {
+            reject(request.error || new Error('Failed to open watched history database'));
+        };
     });
 }
 
-// Create Intersection Observer for Shorts in feed
-function createShortsObserver() {
-    debugLog('Shorts', 'Creating Shorts observer');
-    
-    return new IntersectionObserver(
-        async (entries) => {
-            for (const entry of entries) {
-                if (!entry.isIntersecting) continue;
+/**
+ * Ensure initialization only runs once and is safe to call repeatedly.
+ * @returns {Promise<void>}
+ */
+async function ensureInitialized() {
+    if (initialized) {
+        return;
+    }
 
-                const container = entry.target;
-                const link = container.querySelector('a[href*="/shorts/"]');
-                if (!link) continue;
-                
-                const videoId = getCachedVideoId(link.href);
-                if (!videoId || processedVideos.has(videoId)) continue;
+    if (initializingPromise) {
+        return initializingPromise;
+    }
 
-                const video = container.querySelector('video');
-                if (!video) continue;
+    initializingPromise = (async () => {
+        logger.info('Initializing watched history');
+        await initDB();
+        await loadDeleteModeSetting();
+        await hydrateWatchedIdCache();
+        injectStyles();
+        attachListeners();
+        startMutationObserver();
 
-                debugLog('Shorts', `Found video element for Short in feed: ${videoId}`);
+        initialized = true;
+        fullScanRequested = true;
 
-                // Mark Short as watched immediately when it starts playing
-                const playHandler = async () => {
-                    if (!processedVideos.has(videoId)) {
-                        debugLog('Shorts', `Marking Short as watched: ${videoId}`);
-                        processedVideos.add(videoId);
-                        await addToWatchedHistory(videoId);
-                        await markWatchedVideosOnPage();
-                        video.removeEventListener('play', playHandler);
-                    }
-                };
+        scheduleRender('init', true);
+        schedulePlaybackBinding();
 
-                video.addEventListener('play', playHandler);
-                
-                // Also check if video is already playing
-                if (!video.paused && !processedVideos.has(videoId)) {
-                    playHandler();
-                }
-            }
-        },
-        { threshold: 0.7 } // Require 70% visibility
-    );
-}
+        logger.info('Watched history initialized', { watchedCount: watchedIds.size });
+    })();
 
-// Mark watched videos on the page
-async function markWatchedVideosOnPage() {
-    debugLog('Marker', 'Starting to mark watched videos on page');
     try {
-        // Handle both regular videos and Shorts
-        const containers = document.querySelectorAll(`
-            ytd-rich-item-renderer:not([data-watched-checked]),
-            ytd-compact-video-renderer:not([data-watched-checked]),
-            ytd-grid-video-renderer:not([data-watched-checked]),
-            ytd-video-renderer:not([data-watched-checked]),
-            ytd-reel-item-renderer:not([data-watched-checked]),
-            ytd-playlist-video-renderer:not([data-watched-checked]),
-            ytd-playlist-panel-video-renderer:not([data-watched-checked]),
-            ytd-compact-playlist-renderer:not([data-watched-checked]),
-            ytd-guide-entry-renderer:not([data-watched-checked]),
-            ytm-shorts-lockup-view-model:not([data-watched-checked])
-        `);
-        
-        debugLog('Marker', `Found ${containers.length} unchecked video containers`);
-        
-        const shortsObserver = createShortsObserver();
-        
-        for (const container of containers) {
-            try {
-                container.setAttribute('data-watched-checked', 'true');
-                
-                // Handle both regular video links and Shorts links
-                const link = container.querySelector('a[href*="/watch?v="], a[href*="/shorts/"]');
-                if (!link) {
-                    debugLog('Marker', 'No video link found in container', container);
-                    continue;
-                }
-
-                const videoId = getCachedVideoId(link.href);
-                if (!videoId) {
-                    debugLog('Marker', 'Could not extract video ID from link:', link.href);
-                    continue;
-                }
-
-                // If it's a Short, observe it for scrolling
-                if (link.href.includes('/shorts/')) {
-                    debugLog('Shorts', `Observing Short: ${videoId}`);
-                    shortsObserver.observe(container);
-                }
-
-                const isWatched = await isVideoWatched(videoId);
-                if (isWatched) {
-                    // Check if delete videos mode is enabled
-                    if (currentSettings.deleteVideosEnabled) {
-                        debugLog('Remove', `Removing watched video from page: ${videoId}`);
-                        removeFromWatchedHistory(container, videoId);
-                    } else {
-                        debugLog('Marker', `Adding marker for watched video: ${videoId}`);
-                        
-                        // Try multiple possible thumbnail containers
-                        const thumbnail = container.querySelector(`
-                            a#thumbnail, 
-                            .ytd-thumbnail, 
-                            .thumbnail-container,
-                            .ytThumbnailViewModelHost,
-                            .shortsLockupViewModelHostThumbnailContainer
-                        `);
-
-                        if (thumbnail) {
-                            // Add watched attribute for the overlay
-                            thumbnail.setAttribute('watched', 'true');
-                            
-                            // Add the corner marker if not already present
-                            if (!thumbnail.querySelector('.yt-commander-watched')) {
-                                // Only set position relative if it's not already positioned
-                                const computedStyle = window.getComputedStyle(thumbnail);
-                                if (computedStyle.position === 'static') {
-                                    thumbnail.style.position = 'relative';
-                                }
-                                
-                                const marker = indicatorTemplate.cloneNode(true);
-                                thumbnail.appendChild(marker);
-                                debugLog('Marker', 'Added marker to thumbnail', { videoId, thumbnail });
-                            } else {
-                                debugLog('Marker', 'Marker already exists on thumbnail', { videoId, thumbnail });
-                            }
-                        } else {
-                            debugLog('Marker', 'Could not find thumbnail', { videoId });
-                        }
-                    }
-                }
-            } catch (error) {
-                debugLog('Marker', 'Error processing container:', error);
-                continue;
-            }
-        }
+        await initializingPromise;
     } catch (error) {
-        debugLog('Marker', 'Error in markWatchedVideosOnPage:', error);
-        if (error.message.includes('Extension context invalidated')) {
-            await reinitializeExtension();
-        }
+        logger.error('Initialization failed', error);
+        initializingPromise = null;
+        initialized = false;
+        throw error;
     }
 }
 
-// Watch for new video elements
-const pageObserver = new MutationObserver((mutations) => {
+/**
+ * Load delete-videos mode from sync storage.
+ * @returns {Promise<void>}
+ */
+async function loadDeleteModeSetting() {
     try {
-        // Always check for new videos on any DOM change for better reliability
-        debugLog('Observer', 'DOM mutation detected, checking for new videos');
-        
-        // Use a small debounce to prevent excessive processing
-        if (window.ytCommanderMarkingTimeout) {
-            clearTimeout(window.ytCommanderMarkingTimeout);
-        }
-        
-        window.ytCommanderMarkingTimeout = setTimeout(() => {
-            requestIdleCallback(
-                () => markWatchedVideosOnPage(),
-                { timeout: 1000 } // Max wait time of 1 second
-            );
-        }, 300); // 300ms debounce
+        const result = await chrome.storage.sync.get(['deleteVideosEnabled']);
+        deleteVideosEnabled = result.deleteVideosEnabled === true;
     } catch (error) {
-        debugLog('Observer', 'Error in mutation observer:', error);
+        logger.warn('Failed to load delete mode setting, using default', error);
+        deleteVideosEnabled = false;
     }
-});
+}
 
-// Initialize extension
-async function initialize() {
-    debugLog('Init', 'Starting initialization');
-    try {
-        if (!isInitialized) {
-            if (initializationRetries >= MAX_RETRIES) {
-                debugLog('Init', 'Max initialization retries reached');
+/**
+ * Pull all watched IDs into in-memory cache for O(1) checks during rendering.
+ * @returns {Promise<void>}
+ */
+async function hydrateWatchedIdCache() {
+    if (!db) {
+        throw new Error('Database not initialized');
+    }
+
+    const ids = await new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+
+        const request = typeof store.getAllKeys === 'function' ? store.getAllKeys() : store.getAll();
+
+        request.onsuccess = () => {
+            const raw = request.result || [];
+            if (typeof store.getAllKeys === 'function') {
+                resolve(raw);
                 return;
             }
-            
-            initializationRetries++;
-            debugLog('Init', `Initialization attempt ${initializationRetries}/${MAX_RETRIES}`);
-            
-            await initDB();
-            injectStyles();
-            
-            // Load initial settings
-            try {
-                const result = await chrome.storage.sync.get(['deleteVideosEnabled']);
-                currentSettings.deleteVideosEnabled = result.deleteVideosEnabled || false;
-                debugLog('Settings', `Loaded initial delete videos setting: ${currentSettings.deleteVideosEnabled}`);
-            } catch (error) {
-                debugLog('Settings', 'Error loading initial settings:', error);
-            }
-            
-            // Start observers with more comprehensive configuration
-            const observerConfig = {
-                childList: true,
-                subtree: true,
-                attributes: false,
-                characterData: false
-            };
-            
-            // Observe both document and common YouTube containers
-            const observeTargets = [
-                document.documentElement || document.body,
-                ...Array.from(document.querySelectorAll('ytd-page-manager, ytd-browse, ytd-rich-grid-renderer, ytd-item-section-renderer'))
-            ];
-            
-            observeTargets.forEach(target => {
-                try {
-                    if (target && target.nodeType === 1) {  // Only observe element nodes
-                        pageObserver.observe(target, observerConfig);
-                        debugLog('Observer', 'Started observing target:', target);
-                    }
-                } catch (e) {
-                    debugLog('Observer', 'Error observing target:', e);
-                }
-            });
-            
-            isInitialized = true;
-            debugLog('Init', 'Page observers started');
-            
-            // Initial setup with retry logic
-            const setupWithRetry = async (attempt = 1, maxAttempts = 3) => {
-                try {
-                    await handleVideoPlayback();
-                    await markWatchedVideosOnPage();
-                    debugLog('Init', 'Initial page marking complete');
-                    initializationRetries = 0; // Reset on success
-                } catch (error) {
-                    if (attempt < maxAttempts) {
-                        debugLog('Init', `Retrying setup (${attempt}/${maxAttempts}):`, error);
-                        setTimeout(() => setupWithRetry(attempt + 1, maxAttempts), 1000 * attempt);
-                    } else {
-                        debugLog('Init', 'Max setup attempts reached, giving up');
-                        throw error;
-                    }
-                }
-            };
-            
-            await setupWithRetry();
-            
-            // Watch for navigation and content changes
-            setupNavigationObserver();
-            
-            // Set up Shorts scroll detection if on Shorts page
-            if (isShortsPage()) {
-                setupShortsScrollDetection();
-            }
-            
-            // Set up real-time updates
-            setupRealTimeUpdates();
-            
-            // Periodic checks
-            const checkAndMarkVideos = () => {
-                if (!document.hidden) {
-                    debugLog('Periodic', 'Checking for new videos');
-                    markWatchedVideosOnPage().catch(e => 
-                        debugLog('Periodic', 'Error marking videos:', e)
-                    );
-                }
-            };
-            
-            // Initial check with delay to catch any missed videos
-            setTimeout(checkAndMarkVideos, 1000);
-            
-            // Periodic checks
-            const checkInterval = setInterval(checkAndMarkVideos, 3000);
-            
-            // Clean up on page unload
-            window.addEventListener('unload', () => {
-                clearInterval(checkInterval);
-                debugLog('Cleanup', 'Cleared intervals and observers');
-            });
-            
-            debugLog('Init', 'Initialization successful');
-        }
-    } catch (error) {
-        debugLog('Init', 'Error in initialization:', error);
-        setTimeout(initialize, 1000);
-    }
+
+            const mapped = raw
+                .map((entry) => entry?.videoId)
+                .filter((videoId) => typeof videoId === 'string');
+            resolve(mapped);
+        };
+
+        request.onerror = () => {
+            reject(request.error || new Error('Failed to read watched IDs'));
+        };
+    });
+
+    watchedIds = new Set(ids.filter((videoId) => isValidVideoId(videoId)));
 }
 
-// Setup navigation observer
-function setupNavigationObserver() {
-    debugLog('Navigation', 'Setting up navigation observers');
-    
-    // Store the last processed URL and timestamp
-    let lastProcessedUrl = '';
-    let lastProcessedTime = 0;
-    let navigationTimeout = null;
-    
-    // Function to handle page updates
-    const handlePageUpdate = (source) => {
-        const now = Date.now();
-        const url = window.location.href;
-        
-        // Skip if we just processed this URL or if it's too soon since the last update
-        if ((url === lastProcessedUrl && (now - lastProcessedTime) < 1000) || 
-            !document.body) {
+/**
+ * Inject watched-marker and hidden-video styles once.
+ */
+function injectStyles() {
+    if (document.getElementById('yt-commander-watched-history-styles')) {
+        return;
+    }
+
+    const style = document.createElement('style');
+    style.id = 'yt-commander-watched-history-styles';
+    style.textContent = `
+        .${HIDDEN_CLASS} {
+            display: none !important;
+        }
+
+        [${WATCHED_ATTR}='true'] {
+            position: relative !important;
+        }
+
+        .${MARKER_CLASS} {
+            position: absolute !important;
+            inset: 0 !important;
+            pointer-events: none !important;
+            z-index: 5 !important;
+            background: rgba(0, 0, 0, 0.45) !important;
+            border-radius: 12px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+
+        .${MARKER_CLASS}::after {
+            content: 'Seen' !important;
+            font-size: 12px !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.3px !important;
+            color: #ffffff !important;
+            background: rgba(31, 165, 68, 0.95) !important;
+            border-radius: 999px !important;
+            padding: 4px 9px !important;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35) !important;
+        }
+    `;
+
+    document.head.appendChild(style);
+}
+
+/**
+ * Attach runtime/storage/navigation listeners once.
+ */
+function attachListeners() {
+    if (!runtimeMessageListener) {
+        runtimeMessageListener = (message, sender, sendResponse) => {
+            if (!message || !message.type) {
+                return undefined;
+            }
+
+            if (message.type === 'REFRESH_BADGE') {
+                scheduleRender('refresh-badge', true);
+                return undefined;
+            }
+
+            if (message.type === 'GET_WATCHED_COUNT') {
+                sendResponse({ count: watchedIds.size });
+                return undefined;
+            }
+
+            if (message.type === 'SHOW_EXPORT_REMINDER') {
+                showExportReminder();
+                return undefined;
+            }
+
+            if (message.type === 'GET_ALL_WATCHED_VIDEOS') {
+                getAllWatchedVideos()
+                    .then((videos) => sendResponse({ success: true, videos }))
+                    .catch((error) => sendResponse({ success: false, error: error.message }));
+                return true;
+            }
+
+            if (message.type === 'HISTORY_UPDATED') {
+                scheduleCacheRefresh('history-updated');
+                return undefined;
+            }
+
+            if (message.type === 'SETTINGS_UPDATED') {
+                if (message.settings) {
+                    updateSettings(message.settings);
+                }
+                sendResponse({ success: true });
+                return undefined;
+            }
+
+            return undefined;
+        };
+
+        chrome.runtime.onMessage.addListener(runtimeMessageListener);
+    }
+
+    if (!storageListener) {
+        storageListener = (changes, areaName) => {
+            if (areaName !== 'sync') {
+                return;
+            }
+
+            if (changes.deleteVideosEnabled) {
+                deleteVideosEnabled = changes.deleteVideosEnabled.newValue === true;
+                scheduleRender('storage-change', true);
+            }
+        };
+
+        chrome.storage.onChanged.addListener(storageListener);
+    }
+
+    const onNavigate = () => {
+        if (location.href === lastUrl) {
             return;
         }
-        
-        debugLog('Navigation', `Page update detected (${source}):`, url);
-        lastProcessedUrl = url;
-        lastProcessedTime = now;
-        
-        // Clear any pending timeouts
-        if (navigationTimeout) {
-            clearTimeout(navigationTimeout);
-        }
-        
-        // Process the update with a small delay to allow DOM to settle
-        navigationTimeout = setTimeout(() => {
-            // Check if we're on a video page
-            let videoId = null;
-            if (url.includes('/shorts/')) {
-                const match = url.match(/\/shorts\/([^/?]+)/);
-                videoId = match ? match[1] : null;
-                debugLog('Navigation', 'Shorts video detected, setting up tracking');
-                
-                // Special handling for Shorts
-                const checkShortsVideo = () => {
-                    const video = getActiveVideo();
-                    if (video) {
-                        debugLog('Navigation', 'Found Shorts video element, setting up tracking');
-                        handleVideoPlayback();
-                    } else {
-                        debugLog('Navigation', 'Shorts video not found, retrying...');
-                        setTimeout(checkShortsVideo, 300);
-                    }
-                };
-                setTimeout(checkShortsVideo, 100);
-            } else if (url.includes('/watch')) {
-                const urlParams = new URLSearchParams(new URL(url).search);
-                videoId = urlParams.get('v');
-                debugLog('Navigation', 'Regular video detected, setting up tracking');
-                handleVideoPlayback();
-            }
-            
-            // Always mark watched videos, even if not on a video page
-            markWatchedVideosOnPage().catch(e => 
-                debugLog('Navigation', 'Error marking videos:', e)
-            );
-            
-        }, 300); // 300ms delay to allow for DOM updates
-    };
-    
-    // 1. Watch for YouTube's navigation events
-    document.addEventListener('yt-navigate-start', () => 
-        debugLog('Navigation', 'YouTube navigation started'));
-    
-    document.addEventListener('yt-navigate-finish', () => {
-        debugLog('Navigation', 'YouTube navigation finished');
-        handlePageUpdate('yt-navigate-finish');
-    });
-    
-    // 2. Watch for history changes (back/forward)
-    window.addEventListener('popstate', () => {
-        debugLog('Navigation', 'History state changed (popstate)');
-        handlePageUpdate('popstate');
-    });
-    
-    // 3. Override pushState and replaceState to detect SPA navigation
-    const originalPushState = history.pushState;
-    const originalReplaceState = history.replaceState;
-    
-    history.pushState = function() {
-        originalPushState.apply(this, arguments);
-        debugLog('Navigation', 'History pushState');
-        handlePageUpdate('pushState');
-    };
-    
-    history.replaceState = function() {
-        originalReplaceState.apply(this, arguments);
-        debugLog('Navigation', 'History replaceState');
-        handlePageUpdate('replaceState');
-    };
-    
-    // 4. Watch for YouTube's AJAX page updates
-    const handleMutations = (mutations) => {
-        for (const mutation of mutations) {
-            if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                const hasNewContent = Array.from(mutation.addedNodes).some(node => 
-                    node.nodeType === 1 && 
-                    (node.matches?.('ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-reel-item-renderer') ||
-                     node.querySelector?.('ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-reel-item-renderer'))
-                );
-                
-                if (hasNewContent) {
-                    debugLog('Navigation', 'New video content detected in DOM');
-                    handlePageUpdate('mutation');
-                    break;
-                }
-            }
-        }
-    };
-    
-    const mutationObserver = new MutationObserver(handleMutations);
-    mutationObserver.observe(document.documentElement, {
-        childList: true,
-        subtree: true
-    });
-    
-    // 5. Initial check
-    handlePageUpdate('initial');
-    urlObserver.observe(document.body, { 
-        childList: true, 
-        subtree: true 
-    });
-    
-    window.addEventListener('popstate', handleUrlChange);
-    const pushState = history.pushState;
-    history.pushState = function() {
-        pushState.apply(history, arguments);
-        handleUrlChange();
+
+        lastUrl = location.href;
+        scheduleRender('navigate', true);
+        schedulePlaybackBinding();
     };
 
-    // Watch for navigation clicks
-    document.addEventListener('click', async (e) => {
-        // Check for YouTube logo click (home navigation)
-        const logoButton = e.target.closest('a[aria-label="YouTube"]');
-        if (logoButton) {
-            debugLog('Navigation', 'YouTube logo clicked, scheduling marker update');
-            setTimeout(async () => {
-                await markWatchedVideosOnPage();
-            }, 1000);
+    const onVisibilityOrFocus = () => {
+        if (document.hidden) {
+            return;
         }
 
-        // Check for navigation menu clicks
-        const menuItem = e.target.closest('a[href^="/"], ytd-guide-entry-renderer a');
-        if (menuItem) {
-            debugLog('Navigation', 'Navigation menu item clicked, scheduling marker update');
-            setTimeout(async () => {
-                await markWatchedVideosOnPage();
-            }, 1000);
-        }
-    }, true);
+        scheduleRender('foreground-refresh', true);
+        schedulePlaybackBinding();
+    };
 
-    // Watch for main content changes with enhanced Shorts detection
-    const contentObserver = new MutationObserver((mutations) => {
-        for (const mutation of mutations) {
-            if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                const hasNewContent = Array.from(mutation.addedNodes).some(node => {
-                    if (node.nodeType === Node.ELEMENT_NODE) {
-                        return node.querySelector('ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer, ytd-reel-item-renderer');
-                    }
-                    return false;
-                });
+    document.addEventListener('yt-navigate-finish', onNavigate);
+    window.addEventListener('popstate', onNavigate);
+    document.addEventListener('visibilitychange', onVisibilityOrFocus);
+    window.addEventListener('focus', onVisibilityOrFocus);
 
-                if (hasNewContent) {
-                    debugLog('Content', 'Main content changed, updating markers');
-                    markWatchedVideosOnPage();
-                    // Check if we're on a Shorts page
-                    if (location.href.includes('/shorts/')) {
-                        debugLog('Content', 'New Shorts content detected, updating video tracking');
-                        handleVideoPlayback();
-                    }
-                    break;
-                }
-            }
-        }
-    });
+    teardownCallbacks.push(() => document.removeEventListener('yt-navigate-finish', onNavigate));
+    teardownCallbacks.push(() => window.removeEventListener('popstate', onNavigate));
+    teardownCallbacks.push(() => document.removeEventListener('visibilitychange', onVisibilityOrFocus));
+    teardownCallbacks.push(() => window.removeEventListener('focus', onVisibilityOrFocus));
+}
 
-    // Start observing main content area
-    const mainContent = document.querySelector('ytd-page-manager');
-    if (mainContent) {
-        contentObserver.observe(mainContent, {
-            childList: true,
-            subtree: true
-        });
-        debugLog('Content', 'Main content observer started');
+/**
+ * Start a single mutation observer for new feed nodes and URL changes.
+ */
+function startMutationObserver() {
+    if (mutationObserver || !document.body) {
+        return;
     }
-}
 
-// Import watched history
-async function importWatchedHistory(videoIds) {
-    console.log('🔥 importWatchedHistory called with:', videoIds.length, 'IDs');
-    console.log('🔥 Sample IDs:', videoIds.slice(0, 5));
-    console.log('🔥 Database state - db:', !!db, 'isInitialized:', isInitialized);
-    
-    debugLog('Import', `Starting import of ${videoIds.length} watched videos`);
-    
-    try {
-        if (!db || !isInitialized) {
-            console.log('🔥 Database not ready, reinitializing...');
-            debugLog('Import', 'Database not initialized, reinitializing...');
-            await reinitializeExtension();
-            console.log('🔥 After reinit - db:', !!db, 'isInitialized:', isInitialized);
+    mutationObserver = new MutationObserver((mutations) => {
+        if (!isEnabled) {
+            return;
         }
 
-        return new Promise((resolve, reject) => {
-            try {
-                console.log('🔥 Creating transaction...');
-                const transaction = db.transaction([STORE_NAME], 'readwrite');
-                const store = transaction.objectStore(STORE_NAME);
-                
-                console.log('🔥 Transaction created, getting existing entries...');
-
-                // Get all existing entries first
-                const getAllRequest = store.getAll();
-                
-                getAllRequest.onsuccess = () => {
-                    console.log('🔥 Got existing entries:', getAllRequest.result?.length || 0);
-                    const existingEntries = getAllRequest.result || [];
-                    const existingIds = new Set(existingEntries.map(entry => entry.videoId));
-                    let importCount = 0;
-                    let processedCount = 0;
-                    let skippedCount = 0;
-
-                    console.log('🔥 Processing video IDs...');
-                    debugLog('Import', `Processing ${videoIds.length} video IDs, ${existingIds.size} existing entries`);
-
-                    // Process each video ID
-                    videoIds.forEach((videoId, index) => {
-                        processedCount++;
-                        
-                        if (videoId && videoId.trim()) {
-                            const trimmedId = videoId.trim();
-                            
-                            if (!existingIds.has(trimmedId)) {
-                                const putRequest = store.put({ videoId: trimmedId, timestamp: Date.now() });
-                                
-                                putRequest.onsuccess = () => {
-                                    importCount++;
-                                    if (importCount % 1000 === 0) {
-                                        console.log(`🔥 Imported ${importCount} entries so far...`);
-                                    }
-                                };
-                                
-                                putRequest.onerror = (e) => {
-                                    console.error('🔥 Error importing ID:', trimmedId, e);
-                                };
-                            } else {
-                                skippedCount++;
-                            }
-                        } else {
-                            console.warn('🔥 Invalid video ID at index', index, ':', videoId);
-                        }
-                    });
-
-                    console.log('🔥 All IDs processed, waiting for transaction to complete...');
-                    console.log('🔥 Stats - Processed:', processedCount, 'Skipped:', skippedCount, 'To Import:', importCount);
-                };
-                
-                getAllRequest.onerror = (e) => {
-                    console.error('🔥 Error getting existing entries:', e);
-                    reject(e);
-                };
-
-                transaction.oncomplete = () => {
-                    console.log('🔥 Transaction completed successfully!');
-                    debugLog('Import', `Import completed. Added entries to database`);
-                    
-                    // Verify the import by counting entries
-                    const verifyTransaction = db.transaction([STORE_NAME], 'readonly');
-                    const verifyStore = verifyTransaction.objectStore(STORE_NAME);
-                    const countRequest = verifyStore.count();
-                    
-                    countRequest.onsuccess = () => {
-                        const totalCount = countRequest.result;
-                        console.log('🔥 Verification - Total entries in DB:', totalCount);
-                        resolve(totalCount);
-                    };
-                    
-                    countRequest.onerror = () => {
-                        console.log('🔥 Could not verify count, resolving anyway');
-                        resolve(0);
-                    };
-                };
-
-                transaction.onerror = (e) => {
-                    console.error('🔥 Transaction error:', e);
-                    debugLog('Import', 'Error during import:', transaction.error);
-                    reject(transaction.error);
-                };
-                
-                transaction.onabort = (e) => {
-                    console.error('🔥 Transaction aborted:', e);
-                    reject(new Error('Transaction aborted'));
-                };
-                
-            } catch (error) {
-                console.error('🔥 Error in import transaction:', error);
-                debugLog('Import', 'Error in import transaction:', error);
-                reject(error);
-            }
-        });
-    } catch (error) {
-        console.error('🔥 Error in importWatchedHistory:', error);
-        debugLog('Import', 'Error in importWatchedHistory:', error);
-        throw error;
-    }
-}
-
-// Clear all watched history
-async function clearWatchedHistory() {
-    debugLog('Clear', 'Starting to clear watched history');
-    try {
-        if (!db || !isInitialized) {
-            debugLog('Clear', 'Database not initialized, reinitializing...');
-            await reinitializeExtension();
-        }
-
-        return new Promise((resolve, reject) => {
-            try {
-                const transaction = db.transaction([STORE_NAME], 'readwrite');
-                const store = transaction.objectStore(STORE_NAME);
-                
-                const clearRequest = store.clear();
-                
-                clearRequest.onsuccess = () => {
-                    debugLog('Clear', 'Successfully cleared watched history');
-                    videoIdCache.clear();
-                    resolve();
-                };
-                
-                clearRequest.onerror = () => {
-                    debugLog('Clear', 'Error clearing history:', clearRequest.error);
-                    reject(clearRequest.error);
-                };
-            } catch (error) {
-                debugLog('Clear', 'Error in clear transaction:', error);
-                reject(error);
-            }
-        });
-    } catch (error) {
-        debugLog('Clear', 'Error in clearWatchedHistory:', error);
-        throw error;
-    }
-}
-
-// Show export reminder overlay
-function showExportReminder() {
-    const reminder = document.createElement('div');
-    reminder.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: #4CAF50;
-        color: white;
-        padding: 15px;
-        border-radius: 8px;
-        z-index: 10000;
-        font-family: Arial, sans-serif;
-        font-size: 14px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-        max-width: 300px;
-    `;
-    reminder.innerHTML = `
-        <div style="font-weight: bold; margin-bottom: 8px;">📥 Backup Reminder</div>
-        <div style="margin-bottom: 10px;">Time to export your YouTube watch history!</div>
-        <button onclick="this.parentElement.remove()" style="background: white; color: #4CAF50; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Got it!</button>
-    `;
-    document.body.appendChild(reminder);
-    
-    // Auto-remove after 10 seconds
-    setTimeout(() => {
-        if (reminder.parentElement) {
-            reminder.remove();
-        }
-    }, 10000);
-}
-
-// Set up real-time updates for cross-tab communication and page focus
-function setupRealTimeUpdates() {
-    debugLog('RealTime', 'Setting up real-time updates');
-    
-    // Listen for page visibility changes (when user switches back to tab)
-    document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) {
-            debugLog('RealTime', 'Page became visible, refreshing markers');
-            setTimeout(() => {
-                markWatchedVideosOnPage();
-            }, 200);
-        }
-    });
-    
-    // Listen for window focus events
-    window.addEventListener('focus', () => {
-        debugLog('RealTime', 'Window focused, refreshing markers');
-        setTimeout(() => {
-            markWatchedVideosOnPage();
-        }, 200);
-    });
-    
-    // Listen for storage changes (cross-tab communication)
-    window.addEventListener('storage', (e) => {
-        if (e.key && e.key.includes('youtube-commander')) {
-            debugLog('RealTime', 'Storage change detected, refreshing markers');
-            setTimeout(() => {
-                markWatchedVideosOnPage();
-            }, 200);
-        }
-    });
-    
-    // Enhanced navigation detection for YouTube SPA
-    let lastUrl = location.href;
-    const urlObserver = new MutationObserver(() => {
         if (location.href !== lastUrl) {
             lastUrl = location.href;
-            debugLog('RealTime', 'URL changed, refreshing markers');
-            setTimeout(() => {
-                markWatchedVideosOnPage();
-            }, 500);
+            fullScanRequested = true;
+            schedulePlaybackBinding();
+        }
+
+        let foundCandidate = false;
+
+        for (const mutation of mutations) {
+            if (mutation.type !== 'childList' || mutation.addedNodes.length === 0) {
+                continue;
+            }
+
+            for (const node of mutation.addedNodes) {
+                foundCandidate = collectCandidateContainers(node) || foundCandidate;
+            }
+        }
+
+        if (foundCandidate || fullScanRequested) {
+            scheduleRender('mutation');
         }
     });
-    
-    urlObserver.observe(document.body, {
+
+    mutationObserver.observe(document.body, {
         childList: true,
         subtree: true
     });
-    
-    // Listen for YouTube's custom navigation events
-    document.addEventListener('yt-navigate-finish', () => {
-        debugLog('RealTime', 'YouTube navigation finished, refreshing markers');
-        setTimeout(() => {
-            markWatchedVideosOnPage();
-        }, 500);
-    });
-    
-    // Periodic refresh when page is visible (every 10 seconds)
-    setInterval(() => {
-        if (!document.hidden) {
-            debugLog('RealTime', 'Periodic refresh of markers');
-            markWatchedVideosOnPage();
-        }
-    }, 10000);
 }
 
-// Add missing helper functions
-function refreshWatchedBadges() {
-    debugLog('Badge', 'Refreshing watched badges');
-    markWatchedVideosOnPage().catch(e => 
-        debugLog('Badge', 'Error refreshing badges:', e)
-    );
-}
-
-// Listen for sync messages from background script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === 'REFRESH_BADGE') {
-        refreshWatchedBadges();
+/**
+ * Collect renderer containers from an added node.
+ * @param {Node} node
+ * @returns {boolean}
+ */
+function collectCandidateContainers(node) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+        return false;
     }
-    else if (message.type === 'GET_WATCHED_COUNT') {
-        getAllWatchedVideos().then(videos => {
-            sendResponse({ count: videos.length });
+
+    const element = /** @type {Element} */ (node);
+    let found = false;
+
+    if (element.matches(FEED_RENDERER_SELECTOR)) {
+        pendingContainers.add(element);
+        found = true;
+    }
+
+    if (typeof element.querySelectorAll === 'function') {
+        const matches = element.querySelectorAll(FEED_RENDERER_SELECTOR);
+        if (matches.length > 0) {
+            found = true;
+            for (const match of matches) {
+                pendingContainers.add(match);
+            }
+        }
+    }
+
+    if (pendingContainers.size > MAX_PENDING_NODES) {
+        pendingContainers.clear();
+        fullScanRequested = true;
+        found = true;
+    }
+
+    return found;
+}
+
+/**
+ * Debounced render scheduler.
+ * @param {string} reason
+ * @param {boolean} [forceFullScan]
+ */
+function scheduleRender(reason, forceFullScan = false) {
+    if (!isEnabled) {
+        return;
+    }
+
+    if (forceFullScan) {
+        fullScanRequested = true;
+    }
+
+    if (renderTimer) {
+        return;
+    }
+
+    renderTimer = setTimeout(() => {
+        renderTimer = null;
+        flushRenderQueue().catch((error) => {
+            logger.error(`Render flush failed (${reason})`, error);
         });
-        return true;
-    }
-    else if (message.type === 'SHOW_EXPORT_REMINDER') {
-        showExportReminder();
-    }
-    else if (message.type === 'GET_ALL_WATCHED_VIDEOS') {
-        getAllWatchedVideos()
-            .then(videos => sendResponse({ success: true, videos }))
-            .catch(error => sendResponse({ success: false, error: error.message }));
-        return true; // Will respond asynchronously
-    }
-    else if (message.type === 'UPDATE_FROM_SYNC') {
-        // Handle sync updates if needed
-        sendResponse({ success: true });
-        return true;
-    }
-    else if (message.type === 'HISTORY_UPDATED') {
-        // Another tab updated history, refresh markers
-        debugLog('RealTime', 'History updated in another tab, refreshing markers');
-        setTimeout(() => {
-            markWatchedVideosOnPage();
-        }, 200);
-    }
-    else if (message.type === 'SETTINGS_UPDATED') {
-        // Settings updated from popup, update current settings
-        debugLog('Settings', 'Settings updated from popup:', message.settings);
-        if (message.settings) {
-            currentSettings.deleteVideosEnabled = message.settings.deleteVideosEnabled || false;
-            debugLog('Settings', `Delete videos mode: ${currentSettings.deleteVideosEnabled ? 'enabled' : 'disabled'}`);
-            
-            // Re-process the page with new settings
-            setTimeout(() => {
-                markWatchedVideosOnPage();
-            }, 100);
-        }
-    }
-});
+    }, RENDER_DEBOUNCE_MS);
+}
 
-// Export watched history as text (for background script)
-async function exportWatchedHistory() {
+/**
+ * Flush pending/full render queue in chunks to avoid long main-thread blocks.
+ * @returns {Promise<void>}
+ */
+async function flushRenderQueue() {
+    if (!isEnabled) {
+        return;
+    }
+
+    if (flushing) {
+        flushAgain = true;
+        return;
+    }
+
+    flushing = true;
+
     try {
-        const videos = await getAllWatchedVideos();
-        const textContent = videos.map(video => 
-            `${video.videoId}\t${new Date(video.timestamp).toISOString()}`
-        ).join('\n');
-        
-        debugLog('Export', `Exported ${videos.length} watched videos`);
-        return textContent;
-    } catch (error) {
-        debugLog('Export', 'Failed to export watched history:', error);
-        return '';
+        const toProcess = new Set();
+
+        if (fullScanRequested) {
+            fullScanRequested = false;
+            const allContainers = document.querySelectorAll(FEED_RENDERER_SELECTOR);
+            for (const container of allContainers) {
+                toProcess.add(container);
+            }
+        }
+
+        if (pendingContainers.size > 0) {
+            for (const container of pendingContainers) {
+                toProcess.add(container);
+            }
+            pendingContainers.clear();
+        }
+
+        if (toProcess.size === 0) {
+            return;
+        }
+
+        const batch = Array.from(toProcess);
+        const chunkSize = 120;
+
+        for (let i = 0; i < batch.length; i += chunkSize) {
+            const slice = batch.slice(i, i + chunkSize);
+            for (const container of slice) {
+                decorateContainer(container);
+            }
+            await nextAnimationFrame();
+        }
+    } finally {
+        flushing = false;
+
+        if (flushAgain) {
+            flushAgain = false;
+            scheduleRender('flush-again');
+        }
     }
 }
 
-// Get watched videos count
-async function getWatchedVideoCount() {
+/**
+ * Decorate a renderer with marker/hide state based on cache and settings.
+ * @param {Element} container
+ */
+function decorateContainer(container) {
+    if (!container || !container.isConnected) {
+        return;
+    }
+
+    const link = container.querySelector(VIDEO_LINK_SELECTOR);
+    if (!link || !link.href) {
+        return;
+    }
+
+    const videoId = extractVideoId(link.href);
+    if (!isValidVideoId(videoId)) {
+        return;
+    }
+
+    const isWatched = watchedIds.has(videoId);
+
+    if (isWatched && deleteVideosEnabled) {
+        container.classList.add(HIDDEN_CLASS);
+    } else {
+        container.classList.remove(HIDDEN_CLASS);
+    }
+
+    const thumbnail = findThumbnailAnchor(container, link);
+    if (!thumbnail) {
+        return;
+    }
+
+    if (isWatched && !deleteVideosEnabled) {
+        thumbnail.setAttribute(WATCHED_ATTR, 'true');
+
+        if (!thumbnail.querySelector(`.${MARKER_CLASS}`)) {
+            const marker = document.createElement('div');
+            marker.className = MARKER_CLASS;
+            thumbnail.appendChild(marker);
+        }
+    } else {
+        thumbnail.removeAttribute(WATCHED_ATTR);
+        const marker = thumbnail.querySelector(`.${MARKER_CLASS}`);
+        if (marker) {
+            marker.remove();
+        }
+    }
+}
+
+/**
+ * Find a thumbnail element where marker should be attached.
+ * @param {Element} container
+ * @param {HTMLAnchorElement} fallbackLink
+ * @returns {Element|null}
+ */
+function findThumbnailAnchor(container, fallbackLink) {
+    return container.querySelector('a#thumbnail') || fallbackLink || null;
+}
+
+/**
+ * Parse video ID from watch/shorts URL.
+ * @param {string} url
+ * @returns {string|null}
+ */
+function extractVideoId(url) {
+    if (!url || typeof url !== 'string') {
+        return null;
+    }
+
     try {
-        const videos = await getAllWatchedVideos();
-        return videos.length;
+        const parsed = new URL(url, location.origin);
+
+        if (parsed.pathname === '/watch') {
+            return parsed.searchParams.get('v');
+        }
+
+        if (parsed.pathname.startsWith('/shorts/')) {
+            const shortsId = parsed.pathname.split('/shorts/')[1];
+            return shortsId ? shortsId.split('/')[0] : null;
+        }
+
+        return null;
+    } catch (_error) {
+        const fallback = url.match(/(?:v=|\/shorts\/)([A-Za-z0-9_-]{10,15})/);
+        return fallback ? fallback[1] : null;
+    }
+}
+
+/**
+ * Validate YouTube-like ID length and charset.
+ * @param {string|null} videoId
+ * @returns {boolean}
+ */
+function isValidVideoId(videoId) {
+    return typeof videoId === 'string' && /^[A-Za-z0-9_-]{10,15}$/.test(videoId);
+}
+
+/**
+ * Yield to the browser between render chunks.
+ * @returns {Promise<void>}
+ */
+function nextAnimationFrame() {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/**
+ * Schedule retries to bind play handlers for current watch/shorts video.
+ */
+function schedulePlaybackBinding() {
+    if (!isEnabled) {
+        return;
+    }
+
+    if (playbackTimer) {
+        clearTimeout(playbackTimer);
+    }
+
+    let attempt = 0;
+
+    const bind = () => {
+        if (!isEnabled) {
+            return;
+        }
+
+        const pageVideoId = getCurrentPageVideoId();
+        if (!pageVideoId) {
+            return;
+        }
+
+        const activeVideo = getActiveVideoElement();
+        if (!activeVideo) {
+            attempt += 1;
+            if (attempt < PLAYBACK_BIND_MAX_RETRIES) {
+                playbackTimer = setTimeout(bind, PLAYBACK_BIND_DELAY_MS);
+            }
+            return;
+        }
+
+        bindPlayHandler(activeVideo, pageVideoId);
+    };
+
+    playbackTimer = setTimeout(bind, PLAYBACK_BIND_DELAY_MS);
+}
+
+/**
+ * Attach one play handler per video element.
+ * @param {HTMLVideoElement} video
+ * @param {string} videoId
+ */
+function bindPlayHandler(video, videoId) {
+    if (playbackBindings.has(video)) {
+        return;
+    }
+
+    const onPlay = () => {
+        if (!isEnabled) {
+            return;
+        }
+
+        addToWatchedHistory(videoId).catch((error) => {
+            logger.error('Failed to mark video on play event', error);
+        });
+    };
+
+    video.addEventListener('play', onPlay);
+    playbackBindings.set(video, onPlay);
+
+    if (!video.paused) {
+        onPlay();
+    }
+}
+
+/**
+ * Resolve the current page video ID for /watch and /shorts pages.
+ * @returns {string|null}
+ */
+function getCurrentPageVideoId() {
+    if (location.pathname === '/watch') {
+        const watchId = getCurrentVideoId();
+        return isValidVideoId(watchId) ? watchId : null;
+    }
+
+    if (location.pathname.startsWith('/shorts/')) {
+        const parts = location.pathname.split('/shorts/');
+        const shortsId = parts[1] ? parts[1].split('/')[0] : null;
+        return isValidVideoId(shortsId) ? shortsId : null;
+    }
+
+    return null;
+}
+
+/**
+ * Get the active HTML video element for watch/shorts pages.
+ * @returns {HTMLVideoElement|null}
+ */
+function getActiveVideoElement() {
+    if (location.pathname.startsWith('/shorts/')) {
+        const activeRenderer = getActiveShortsRenderer();
+        if (activeRenderer) {
+            const insideRenderer = activeRenderer.querySelector('video.html5-main-video');
+            if (insideRenderer) {
+                return insideRenderer;
+            }
+        }
+
+        return document.querySelector('ytd-shorts video.html5-main-video');
+    }
+
+    return document.querySelector('video.html5-main-video');
+}
+
+/**
+ * Get the currently visible Shorts renderer.
+ * @returns {Element|null}
+ */
+function getActiveShortsRenderer() {
+    const explicitActive = document.querySelector('ytd-shorts ytd-reel-video-renderer[is-active]');
+    if (explicitActive) {
+        return explicitActive;
+    }
+
+    const renderers = document.querySelectorAll('ytd-shorts ytd-reel-video-renderer');
+    const midY = window.innerHeight / 2;
+
+    for (const renderer of renderers) {
+        const rect = renderer.getBoundingClientRect();
+        if (rect.top <= midY && rect.bottom >= midY) {
+            return renderer;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Remove all bound video play handlers.
+ */
+function clearPlaybackBindings() {
+    for (const [video, handler] of playbackBindings.entries()) {
+        video.removeEventListener('play', handler);
+    }
+    playbackBindings.clear();
+}
+
+/**
+ * Store watched ID in DB + cache and update visible markers.
+ * @param {string} videoId
+ * @returns {Promise<void>}
+ */
+async function addToWatchedHistory(videoId) {
+    if (!isValidVideoId(videoId)) {
+        return;
+    }
+
+    await ensureInitialized();
+
+    if (watchedIds.has(videoId)) {
+        return;
+    }
+
+    await putWatchedRecord(videoId, Date.now());
+    watchedIds.add(videoId);
+
+    decorateMatchingVisibleContainers(videoId);
+
+    try {
+        chrome.runtime.sendMessage({ type: 'HISTORY_UPDATED' });
     } catch (error) {
-        debugLog('Watch', 'Error getting video count:', error);
+        logger.debug('Could not send HISTORY_UPDATED message', error);
+    }
+}
+
+/**
+ * Insert/update a watched record.
+ * @param {string} videoId
+ * @param {number} timestamp
+ * @returns {Promise<void>}
+ */
+async function putWatchedRecord(videoId, timestamp) {
+    if (!db) {
+        throw new Error('Database not initialized');
+    }
+
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+
+        store.put({ videoId, timestamp });
+
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error || new Error('Failed to write watched record'));
+        transaction.onabort = () => reject(transaction.error || new Error('Write transaction aborted'));
+    });
+}
+
+/**
+ * Re-render only containers currently showing the provided ID.
+ * @param {string} videoId
+ */
+function decorateMatchingVisibleContainers(videoId) {
+    const selectors = [
+        `a[href*="v=${videoId}"]`,
+        `a[href*="/shorts/${videoId}"]`
+    ];
+
+    const links = document.querySelectorAll(selectors.join(', '));
+    for (const link of links) {
+        const container = link.closest(FEED_RENDERER_SELECTOR);
+        if (container) {
+            decorateContainer(container);
+        }
+    }
+}
+
+/**
+ * Check watched status for one ID.
+ * @param {string} videoId
+ * @returns {Promise<boolean>}
+ */
+async function isVideoWatched(videoId) {
+    if (!isValidVideoId(videoId)) {
+        return false;
+    }
+
+    await ensureInitialized();
+    return watchedIds.has(videoId);
+}
+
+/**
+ * Read all watched records.
+ * @returns {Promise<Array<{videoId: string, timestamp: number}>>}
+ */
+async function getAllWatchedVideos() {
+    await ensureInitialized();
+
+    if (!db) {
+        return [];
+    }
+
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.getAll();
+
+        request.onsuccess = () => {
+            const videos = (request.result || []).filter((entry) => isValidVideoId(entry?.videoId));
+            resolve(videos);
+        };
+
+        request.onerror = () => {
+            reject(request.error || new Error('Failed to read watched videos'));
+        };
+    });
+}
+
+/**
+ * Count watched records from cache.
+ * @returns {Promise<number>}
+ */
+async function getWatchedVideoCount() {
+    await ensureInitialized();
+    return watchedIds.size;
+}
+
+/**
+ * Alias used by content-isolated message bridge.
+ * @returns {number}
+ */
+function getWatchedCount() {
+    return watchedIds.size;
+}
+
+/**
+ * Clear watched history from DB and UI.
+ * @returns {Promise<void>}
+ */
+async function clearWatchedHistory() {
+    await ensureInitialized();
+
+    if (!db) {
+        return;
+    }
+
+    await new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        store.clear();
+
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error || new Error('Failed to clear watched history'));
+        transaction.onabort = () => reject(transaction.error || new Error('Clear transaction aborted'));
+    });
+
+    watchedIds.clear();
+    resetVisualDecorations();
+}
+
+/**
+ * Export watched history as tab-separated lines.
+ * @returns {Promise<string>}
+ */
+async function exportWatchedHistory() {
+    const videos = await getAllWatchedVideos();
+    return videos
+        .map((video) => `${video.videoId}\t${new Date(video.timestamp).toISOString()}`)
+        .join('\n');
+}
+
+/**
+ * Import watched IDs in batches and return newly added count.
+ * @param {string[]} videoIds
+ * @returns {Promise<number>}
+ */
+async function importWatchedHistory(videoIds) {
+    await ensureInitialized();
+
+    if (!Array.isArray(videoIds) || videoIds.length === 0 || !db) {
         return 0;
     }
-}
 
-// Main initialization function for the new system
-async function initWatchedHistory() {
-    debugLog('Start', 'Initializing watched history for new system');
-    return await initialize();
-}
+    const uniqueToAdd = [];
+    const seenInBatch = new Set();
 
-// Global test functions
-window.testWatchedHistory = async function() {
-    console.log('=== WATCHED HISTORY DEBUG TEST ===');
-    console.log('Initialized:', isInitialized);
-    console.log('Database:', !!db);
-    
+    for (const rawId of videoIds) {
+        const trimmed = typeof rawId === 'string' ? rawId.trim() : '';
+        if (!isValidVideoId(trimmed)) {
+            continue;
+        }
+
+        if (watchedIds.has(trimmed) || seenInBatch.has(trimmed)) {
+            continue;
+        }
+
+        seenInBatch.add(trimmed);
+        uniqueToAdd.push(trimmed);
+    }
+
+    if (uniqueToAdd.length === 0) {
+        return 0;
+    }
+
+    const startTimestamp = Date.now();
+
+    await new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+
+        uniqueToAdd.forEach((videoId, index) => {
+            store.put({ videoId, timestamp: startTimestamp + index });
+        });
+
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error || new Error('Import transaction failed'));
+        transaction.onabort = () => reject(transaction.error || new Error('Import transaction aborted'));
+    });
+
+    uniqueToAdd.forEach((videoId) => watchedIds.add(videoId));
+
+    scheduleRender('import', true);
+
     try {
-        const videos = await getAllWatchedVideos();
-        console.log('Total watched videos:', videos.length);
-        console.log('First 5 videos:', videos.slice(0, 5));
-        
-        const exportContent = await exportWatchedHistory();
-        console.log('Export content length:', exportContent.length);
-        console.log('Export preview:', exportContent.substring(0, 200));
+        chrome.runtime.sendMessage({ type: 'HISTORY_UPDATED' });
     } catch (error) {
-        console.error('Test error:', error);
+        logger.debug('Could not send HISTORY_UPDATED after import', error);
     }
-    
-    console.log('=== END DEBUG TEST ===');
+
+    return uniqueToAdd.length;
+}
+
+/**
+ * Debounced cache refresh for cross-tab updates.
+ * @param {string} reason
+ */
+function scheduleCacheRefresh(reason) {
+    if (cacheRefreshTimer) {
+        return;
+    }
+
+    cacheRefreshTimer = setTimeout(async () => {
+        cacheRefreshTimer = null;
+
+        try {
+            await hydrateWatchedIdCache();
+            scheduleRender(`cache-refresh:${reason}`, true);
+        } catch (error) {
+            logger.error('Failed to refresh watched cache', error);
+        }
+    }, CACHE_REFRESH_DEBOUNCE_MS);
+}
+
+/**
+ * Update runtime settings relevant to watched-history visuals.
+ * @param {object} settings
+ */
+function updateSettings(settings) {
+    if (!settings || typeof settings !== 'object') {
+        return;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(settings, 'deleteVideosEnabled')) {
+        const nextDeleteMode = settings.deleteVideosEnabled === true;
+        if (nextDeleteMode !== deleteVideosEnabled) {
+            deleteVideosEnabled = nextDeleteMode;
+            scheduleRender('settings-update', true);
+        }
+    }
+}
+
+/**
+ * Show a lightweight reminder in-page.
+ */
+function showExportReminder() {
+    const existing = document.getElementById('yt-commander-export-reminder');
+    if (existing) {
+        existing.remove();
+    }
+
+    const reminder = document.createElement('div');
+    reminder.id = 'yt-commander-export-reminder';
+    reminder.style.cssText = [
+        'position: fixed',
+        'top: 20px',
+        'right: 20px',
+        'z-index: 100000',
+        'background: #1f7a35',
+        'color: #ffffff',
+        'padding: 12px 14px',
+        'border-radius: 8px',
+        'font-size: 13px',
+        'line-height: 1.4',
+        'box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35)'
+    ].join(';');
+
+    reminder.textContent = 'Backup reminder: export your watched history from the extension popup.';
+    document.body.appendChild(reminder);
+
+    setTimeout(() => {
+        if (reminder.parentNode) {
+            reminder.remove();
+        }
+    }, 8000);
+}
+
+/**
+ * Remove all watched decorations from currently rendered items.
+ */
+function resetVisualDecorations() {
+    const markers = document.querySelectorAll(`.${MARKER_CLASS}`);
+    markers.forEach((marker) => marker.remove());
+
+    const watchedThumbs = document.querySelectorAll(`[${WATCHED_ATTR}='true']`);
+    watchedThumbs.forEach((thumb) => thumb.removeAttribute(WATCHED_ATTR));
+
+    const hiddenContainers = document.querySelectorAll(`.${HIDDEN_CLASS}`);
+    hiddenContainers.forEach((container) => container.classList.remove(HIDDEN_CLASS));
+}
+
+/**
+ * Initialize watched history module.
+ * @returns {Promise<void>}
+ */
+async function initWatchedHistory() {
+    await ensureInitialized();
+}
+
+/**
+ * Enable watched history rendering/tracking.
+ */
+function enable() {
+    if (isEnabled) {
+        return;
+    }
+
+    isEnabled = true;
+    startMutationObserver();
+    scheduleRender('enable', true);
+    schedulePlaybackBinding();
+}
+
+/**
+ * Disable watched history rendering/tracking.
+ */
+function disable() {
+    if (!isEnabled) {
+        return;
+    }
+
+    isEnabled = false;
+
+    if (mutationObserver) {
+        mutationObserver.disconnect();
+        mutationObserver = null;
+    }
+
+    clearPlaybackBindings();
+    resetVisualDecorations();
+}
+
+/**
+ * Cleanup observers/listeners/timers.
+ */
+function cleanup() {
+    if (renderTimer) {
+        clearTimeout(renderTimer);
+        renderTimer = null;
+    }
+
+    if (playbackTimer) {
+        clearTimeout(playbackTimer);
+        playbackTimer = null;
+    }
+
+    if (cacheRefreshTimer) {
+        clearTimeout(cacheRefreshTimer);
+        cacheRefreshTimer = null;
+    }
+
+    if (mutationObserver) {
+        mutationObserver.disconnect();
+        mutationObserver = null;
+    }
+
+    clearPlaybackBindings();
+
+    while (teardownCallbacks.length > 0) {
+        const teardown = teardownCallbacks.pop();
+        try {
+            teardown();
+        } catch (error) {
+            logger.debug('Teardown callback failed', error);
+        }
+    }
+
+    if (runtimeMessageListener) {
+        chrome.runtime.onMessage.removeListener(runtimeMessageListener);
+        runtimeMessageListener = null;
+    }
+
+    if (storageListener) {
+        chrome.storage.onChanged.removeListener(storageListener);
+        storageListener = null;
+    }
+
+    pendingContainers.clear();
+    flushAgain = false;
+    fullScanRequested = false;
+
+    resetVisualDecorations();
+
+    initialized = false;
+    initializingPromise = null;
+}
+
+window.ytCommanderWatchedHistory = {
+    init: initWatchedHistory,
+    add: addToWatchedHistory,
+    clear: clearWatchedHistory,
+    count: () => watchedIds.size
 };
 
-window.addCurrentVideoToHistory = async function() {
-    const videoId = getCurrentVideoId();
-    if (videoId) {
-        console.log('Adding current video to history:', videoId);
-        await addToWatchedHistory(videoId);
-        console.log('Video added, refreshing markers...');
-        setTimeout(() => {
-            markWatchedVideosOnPage();
-        }, 500);
-    } else {
-        console.log('No current video ID found');
-    }
-};
-
-// Make importWatchedHistory available globally for popup script access
-window.importWatchedHistory = importWatchedHistory;
-
-// Export for the new system
 export {
     initWatchedHistory,
     addToWatchedHistory,
     isVideoWatched,
     getAllWatchedVideos,
     getWatchedVideoCount,
+    getWatchedCount,
     clearWatchedHistory,
     exportWatchedHistory,
-    importWatchedHistory
+    importWatchedHistory,
+    updateSettings,
+    enable,
+    disable,
+    cleanup
 };
