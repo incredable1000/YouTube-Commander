@@ -39,81 +39,175 @@
     transform: scale(0.9);
 }
 
-/* Modern YouTube-style seek indicators */
+/* YouTube-style seek burst overlay */
 .modern-seek-indicator {
     position: absolute;
+    top: 50%;
+    width: 124px;
+    height: 124px;
     z-index: 9999;
     pointer-events: none;
-    animation: seekIndicatorFade 1.5s ease-out forwards;
+    opacity: 0;
 }
 
 .modern-seek-indicator.forward {
-    right: 20%;
-    animation: seekIndicatorSlideRight 1.5s ease-out forwards;
+    right: 16%;
 }
 
 .modern-seek-indicator.backward {
-    left: 20%;
-    animation: seekIndicatorSlideLeft 1.5s ease-out forwards;
+    left: 16%;
 }
 
-.seek-amount {
-    background: rgba(0, 0, 0, 0.8);
-    color: white;
-    padding: 12px 16px;
-    border-radius: 8px;
-    font-size: 24px;
-    font-weight: 500;
+.modern-seek-indicator__scrim {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.28), rgba(0, 0, 0, 0.72));
+}
+
+.modern-seek-indicator__content {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
     font-family: 'YouTube Noto', Roboto, Arial, sans-serif;
-    text-align: center;
-    min-width: 60px;
-    backdrop-filter: blur(4px);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
-/* Modern seek indicator animations */
-@keyframes seekIndicatorSlideRight {
+.modern-seek-indicator__chevrons {
+    display: flex;
+    gap: 3px;
+    margin-bottom: 7px;
+}
+
+.modern-seek-indicator__chevron {
+    width: 10px;
+    height: 10px;
+    border-top: 2px solid rgba(255, 255, 255, 0.94);
+    border-right: 2px solid rgba(255, 255, 255, 0.94);
+    opacity: 0.25;
+}
+
+.modern-seek-indicator.forward .modern-seek-indicator__chevron {
+    transform: rotate(45deg);
+}
+
+.modern-seek-indicator.backward .modern-seek-indicator__chevron {
+    transform: rotate(-135deg);
+}
+
+.modern-seek-indicator__amount {
+    font-size: 30px;
+    line-height: 1;
+    font-weight: 600;
+}
+
+.modern-seek-indicator__label {
+    margin-top: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    opacity: 0.92;
+    letter-spacing: 0.2px;
+}
+
+.modern-seek-indicator.forward.is-active {
+    animation: yt-seek-burst-forward 900ms cubic-bezier(0.22, 0.55, 0.18, 1) forwards;
+}
+
+.modern-seek-indicator.backward.is-active {
+    animation: yt-seek-burst-backward 900ms cubic-bezier(0.22, 0.55, 0.18, 1) forwards;
+}
+
+.modern-seek-indicator.is-active .modern-seek-indicator__chevron:nth-child(1) {
+    animation: yt-seek-chevron-forward 520ms ease-in-out 0ms;
+}
+
+.modern-seek-indicator.is-active .modern-seek-indicator__chevron:nth-child(2) {
+    animation: yt-seek-chevron-forward 520ms ease-in-out 80ms;
+}
+
+.modern-seek-indicator.is-active .modern-seek-indicator__chevron:nth-child(3) {
+    animation: yt-seek-chevron-forward 520ms ease-in-out 160ms;
+}
+
+.modern-seek-indicator.backward.is-active .modern-seek-indicator__chevron:nth-child(1),
+.modern-seek-indicator.backward.is-active .modern-seek-indicator__chevron:nth-child(2),
+.modern-seek-indicator.backward.is-active .modern-seek-indicator__chevron:nth-child(3) {
+    animation-name: yt-seek-chevron-backward;
+}
+
+.modern-seek-indicator.is-boosted .modern-seek-indicator__amount {
+    transform: scale(1.06);
+}
+
+@keyframes yt-seek-burst-forward {
     0% {
         opacity: 0;
-        transform: translateX(-20px) scale(0.8);
+        transform: translate(-14px, -50%) scale(0.84);
     }
-    20% {
+    14% {
         opacity: 1;
-        transform: translateX(0) scale(1);
+        transform: translate(0, -50%) scale(1);
+    }
+    80% {
+        opacity: 1;
+        transform: translate(0, -50%) scale(1);
     }
     100% {
         opacity: 0;
-        transform: translateX(20px) scale(0.9);
+        transform: translate(10px, -50%) scale(1.03);
     }
 }
 
-@keyframes seekIndicatorSlideLeft {
+@keyframes yt-seek-burst-backward {
     0% {
         opacity: 0;
-        transform: translateX(20px) scale(0.8);
+        transform: translate(14px, -50%) scale(0.84);
     }
-    20% {
+    14% {
         opacity: 1;
-        transform: translateX(0) scale(1);
+        transform: translate(0, -50%) scale(1);
+    }
+    80% {
+        opacity: 1;
+        transform: translate(0, -50%) scale(1);
     }
     100% {
         opacity: 0;
-        transform: translateX(-20px) scale(0.9);
+        transform: translate(-10px, -50%) scale(1.03);
     }
 }
 
-@keyframes seekIndicatorFade {
+@keyframes yt-seek-chevron-forward {
     0% {
-        opacity: 0;
-        transform: scale(0.8);
+        opacity: 0.2;
+        transform: translateX(-5px) rotate(45deg);
     }
-    20% {
+    35% {
         opacity: 1;
-        transform: scale(1);
+        transform: translateX(0) rotate(45deg);
     }
     100% {
-        opacity: 0;
-        transform: scale(0.9);
+        opacity: 0.2;
+        transform: translateX(5px) rotate(45deg);
+    }
+}
+
+@keyframes yt-seek-chevron-backward {
+    0% {
+        opacity: 0.2;
+        transform: translateX(5px) rotate(-135deg);
+    }
+    35% {
+        opacity: 1;
+        transform: translateX(0) rotate(-135deg);
+    }
+    100% {
+        opacity: 0.2;
+        transform: translateX(-5px) rotate(-135deg);
     }
 }
 
