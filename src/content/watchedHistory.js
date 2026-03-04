@@ -219,14 +219,18 @@ function injectStyles() {
         }
 
         .${MARKER_CLASS}::after {
-            content: 'Seen' !important;
-            font-size: 12px !important;
+            content: '\\2713' !important;
+            font-size: 20px !important;
             font-weight: 700 !important;
             letter-spacing: 0.3px !important;
             color: #ffffff !important;
             background: rgba(31, 165, 68, 0.95) !important;
             border-radius: 999px !important;
-            padding: 4px 9px !important;
+            width: 30px !important;
+            height: 30px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35) !important;
         }
     `;
