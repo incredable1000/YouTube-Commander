@@ -21,10 +21,13 @@ const FEED_RENDERER_SELECTOR = [
     'ytd-rich-item-renderer',
     'ytd-video-renderer',
     'ytd-grid-video-renderer',
+    'ytd-rich-grid-slim-media',
     'ytd-compact-video-renderer',
     'ytd-playlist-video-renderer',
     'ytd-playlist-panel-video-renderer',
-    'ytd-reel-item-renderer'
+    'ytd-reel-item-renderer',
+    'ytd-shorts-lockup-view-model',
+    'yt-lockup-view-model'
 ].join(', ');
 
 const VIDEO_LINK_SELECTOR = 'a[href*="/watch?v="], a[href*="/shorts/"]';
@@ -263,7 +266,7 @@ function ensureSavePopup() {
     popup.innerHTML = `
         <div class="yt-commander-save-popup__header">
             <div class="yt-commander-save-popup__title">Save To Playlist</div>
-            <button class="yt-commander-save-popup__close" type="button" aria-label="Close">×</button>
+            <button class="yt-commander-save-popup__close" type="button" aria-label="Close">ï¿½</button>
         </div>
         <div class="yt-commander-save-popup__subhead">
             <span class="yt-commander-save-popup__count">0 selected</span>
@@ -510,6 +513,37 @@ function renderPlaylistOptions() {
 }
 
 /**
+ * Resolve the best video link inside a renderer.
+ * @param {Element} container
+ * @returns {HTMLAnchorElement|null}
+ */
+function findVideoLink(container) {
+    if (!container || typeof container.querySelectorAll !== 'function') {
+        return null;
+    }
+
+    const links = Array.from(container.querySelectorAll(VIDEO_LINK_SELECTOR));
+    if (links.length === 0) {
+        return null;
+    }
+
+    for (const link of links) {
+        if (!(link instanceof HTMLAnchorElement) || !link.href) {
+            continue;
+        }
+
+        if (
+            link.id === 'thumbnail'
+            || link.querySelector('ytd-thumbnail, yt-thumbnail-view-model, yt-image, img')
+        ) {
+            return link;
+        }
+    }
+
+    return links.find((link) => link instanceof HTMLAnchorElement && Boolean(link.href)) || null;
+}
+
+/**
  * Load playlists from main-world API.
  */
 async function loadPlaylistsForPopup() {
@@ -608,21 +642,16 @@ async function applyPlaylistsToSelectedVideos() {
 }
 
 /**
- * Resolve host element for overlay insertion.
+ * Resolve card-level host element for overlay insertion.
  * @param {Element} container
- * @param {Element} fallbackLink
  * @returns {Element|null}
  */
-function findMarkerHost(container, fallbackLink) {
-    if (!container) {
+function findCardHost(container) {
+    if (!container || !container.isConnected) {
         return null;
     }
 
-    return container.querySelector('ytd-thumbnail')
-        || container.querySelector('#thumbnail yt-image')
-        || container.querySelector('a#thumbnail')
-        || fallbackLink
-        || null;
+    return container;
 }
 
 /**
@@ -637,6 +666,12 @@ function applySelectedState(host, videoId) {
     const overlay = host.querySelector(`.${OVERLAY_CLASS}`);
     if (overlay) {
         overlay.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        overlay.setAttribute('data-state', selected ? 'selected' : 'idle');
+
+        const hint = overlay.querySelector('.yt-commander-playlist-overlay__hint');
+        if (hint) {
+            hint.textContent = selected ? 'Selected' : 'Select';
+        }
     }
 }
 
@@ -708,7 +743,7 @@ function decorateContainer(container) {
         return;
     }
 
-    const link = container.querySelector(VIDEO_LINK_SELECTOR);
+    const link = findVideoLink(container);
     if (!link || !link.href) {
         return;
     }
@@ -718,7 +753,7 @@ function decorateContainer(container) {
         return;
     }
 
-    const host = findMarkerHost(container, link);
+    const host = findCardHost(container);
     if (!host) {
         return;
     }
@@ -733,10 +768,12 @@ function decorateContainer(container) {
         overlay.className = OVERLAY_CLASS;
         overlay.setAttribute('aria-label', 'Toggle video selection');
         overlay.setAttribute('aria-pressed', 'false');
+        overlay.setAttribute('data-state', 'idle');
 
-        const badge = document.createElement('span');
-        badge.className = 'yt-commander-playlist-overlay__badge';
-        overlay.appendChild(badge);
+        const hint = document.createElement('span');
+        hint.className = 'yt-commander-playlist-overlay__hint';
+        hint.textContent = 'Select';
+        overlay.appendChild(hint);
 
         overlay.addEventListener('click', (event) => {
             event.preventDefault();
@@ -998,6 +1035,52 @@ function handleDocumentMouseDown(event) {
 }
 
 /**
+ * Intercept thumbnail clicks during selection mode so navigation never wins.
+ * @param {MouseEvent} event
+ */
+function handleSelectionClickCapture(event) {
+    if (!selectionMode || !isEnabled || !isEligiblePage()) {
+        return;
+    }
+
+    const target = event.target;
+    if (!target || !(target instanceof Element)) {
+        return;
+    }
+
+    if (popup?.contains(target) || mastheadButton?.contains(target)) {
+        return;
+    }
+
+    if (target.closest(`.${OVERLAY_CLASS}`)) {
+        return;
+    }
+
+    const link = target.closest(VIDEO_LINK_SELECTOR);
+    if (!(link instanceof HTMLAnchorElement) || !link.href) {
+        return;
+    }
+
+    const container = link.closest(FEED_RENDERER_SELECTOR);
+    if (!container) {
+        return;
+    }
+
+    const videoId = extractVideoId(link.href);
+    if (!videoId) {
+        return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === 'function') {
+        event.stopImmediatePropagation();
+    }
+
+    toggleVideoSelection(videoId);
+}
+
+/**
  * Handle keyboard shortcuts.
  * @param {KeyboardEvent} event
  */
@@ -1083,6 +1166,7 @@ function setupListeners() {
     window.addEventListener('popstate', onNavigate);
     window.addEventListener('resize', onResize, { passive: true });
     document.addEventListener('mousedown', handleDocumentMouseDown, true);
+    document.addEventListener('click', handleSelectionClickCapture, true);
     document.addEventListener('keydown', handleDocumentKeydown, true);
 
     cleanupCallbacks.push(() => window.removeEventListener('message', handleBridgeResponse));
@@ -1091,6 +1175,7 @@ function setupListeners() {
     cleanupCallbacks.push(() => window.removeEventListener('popstate', onNavigate));
     cleanupCallbacks.push(() => window.removeEventListener('resize', onResize));
     cleanupCallbacks.push(() => document.removeEventListener('mousedown', handleDocumentMouseDown, true));
+    cleanupCallbacks.push(() => document.removeEventListener('click', handleSelectionClickCapture, true));
     cleanupCallbacks.push(() => document.removeEventListener('keydown', handleDocumentKeydown, true));
 }
 

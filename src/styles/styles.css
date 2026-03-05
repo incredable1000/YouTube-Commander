@@ -816,37 +816,38 @@
     margin: 0;
     padding: 0;
     border-radius: inherit;
-    background: rgba(0, 0, 0, 0.2);
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
     opacity: 0;
     pointer-events: none;
     cursor: pointer;
     transition: opacity 0.16s ease, background-color 0.16s ease;
 }
 
-.yt-commander-playlist-overlay__badge {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.9);
-    background: rgba(0, 0, 0, 0.66);
-    box-sizing: border-box;
+.yt-commander-playlist-overlay:focus {
+    outline: none;
 }
 
-.yt-commander-playlist-overlay__badge::before {
-    content: '';
+.yt-commander-playlist-overlay__hint {
     position: absolute;
-    left: 7px;
-    top: 4px;
-    width: 5px;
-    height: 10px;
-    border-right: 2px solid #fff;
-    border-bottom: 2px solid #fff;
-    transform: rotate(38deg);
-    opacity: 0;
-    transition: opacity 0.15s ease;
+    right: 10px;
+    bottom: 10px;
+    min-width: 58px;
+    height: 24px;
+    padding: 0 9px;
+    border: 1px solid rgba(255, 255, 255, 0.36);
+    border-radius: 999px;
+    background: rgba(15, 15, 15, 0.72);
+    color: #f1f1f1;
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    line-height: 22px;
+    text-align: center;
+    box-sizing: border-box;
+    pointer-events: none;
 }
 
 .yt-commander-playlist-selection-mode .yt-commander-playlist-host .yt-commander-playlist-overlay {
@@ -854,17 +855,37 @@
     pointer-events: auto;
 }
 
+.yt-commander-playlist-selection-mode .yt-commander-playlist-host .yt-commander-playlist-overlay:hover {
+    background: rgba(0, 0, 0, 0.24);
+}
+
 .yt-commander-playlist-host.yt-commander-playlist-selected .yt-commander-playlist-overlay {
-    background: rgba(62, 166, 255, 0.35);
+    background: rgba(62, 166, 255, 0.32);
 }
 
-.yt-commander-playlist-host.yt-commander-playlist-selected .yt-commander-playlist-overlay__badge {
-    border-color: #3ea6ff;
+.yt-commander-playlist-host.yt-commander-playlist-selected .yt-commander-playlist-overlay::before {
+    content: '\2713';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 42px;
+    height: 42px;
+    transform: translate(-50%, -50%);
+    border-radius: 12px;
+    background: rgba(62, 166, 255, 0.94);
+    color: #0f0f0f;
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 30px;
+    font-weight: 800;
+    line-height: 42px;
+    text-align: center;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.38);
+}
+
+.yt-commander-playlist-host.yt-commander-playlist-selected .yt-commander-playlist-overlay__hint {
+    border-color: transparent;
     background: #3ea6ff;
-}
-
-.yt-commander-playlist-host.yt-commander-playlist-selected .yt-commander-playlist-overlay__badge::before {
-    opacity: 1;
+    color: #0f0f0f;
 }
 
 .yt-commander-save-popup {
