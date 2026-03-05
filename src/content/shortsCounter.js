@@ -1,39 +1,88 @@
 /**
- * Shorts Counter - Refactored with DRY principles
- * Track and display count of watched YouTube Shorts
+ * Shorts Counter
+ * Tracks unique Shorts views and displays a themed floating counter.
  */
 
 import { isShortsPage, getCurrentVideoId } from './utils/youtube.js';
 import { createLogger } from './utils/logger.js';
-import { createThrottledObserver } from './utils/events.js';
+import { createThrottledObserver, addEventListenerWithCleanup } from './utils/events.js';
 import { getLocalStorageData, setLocalStorageData } from './utils/storage.js';
 
-// Create scoped logger
 const logger = createLogger('ShortsCounter');
 
-// Module state
+const STORAGE_KEY = 'shortsCounterData';
+const LABEL_ID = 'shorts-counter-label';
+const SAVE_DEBOUNCE_MS = 700;
+
 let countedVideos = new Set();
 let counter = 0;
-let counterLabel = null;
-let observer = null;
 
-// Storage key for persisting counter data
-const STORAGE_KEY = 'shortsCounterData';
+let counterLabel = null;
+let counterValue = null;
+
+let observer = null;
+let pageListenerCleanups = [];
+let counterClickCleanup = null;
+
+let saveTimer = null;
+let animationTimer = null;
+let contextCheckScheduled = false;
+
+let lastShortId = null;
+let initialized = false;
+let enabled = true;
 
 /**
- * Load counter data from storage
+ * Parse short ID from a URL/href.
+ * @param {string} href
+ * @returns {string|null}
+ */
+function extractShortIdFromHref(href) {
+    if (!href || typeof href !== 'string') {
+        return null;
+    }
+
+    try {
+        const url = new URL(href, window.location.origin);
+        const pathMatch = url.pathname.match(/\/shorts\/([^/?#]+)/);
+        if (pathMatch?.[1]) {
+            return pathMatch[1];
+        }
+
+        const queryId = url.searchParams.get('v');
+        return queryId || null;
+    } catch (error) {
+        return null;
+    }
+}
+
+/**
+ * Ensure loaded storage data is valid.
+ * @param {object|null} rawData
+ */
+function hydrateCounterData(rawData) {
+    const safeData = rawData && typeof rawData === 'object' ? rawData : {};
+    const storedIds = Array.isArray(safeData.countedVideos)
+        ? safeData.countedVideos.filter((id) => typeof id === 'string' && id.length > 0)
+        : [];
+
+    countedVideos = new Set(storedIds);
+
+    const parsedCounter = Number.isFinite(safeData.counter) && safeData.counter >= 0
+        ? Math.floor(safeData.counter)
+        : countedVideos.size;
+
+    counter = Math.max(parsedCounter, countedVideos.size);
+}
+
+/**
+ * Load counter data from local storage.
  */
 async function loadCounterData() {
     try {
-        const data = await getLocalStorageData(STORAGE_KEY, { 
-            countedVideos: [], 
-            counter: 0 
-        });
-        
-        countedVideos = new Set(data.countedVideos);
-        counter = data.counter;
-        
-        logger.debug('Counter data loaded', { counter, videosCount: countedVideos.size });
+        const data = await getLocalStorageData({ [STORAGE_KEY]: null }, {});
+        hydrateCounterData(data[STORAGE_KEY]);
+        logger.debug('Counter data loaded', { counter, uniqueVideos: countedVideos.size });
     } catch (error) {
         logger.error('Failed to load counter data', error);
         countedVideos = new Set();
@@ -42,279 +91,466 @@ async function loadCounterData() {
 }
 
 /**
- * Save counter data to storage
+ * Persist counter data to local storage.
  */
 async function saveCounterData() {
     try {
-        await setLocalStorageData(STORAGE_KEY, {
-            countedVideos: Array.from(countedVideos),
-            counter: counter
+        await setLocalStorageData({
+            [STORAGE_KEY]: {
+                countedVideos: Array.from(countedVideos),
+                counter
+            }
         });
-        
-        logger.debug('Counter data saved', { counter, videosCount: countedVideos.size });
     } catch (error) {
         logger.error('Failed to save counter data', error);
     }
 }
 
 /**
- * Create and style the counter label
+ * Debounce storage writes during rapid shorts scrolling.
+ */
+function scheduleSaveCounterData() {
+    if (saveTimer) {
+        window.clearTimeout(saveTimer);
+    }
+
+    saveTimer = window.setTimeout(() => {
+        saveTimer = null;
+        void saveCounterData();
+    }, SAVE_DEBOUNCE_MS);
+}
+
+/**
+ * Flush pending save immediately.
+ */
+async function flushPendingSave() {
+    if (!saveTimer) {
+        return;
+    }
+
+    window.clearTimeout(saveTimer);
+    saveTimer = null;
+    await saveCounterData();
+}
+
+/**
+ * Create or recreate the floating counter element.
  */
 function createCounterLabel() {
-    // Avoid duplicates
-    if (counterLabel || document.getElementById('shorts-counter-label')) {
-        return;
+    const existing = document.getElementById(LABEL_ID);
+    if (existing) {
+        existing.remove();
     }
-    
-    counterLabel = document.createElement('div');
-    counterLabel.id = 'shorts-counter-label';
-    
-    // Apply modern styling
-    Object.assign(counterLabel.style, {
-        position: 'fixed',
-        top: '80px',
-        right: '20px',
-        width: '60px',
-        height: '60px',
-        background: 'linear-gradient(135deg, #ff6b6b, #ee5a24)',
-        color: '#fff',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderRadius: '50%',
-        fontSize: '18px',
-        fontWeight: 'bold',
-        textAlign: 'center',
-        zIndex: '99999',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-        cursor: 'pointer',
-        transition: 'all 0.3s ease',
-        backdropFilter: 'blur(10px)',
-        border: '2px solid rgba(255, 255, 255, 0.2)'
+
+    counterLabel = document.createElement('button');
+    counterLabel.id = LABEL_ID;
+    counterLabel.type = 'button';
+    counterLabel.className = 'yt-commander-shorts-counter';
+    counterLabel.setAttribute('aria-label', 'Shorts watched counter. Click to reset.');
+    counterLabel.title = 'Shorts watched (click to reset)';
+    counterLabel.innerHTML = `
+        <span class="yt-commander-shorts-counter__badge" aria-hidden="true"></span>
+        <span class="yt-commander-shorts-counter__text">Shorts</span>
+        <span class="yt-commander-shorts-counter__count">0</span>
+    `;
+
+    counterValue = counterLabel.querySelector('.yt-commander-shorts-counter__count');
+
+    if (counterClickCleanup) {
+        counterClickCleanup();
+        counterClickCleanup = null;
+    }
+    counterClickCleanup = addEventListenerWithCleanup(counterLabel, 'click', () => {
+        void resetCounter();
     });
-    
-    // Add hover effects
-    counterLabel.addEventListener('mouseenter', () => {
-        counterLabel.style.transform = 'scale(1.1)';
-        counterLabel.style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.4)';
-    });
-    
-    counterLabel.addEventListener('mouseleave', () => {
-        counterLabel.style.transform = 'scale(1)';
-        counterLabel.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
-    });
-    
-    // Add click handler to reset counter
-    counterLabel.addEventListener('click', resetCounter);
-    counterLabel.title = 'Click to reset counter';
-    
-    updateCounterDisplay();
+
     document.body.appendChild(counterLabel);
-    
-    logger.debug('Counter label created');
 }
 
 /**
- * Update the counter display
- */
-function updateCounterDisplay() {
-    if (counterLabel) {
-        counterLabel.textContent = counter.toString();
-        
-        // Add animation for new count
-        counterLabel.style.animation = 'none';
-        requestAnimationFrame(() => {
-            counterLabel.style.animation = 'pulse 0.3s ease-in-out';
-        });
-    }
-}
-
-/**
- * Remove counter label
+ * Remove counter element and related handlers.
  */
 function removeCounterLabel() {
+    if (counterClickCleanup) {
+        counterClickCleanup();
+        counterClickCleanup = null;
+    }
+
     if (counterLabel) {
         counterLabel.remove();
-        counterLabel = null;
-        logger.debug('Counter label removed');
     }
+
+    counterLabel = null;
+    counterValue = null;
 }
 
 /**
- * Reset counter
+ * Show animated +N chip for count increments.
+ * @param {number} delta
  */
-async function resetCounter() {
-    try {
-        countedVideos.clear();
-        counter = 0;
-        updateCounterDisplay();
-        await saveCounterData();
-        
-        logger.info('Counter reset');
-        
-        // Visual feedback
+function showCounterDelta(delta) {
+    if (!counterLabel || delta <= 0) {
+        return;
+    }
+
+    const deltaChip = document.createElement('span');
+    deltaChip.className = 'yt-commander-shorts-counter__delta';
+    deltaChip.textContent = `+${delta}`;
+    counterLabel.appendChild(deltaChip);
+
+    window.requestAnimationFrame(() => {
+        deltaChip.classList.add('yt-commander-shorts-counter__delta--visible');
+    });
+
+    window.setTimeout(() => {
+        deltaChip.remove();
+    }, 760);
+}
+
+/**
+ * Trigger count increase animation.
+ * @param {number} delta
+ */
+function animateCounterIncrease(delta) {
+    if (!counterLabel || !counterValue) {
+        return;
+    }
+
+    counterLabel.classList.remove('yt-commander-shorts-counter--bump');
+    counterValue.classList.remove('yt-commander-shorts-counter__count--jump');
+    void counterLabel.offsetWidth;
+
+    counterLabel.classList.add('yt-commander-shorts-counter--bump');
+    counterValue.classList.add('yt-commander-shorts-counter__count--jump');
+    showCounterDelta(delta);
+
+    if (animationTimer) {
+        window.clearTimeout(animationTimer);
+    }
+    animationTimer = window.setTimeout(() => {
         if (counterLabel) {
-            const originalBg = counterLabel.style.background;
-            counterLabel.style.background = '#27ae60';
-            setTimeout(() => {
-                if (counterLabel) {
-                    counterLabel.style.background = originalBg;
-                }
-            }, 500);
+            counterLabel.classList.remove('yt-commander-shorts-counter--bump');
         }
-    } catch (error) {
-        logger.error('Failed to reset counter', error);
+        if (counterValue) {
+            counterValue.classList.remove('yt-commander-shorts-counter__count--jump');
+        }
+        animationTimer = null;
+    }, 460);
+}
+
+/**
+ * Animate reset feedback.
+ */
+function animateCounterReset() {
+    if (!counterLabel) {
+        return;
+    }
+
+    counterLabel.classList.remove('yt-commander-shorts-counter--reset');
+    void counterLabel.offsetWidth;
+    counterLabel.classList.add('yt-commander-shorts-counter--reset');
+
+    window.setTimeout(() => {
+        if (counterLabel) {
+            counterLabel.classList.remove('yt-commander-shorts-counter--reset');
+        }
+    }, 380);
+}
+
+/**
+ * Update displayed count.
+ * @param {object} options
+ * @param {boolean} options.animate
+ * @param {number} options.delta
+ */
+function updateCounterDisplay({ animate = false, delta = 1 } = {}) {
+    if (!counterLabel || !counterValue) {
+        return;
+    }
+
+    counterValue.textContent = counter.toLocaleString();
+
+    if (animate) {
+        animateCounterIncrease(delta);
     }
 }
 
 /**
- * Get current Shorts video ID from URL
+ * Derive the current active Shorts video ID.
+ * @returns {string|null}
  */
 function getCurrentShortsId() {
-    try {
-        if (!isShortsPage()) return null;
-        
-        const url = new URL(window.location.href);
-        const pathParts = url.pathname.split('/');
-        const shortsIndex = pathParts.indexOf('shorts');
-        
-        if (shortsIndex !== -1 && pathParts[shortsIndex + 1]) {
-            return pathParts[shortsIndex + 1];
-        }
-        
-        // Fallback to query parameter
-        return getCurrentVideoId();
-    } catch (error) {
-        logger.error('Failed to get Shorts ID', error);
+    if (!isShortsPage()) {
         return null;
     }
+
+    const fromUrl = extractShortIdFromHref(window.location.href);
+    if (fromUrl) {
+        return fromUrl;
+    }
+
+    const activeRenderer = document.querySelector('ytd-shorts ytd-reel-video-renderer[is-active]');
+    if (activeRenderer) {
+        const rendererId = activeRenderer.getAttribute('video-id') || activeRenderer.dataset?.videoId;
+        if (rendererId) {
+            return rendererId;
+        }
+
+        const activeLink = activeRenderer.querySelector('a[href*="/shorts/"]');
+        const fromRendererLink = extractShortIdFromHref(activeLink?.href || '');
+        if (fromRendererLink) {
+            return fromRendererLink;
+        }
+    }
+
+    const fromQuery = getCurrentVideoId();
+    return fromQuery || null;
 }
 
 /**
- * Check for new Shorts video and update counter
+ * Synchronize counter with currently active short.
  */
-async function checkForNewShorts() {
-    try {
-        const currentId = getCurrentShortsId();
-        
-        if (currentId && isShortsPage()) {
-            // Create label if on Shorts page but no label exists
-            if (!counterLabel) {
-                createCounterLabel();
-            }
-            
-            // Count unique video IDs
-            if (!countedVideos.has(currentId)) {
-                countedVideos.add(currentId);
-                counter++;
-                updateCounterDisplay();
-                await saveCounterData();
-                
-                logger.debug(`New Shorts video counted: ${currentId}`, { totalCount: counter });
-            }
-        } else {
-            // Not on Shorts page - remove label
-            removeCounterLabel();
-        }
-    } catch (error) {
-        logger.error('Failed to check for new Shorts', error);
+async function syncCounterWithCurrentShort() {
+    if (!enabled) {
+        return;
     }
+
+    if (!isShortsPage()) {
+        lastShortId = null;
+        removeCounterLabel();
+        return;
+    }
+
+    if (!document.body) {
+        return;
+    }
+
+    if (!counterLabel) {
+        createCounterLabel();
+        updateCounterDisplay();
+    }
+
+    const shortId = getCurrentShortsId();
+    if (!shortId || shortId === lastShortId) {
+        return;
+    }
+
+    lastShortId = shortId;
+
+    if (countedVideos.has(shortId)) {
+        return;
+    }
+
+    countedVideos.add(shortId);
+    counter += 1;
+
+    updateCounterDisplay({ animate: true, delta: 1 });
+    scheduleSaveCounterData();
+    logger.debug('Counted new short', { shortId, counter });
 }
 
 /**
- * Set up navigation observer
+ * Coalesce repeated mutation/navigation signals into one frame update.
  */
-function setupNavigationObserver() {
-    // Clean up existing observer
-    if (observer) {
-        observer.disconnect();
+function scheduleContextCheck() {
+    if (!enabled || contextCheckScheduled) {
+        return;
     }
-    
-    let lastUrl = location.href;
-    
-    observer = createThrottledObserver(() => {
-        if (location.href !== lastUrl) {
-            lastUrl = location.href;
-            checkForNewShorts();
-        }
-    }, 500);
-    
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true
+
+    contextCheckScheduled = true;
+    window.requestAnimationFrame(() => {
+        contextCheckScheduled = false;
+        void syncCounterWithCurrentShort();
     });
 }
 
 /**
- * Add CSS animations
+ * Set up DOM observer for Shorts feed changes.
  */
-function addAnimations() {
-    if (document.querySelector('#shorts-counter-animations')) {
+function setupNavigationObserver() {
+    if (observer || !document.body) {
         return;
     }
-    
-    const style = document.createElement('style');
-    style.id = 'shorts-counter-animations';
-    style.textContent = `
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.2); }
-            100% { transform: scale(1); }
+
+    observer = createThrottledObserver(
+        () => {
+            scheduleContextCheck();
+        },
+        260,
+        {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['is-active']
         }
-    `;
-    
-    document.head.appendChild(style);
+    );
+
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['is-active']
+    });
 }
 
 /**
- * Initialize Shorts counter
+ * Tear down DOM observer.
+ */
+function teardownNavigationObserver() {
+    if (!observer) {
+        return;
+    }
+
+    observer.disconnect();
+    observer = null;
+}
+
+/**
+ * Attach page-level listeners.
+ */
+function attachPageListeners() {
+    if (pageListenerCleanups.length > 0) {
+        return;
+    }
+
+    pageListenerCleanups.push(addEventListenerWithCleanup(document, 'yt-navigate-finish', scheduleContextCheck));
+    pageListenerCleanups.push(addEventListenerWithCleanup(document, 'yt-page-data-updated', scheduleContextCheck));
+    pageListenerCleanups.push(addEventListenerWithCleanup(window, 'popstate', scheduleContextCheck));
+    pageListenerCleanups.push(addEventListenerWithCleanup(window, 'focus', scheduleContextCheck));
+    pageListenerCleanups.push(addEventListenerWithCleanup(document, 'visibilitychange', () => {
+        if (!document.hidden) {
+            scheduleContextCheck();
+        }
+    }));
+}
+
+/**
+ * Detach page-level listeners.
+ */
+function detachPageListeners() {
+    pageListenerCleanups.forEach((cleanupFn) => cleanupFn());
+    pageListenerCleanups = [];
+}
+
+/**
+ * Start runtime hooks while feature is enabled.
+ */
+function startRuntime() {
+    setupNavigationObserver();
+    attachPageListeners();
+}
+
+/**
+ * Stop runtime hooks while feature is disabled.
+ */
+function stopRuntime() {
+    teardownNavigationObserver();
+    detachPageListeners();
+}
+
+/**
+ * Reset the counter and persisted IDs.
+ */
+async function resetCounter() {
+    countedVideos.clear();
+    counter = 0;
+    lastShortId = null;
+
+    updateCounterDisplay();
+    animateCounterReset();
+    await saveCounterData();
+    scheduleContextCheck();
+    logger.info('Shorts counter reset');
+}
+
+/**
+ * Initialize Shorts counter feature.
  */
 async function initShortsCounter() {
+    if (initialized) {
+        if (enabled) {
+            scheduleContextCheck();
+        }
+        return;
+    }
+
     try {
         logger.info('Initializing Shorts counter');
-        
-        // Add CSS animations
-        addAnimations();
-        
-        // Load saved counter data
         await loadCounterData();
-        
-        // Set up navigation observer
-        setupNavigationObserver();
-        
-        // Initial check
-        await checkForNewShorts();
-        
-        logger.info('Shorts counter initialized successfully', { counter });
+
+        initialized = true;
+        enabled = true;
+
+        startRuntime();
+        scheduleContextCheck();
+        logger.info('Shorts counter initialized', { counter });
     } catch (error) {
         logger.error('Failed to initialize Shorts counter', error);
     }
 }
 
 /**
- * Cleanup function
+ * Enable Shorts counter.
+ */
+function enable() {
+    enabled = true;
+
+    if (!initialized) {
+        void initShortsCounter();
+        return;
+    }
+
+    startRuntime();
+    scheduleContextCheck();
+    logger.info('Shorts counter enabled');
+}
+
+/**
+ * Disable Shorts counter and hide its UI.
+ */
+function disable() {
+    enabled = false;
+    stopRuntime();
+    removeCounterLabel();
+    logger.info('Shorts counter disabled');
+}
+
+/**
+ * Full teardown.
  */
 function cleanup() {
-    if (observer) {
-        observer.disconnect();
-        observer = null;
-    }
-    
+    enabled = false;
+    stopRuntime();
     removeCounterLabel();
-    
+
+    if (animationTimer) {
+        window.clearTimeout(animationTimer);
+        animationTimer = null;
+    }
+
+    if (saveTimer) {
+        void flushPendingSave();
+    }
+
+    contextCheckScheduled = false;
+    lastShortId = null;
+    initialized = false;
     logger.info('Shorts counter cleaned up');
 }
 
-// Initialize when DOM is ready
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initShortsCounter);
+    document.addEventListener('DOMContentLoaded', () => {
+        void initShortsCounter();
+    }, { once: true });
 } else {
-    initShortsCounter();
+    void initShortsCounter();
 }
 
-// Export for potential external use
 export {
     initShortsCounter,
     resetCounter,
-    cleanup
+    enable,
+    disable,
+    cleanup,
+    initShortsCounter as init
 };
