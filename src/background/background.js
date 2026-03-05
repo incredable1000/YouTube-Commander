@@ -1,6 +1,3 @@
-
-import browser from "webextension-polyfill";
-
 // Google Drive API configuration
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
 const UPLOAD_API_BASE = 'https://www.googleapis.com/upload/drive/v3';
@@ -9,98 +6,161 @@ const UPLOAD_API_BASE = 'https://www.googleapis.com/upload/drive/v3';
 let driveAccessToken = null;
 let syncInProgress = false;
 
-// Extension installation and startup handling
-chrome.runtime.onInstalled.addListener(async (details) => {
-    // Ensure default enabled flag exists
+// Backup reminder scheduling configuration
+const BACKUP_REMINDER_NOTIFICATION_ID = 'backupReminder';
+const BACKUP_REMINDER_ALARM_ID = 'ytCommanderBackupReminder';
+const BACKUP_REMINDER_STARTUP_ALARM_ID = 'ytCommanderBackupReminderStartup';
+const BACKUP_REMINDER_INTERVAL_MINUTES = 240; // every 4 hours
+const BACKUP_REMINDER_STARTUP_DELAY_MINUTES = 1;
+const BACKUP_REMINDER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+
+let reminderSessionChecked = false;
+
+/**
+ * Ensure backup reminder settings are initialized.
+ */
+async function ensureBackupReminderDefaults() {
     const result = await chrome.storage.local.get(['backupRemindersEnabled']);
     if (result.backupRemindersEnabled === undefined) {
         await chrome.storage.local.set({ backupRemindersEnabled: true });
     }
-    
-    // Trigger reminder check on install/startup
-    if (details.reason === 'startup' || details.reason === 'install') {
-        console.log('Extension startup/install detected:', details.reason);
-        // Wait a bit for things to settle
-        setTimeout(() => {
-            checkAndShowStartupReminder();
-        }, 5000);
+}
+
+/**
+ * Return whether backup reminders are enabled.
+ * @returns {Promise<boolean>}
+ */
+async function isBackupReminderEnabled() {
+    const result = await chrome.storage.local.get(['backupRemindersEnabled']);
+    return result.backupRemindersEnabled !== false;
+}
+
+/**
+ * Schedule or clear reminder alarms based on current setting.
+ */
+async function configureBackupReminderAlarms() {
+    await chrome.alarms.clear(BACKUP_REMINDER_ALARM_ID);
+    await chrome.alarms.clear(BACKUP_REMINDER_STARTUP_ALARM_ID);
+
+    const enabled = await isBackupReminderEnabled();
+    if (!enabled) {
+        return;
     }
-});
 
-// Show reminder when the browser starts (if enabled)
-chrome.runtime.onStartup.addListener(async () => {
-    console.log('Browser startup detected');
-    await checkAndShowStartupReminder();
-});
+    chrome.alarms.create(BACKUP_REMINDER_ALARM_ID, {
+        periodInMinutes: BACKUP_REMINDER_INTERVAL_MINUTES
+    });
+    chrome.alarms.create(BACKUP_REMINDER_STARTUP_ALARM_ID, {
+        delayInMinutes: BACKUP_REMINDER_STARTUP_DELAY_MINUTES
+    });
+}
 
-// Check for first run after browser restart
-async function checkAndShowStartupReminder() {
+/**
+ * Check cooldown and display backup reminder if eligible.
+ * @param {string} trigger
+ * @param {number} minIntervalMs
+ */
+async function maybeShowBackupReminder(trigger = 'manual', minIntervalMs = BACKUP_REMINDER_COOLDOWN_MS) {
     try {
-        const result = await chrome.storage.local.get(['backupRemindersEnabled', 'lastStartupReminder']);
-        
+        const result = await chrome.storage.local.get([
+            'backupRemindersEnabled',
+            'lastBackupReminderAt'
+        ]);
+
         if (result.backupRemindersEnabled === false) {
-            console.log('Backup reminders disabled, skipping');
-            return;
+            return false;
         }
-        
+
         const now = Date.now();
-        const lastReminder = result.lastStartupReminder || 0;
-        const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
-        
-        // Only show reminder if it's been more than 1 hour since last one
-        if (now - lastReminder > oneHour) {
-            console.log('Showing startup backup reminder');
-            await chrome.storage.local.set({ lastStartupReminder: now });
-            setTimeout(() => {
-                showBackupReminder();
-            }, 3000); // 3 second delay
-        } else {
-            console.log('Startup reminder shown recently, skipping');
+        const lastShown = result.lastBackupReminderAt || 0;
+        if (now - lastShown < minIntervalMs) {
+            return false;
         }
+
+        await showBackupReminder();
+        await chrome.storage.local.set({ lastBackupReminderAt: now });
+        console.log(`Backup reminder shown (${trigger})`);
+        return true;
     } catch (error) {
-        console.error('Error checking startup reminder:', error);
+        console.error('Error while showing backup reminder:', error);
+        return false;
     }
 }
 
-// Fallback: Check when popup is opened (in case onStartup doesn't fire)
-chrome.action.onClicked.addListener(async () => {
-    await checkAndShowStartupReminder();
-});
+// Extension installation and startup handling
+chrome.runtime.onInstalled.addListener(async (details) => {
+    try {
+        await ensureBackupReminderDefaults();
+        await configureBackupReminderAlarms();
 
-// Also check when any tab becomes active (covers more scenarios)
-chrome.tabs.onActivated.addListener(async () => {
-    // Only check once per session to avoid spam
-    if (!chrome.runtime.startupReminderChecked) {
-        chrome.runtime.startupReminderChecked = true;
-        await checkAndShowStartupReminder();
-    }
-});
-
-// Additional trigger: when YouTube tab is opened
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    if (changeInfo.status === 'complete' && tab.url && tab.url.includes('youtube.com')) {
-        // Only check once per session to avoid spam
-        if (!chrome.runtime.youtubeReminderChecked) {
-            chrome.runtime.youtubeReminderChecked = true;
-            console.log('YouTube tab detected, checking for backup reminder');
-            await checkAndShowStartupReminder();
+        if (details.reason === 'install') {
+            await maybeShowBackupReminder('install');
         }
+    } catch (error) {
+        console.error('onInstalled reminder setup failed:', error);
     }
 });
 
-// Removed time-based checks and alarms; startup reminder handles the UX now
+chrome.runtime.onStartup.addListener(async () => {
+    try {
+        await ensureBackupReminderDefaults();
+        await configureBackupReminderAlarms();
+        await maybeShowBackupReminder('startup');
+        reminderSessionChecked = true;
+    } catch (error) {
+        console.error('onStartup reminder setup failed:', error);
+    }
+});
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+    if (!alarm || !alarm.name) {
+        return;
+    }
+
+    if (alarm.name === BACKUP_REMINDER_ALARM_ID) {
+        await maybeShowBackupReminder('periodic-alarm');
+    } else if (alarm.name === BACKUP_REMINDER_STARTUP_ALARM_ID) {
+        await maybeShowBackupReminder('startup-alarm');
+    }
+});
+
+// Fallback trigger for sessions where startup event was missed.
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    if (changeInfo.status !== 'complete' || !tab.url || !tab.url.includes('youtube.com')) {
+        return;
+    }
+
+    if (reminderSessionChecked) {
+        return;
+    }
+
+    reminderSessionChecked = true;
+    await maybeShowBackupReminder('youtube-tab');
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local' || !changes.backupRemindersEnabled) {
+        return;
+    }
+
+    void configureBackupReminderAlarms();
+});
 
 // Show backup reminder notification
 async function showBackupReminder() {
     try {
         // Get video count for the reminder
         const videoCount = await getWatchedVideoCount();
-        
-        chrome.notifications.create('backupReminder', {
+
+        const message = videoCount > 0
+            ? `You have ${videoCount} watched videos. Time to backup your history to Google Drive!`
+            : 'Time to backup your watched history to Google Drive!';
+
+        chrome.notifications.create(BACKUP_REMINDER_NOTIFICATION_ID, {
             type: 'basic',
-            iconUrl: 'assets/icon.png', // Use correct path
+            iconUrl: 'assets/icon.png',
             title: 'YouTube Commander Backup Reminder',
-            message: `You have ${videoCount} watched videos. Time to backup your history to Google Drive!`,
+            message,
             buttons: [
                 { title: 'Export Now' },
                 { title: 'Remind Later' }
@@ -120,44 +180,54 @@ async function showBackupReminder() {
 
 // Get count of watched videos (using new stats approach)
 async function getWatchedVideoCount() {
-    return new Promise((resolve) => {
-        chrome.tabs.query({ url: 'https://www.youtube.com/*' }, (tabs) => {
-            if (tabs.length > 0) {
-                chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_WATCHED_STATS' }, (response) => {
-                    // Check for runtime errors
-                    if (chrome.runtime.lastError) {
-                        console.warn('Failed to get watched stats from content script:', chrome.runtime.lastError.message);
-                        // Fallback to storage
-                        chrome.storage.local.get(['lastVideoCount'], (result) => {
-                            resolve(result.lastVideoCount || 0);
-                        });
-                        return;
-                    }
-                    
-                    if (response && response.success) {
-                        // Cache the count for future fallback use
-                        chrome.storage.local.set({ lastVideoCount: response.total });
-                        resolve(response.total || 0);
-                    } else {
-                        // Fallback to storage
-                        chrome.storage.local.get(['lastVideoCount'], (result) => {
-                            resolve(result.lastVideoCount || 0);
-                        });
-                    }
-                });
-            } else {
-                // Fallback: try to get count from storage
-                chrome.storage.local.get(['lastVideoCount'], (result) => {
-                    resolve(result.lastVideoCount || 0);
-                });
+    const readCachedCount = () => new Promise((resolve) => {
+        chrome.storage.local.get(['lastVideoCount'], (result) => {
+            resolve(result.lastVideoCount || 0);
+        });
+    });
+
+    const requestStatsFromTab = (tabId) => new Promise((resolve) => {
+        chrome.tabs.sendMessage(tabId, { type: 'GET_WATCHED_STATS' }, (response) => {
+            if (chrome.runtime.lastError) {
+                resolve(null);
+                return;
             }
+
+            if (response && response.success && typeof response.total === 'number') {
+                chrome.storage.local.set({ lastVideoCount: response.total });
+                resolve(response.total);
+                return;
+            }
+
+            resolve(null);
+        });
+    });
+
+    return new Promise((resolve) => {
+        chrome.tabs.query({ url: '*://www.youtube.com/*' }, async (tabs) => {
+            if (!tabs || tabs.length === 0) {
+                const cachedCount = await readCachedCount();
+                resolve(cachedCount);
+                return;
+            }
+
+            for (const tab of tabs) {
+                const count = await requestStatsFromTab(tab.id);
+                if (typeof count === 'number') {
+                    resolve(count);
+                    return;
+                }
+            }
+
+            const cachedCount = await readCachedCount();
+            resolve(cachedCount);
         });
     });
 }
 
 // Handle notification button clicks
 chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
-    if (notificationId === 'backupReminder') {
+    if (notificationId === BACKUP_REMINDER_NOTIFICATION_ID) {
         if (buttonIndex === 0) { // Export Now
             // Open extension popup or YouTube tab
             chrome.tabs.query({ url: 'https://www.youtube.com/*' }, (tabs) => {
@@ -391,8 +461,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
     else if (message.type === 'TOGGLE_BACKUP_REMINDERS') {
-        // No alarms to manage anymore; just acknowledge the toggle
-        sendResponse({ success: true });
+        const enabled = message.enabled !== false;
+        chrome.storage.local.set({ backupRemindersEnabled: enabled }, async () => {
+            if (chrome.runtime.lastError) {
+                sendResponse({ success: false, error: chrome.runtime.lastError.message });
+                return;
+            }
+
+            await configureBackupReminderAlarms();
+            sendResponse({ success: true, enabled });
+        });
         return true;
     }
     else if (message.type === 'HISTORY_UPDATED') {

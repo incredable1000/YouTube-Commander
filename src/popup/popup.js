@@ -88,16 +88,29 @@ function setupBackupToggle() {
     if (backupToggle) {
         backupToggle.addEventListener('click', (e) => {
             e.stopPropagation();
-            
-            if (backupToggle.classList.contains('active')) {
-                backupToggle.classList.remove('active');
-                chrome.storage.local.set({ backupRemindersEnabled: false });
-                showStatus('Backup reminders disabled', 'success');
-            } else {
-                backupToggle.classList.add('active');
-                chrome.storage.local.set({ backupRemindersEnabled: true });
-                showStatus('Backup reminders enabled', 'success');
-            }
+
+            const enabled = !backupToggle.classList.contains('active');
+            backupToggle.classList.toggle('active', enabled);
+
+            chrome.storage.local.set({ backupRemindersEnabled: enabled }, () => {
+                if (chrome.runtime.lastError) {
+                    console.warn('Failed to update backup reminder setting:', chrome.runtime.lastError.message);
+                    showStatus('Failed to update backup reminders', 'error');
+                    return;
+                }
+
+                chrome.runtime.sendMessage({
+                    type: 'TOGGLE_BACKUP_REMINDERS',
+                    enabled
+                }).catch((error) => {
+                    console.warn('Failed to notify background for backup reminders:', error);
+                });
+
+                showStatus(
+                    enabled ? 'Backup reminders enabled' : 'Backup reminders disabled',
+                    'success'
+                );
+            });
         });
     }
 }
