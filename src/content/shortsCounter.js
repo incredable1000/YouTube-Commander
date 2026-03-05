@@ -9,9 +9,17 @@ import {
     SESSION_STORAGE_KEY,
     LABEL_ID,
     SAVE_DEBOUNCE_MS,
-    OBSERVER_THROTTLE_MS
+    OBSERVER_THROTTLE_MS,
+    END_BIND_DELAY_MS,
+    AUTO_SCROLL_COOLDOWN_MS,
+    AUTO_SCROLL_END_THRESHOLD_S
 } from './shorts-counter/constants.js';
-import { isShortsWatchPage, getCurrentShortsId } from './shorts-counter/pageContext.js';
+import {
+    isShortsWatchPage,
+    getCurrentShortsId,
+    getActiveShortsVideoElement,
+    advanceToNextShort
+} from './shorts-counter/pageContext.js';
 import { loadCounterState, saveCounterState } from './shorts-counter/sessionStore.js';
 import { createShortsCounterUi } from './shorts-counter/ui.js';
 
@@ -24,11 +32,15 @@ let observer = null;
 let pageListenerCleanups = [];
 
 let saveTimer = null;
+let endBindTimer = null;
 let contextCheckScheduled = false;
 
 let lastShortId = null;
+let lastAutoScrollAt = 0;
+let lastAutoScrollShortId = null;
 let initialized = false;
 let enabled = true;
+const endedVideoBindings = new Map();
 
 const counterUi = createShortsCounterUi({
     labelId: LABEL_ID,
@@ -125,6 +137,123 @@ function updateCounterDisplay({ animate = false, delta = 1 } = {}) {
 }
 
 /**
+ * Remove all bound ended handlers from Shorts video elements.
+ */
+function clearEndedVideoBindings() {
+    for (const [video, binding] of endedVideoBindings.entries()) {
+        video.removeEventListener('ended', binding.onEnded);
+        video.removeEventListener('timeupdate', binding.onTimeUpdate);
+    }
+    endedVideoBindings.clear();
+}
+
+/**
+ * Remove ended handlers for detached video elements.
+ */
+function pruneEndedVideoBindings() {
+    for (const [video, binding] of endedVideoBindings.entries()) {
+        if (video.isConnected) {
+            continue;
+        }
+
+        video.removeEventListener('ended', binding.onEnded);
+        video.removeEventListener('timeupdate', binding.onTimeUpdate);
+        endedVideoBindings.delete(video);
+    }
+}
+
+/**
+ * Attach an ended handler to auto-advance Shorts.
+ * @param {HTMLVideoElement} video
+ */
+function bindAutoAdvanceHandler(video) {
+    if (!(video instanceof HTMLVideoElement) || endedVideoBindings.has(video)) {
+        return;
+    }
+
+    const triggerAutoAdvance = (reason) => {
+        if (!enabled || !isShortsWatchPage()) {
+            return;
+        }
+
+        const shortId = getCurrentShortsId();
+        if (!shortId) {
+            return;
+        }
+
+        const now = Date.now();
+        if (
+            shortId === lastAutoScrollShortId
+            && now - lastAutoScrollAt < AUTO_SCROLL_COOLDOWN_MS
+        ) {
+            return;
+        }
+
+        lastAutoScrollShortId = shortId;
+        lastAutoScrollAt = now;
+
+        const advanced = advanceToNextShort();
+        if (advanced) {
+            logger.debug('Auto-advanced to next short', { shortId, reason });
+            scheduleContextCheck();
+        }
+    };
+
+    const onEnded = () => {
+        triggerAutoAdvance('ended');
+    };
+
+    const onTimeUpdate = () => {
+        if (video.paused) {
+            return;
+        }
+
+        if (!Number.isFinite(video.duration) || video.duration <= 0) {
+            return;
+        }
+
+        const remaining = video.duration - video.currentTime;
+        if (remaining > AUTO_SCROLL_END_THRESHOLD_S) {
+            return;
+        }
+
+        triggerAutoAdvance('timeupdate');
+    };
+
+    video.addEventListener('ended', onEnded);
+    video.addEventListener('timeupdate', onTimeUpdate);
+    endedVideoBindings.set(video, { onEnded, onTimeUpdate });
+}
+
+/**
+ * Debounced ended-listener binding for currently active Shorts video.
+ */
+function scheduleEndedBinding() {
+    if (!enabled) {
+        return;
+    }
+
+    if (endBindTimer) {
+        window.clearTimeout(endBindTimer);
+    }
+
+    endBindTimer = window.setTimeout(() => {
+        endBindTimer = null;
+
+        if (!enabled || !isShortsWatchPage()) {
+            return;
+        }
+
+        pruneEndedVideoBindings();
+
+        const activeVideo = getActiveShortsVideoElement();
+        if (activeVideo) {
+            bindAutoAdvanceHandler(activeVideo);
+        }
+    }, END_BIND_DELAY_MS);
+}
+
+/**
  * Synchronize counter with currently active short.
  */
 async function syncCounterWithCurrentShort() {
@@ -135,6 +264,7 @@ async function syncCounterWithCurrentShort() {
     if (!isShortsWatchPage()) {
         lastShortId = null;
         removeCounterLabel();
+        clearEndedVideoBindings();
         return;
     }
 
@@ -144,6 +274,7 @@ async function syncCounterWithCurrentShort() {
 
     ensureCounterLabel();
     updateCounterDisplay();
+    scheduleEndedBinding();
 
     const shortId = getCurrentShortsId();
     if (!shortId || shortId === lastShortId) {
@@ -261,6 +392,7 @@ function detachPageListeners() {
 function startRuntime() {
     setupNavigationObserver();
     attachPageListeners();
+    scheduleEndedBinding();
 }
 
 /**
@@ -269,6 +401,13 @@ function startRuntime() {
 function stopRuntime() {
     teardownNavigationObserver();
     detachPageListeners();
+
+    if (endBindTimer) {
+        window.clearTimeout(endBindTimer);
+        endBindTimer = null;
+    }
+
+    clearEndedVideoBindings();
 }
 
 /**
@@ -334,6 +473,8 @@ function enable() {
 function disable() {
     enabled = false;
     stopRuntime();
+    lastAutoScrollShortId = null;
+    lastAutoScrollAt = 0;
     removeCounterLabel();
     logger.info('Shorts counter disabled');
 }
@@ -352,6 +493,8 @@ function cleanup() {
 
     contextCheckScheduled = false;
     lastShortId = null;
+    lastAutoScrollShortId = null;
+    lastAutoScrollAt = 0;
     initialized = false;
     logger.info('Shorts counter cleaned up');
 }

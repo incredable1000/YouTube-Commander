@@ -73,8 +73,127 @@ function getCurrentShortsId() {
     return fromQuery || null;
 }
 
+/**
+ * Get the active Shorts renderer.
+ * @returns {Element|null}
+ */
+function getActiveShortsRenderer() {
+    const explicitActive = document.querySelector('ytd-shorts ytd-reel-video-renderer[is-active]');
+    if (explicitActive) {
+        return explicitActive;
+    }
+
+    const renderers = document.querySelectorAll('ytd-shorts ytd-reel-video-renderer');
+    const midY = window.innerHeight / 2;
+    for (const renderer of renderers) {
+        const rect = renderer.getBoundingClientRect();
+        if (rect.top <= midY && rect.bottom >= midY) {
+            return renderer;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Return active Shorts video element.
+ * @returns {HTMLVideoElement|null}
+ */
+function getActiveShortsVideoElement() {
+    const activeRenderer = getActiveShortsRenderer();
+    if (activeRenderer) {
+        const rendererVideo = activeRenderer.querySelector('video.html5-main-video');
+        if (rendererVideo instanceof HTMLVideoElement) {
+            return rendererVideo;
+        }
+    }
+
+    const fallbackVideo = document.querySelector('ytd-shorts video.html5-main-video');
+    return fallbackVideo instanceof HTMLVideoElement ? fallbackVideo : null;
+}
+
+/**
+ * Check if element is interactable.
+ * @param {Element|null} element
+ * @returns {boolean}
+ */
+function isInteractableElement(element) {
+    if (!(element instanceof HTMLElement)) {
+        return false;
+    }
+
+    if (element.hasAttribute('disabled') || element.getAttribute('aria-disabled') === 'true') {
+        return false;
+    }
+
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+}
+
+/**
+ * Try to advance to the next short item.
+ * @returns {boolean}
+ */
+function advanceToNextShort() {
+    const nextButtonSelectors = [
+        'ytd-shorts ytd-reel-player-overlay-renderer #navigation-button-down button',
+        'ytd-shorts ytd-reel-player-overlay-renderer #navigation-button-down',
+        'ytd-shorts #navigation-button-down button',
+        'ytd-shorts #navigation-button-down',
+        'ytd-shorts ytd-button-renderer#navigation-button-down button',
+        'ytd-shorts ytd-button-renderer#navigation-button-down',
+        'ytd-shorts button[aria-label*="Next"]',
+        'ytd-shorts button[aria-label*="next"]',
+        'ytd-shorts button[title*="Next"]',
+        'ytd-shorts [aria-label*="Next"]'
+    ];
+
+    for (const selector of nextButtonSelectors) {
+        const button = document.querySelector(selector);
+        if (!isInteractableElement(button)) {
+            continue;
+        }
+
+        button.click();
+        return true;
+    }
+
+    const activeRenderer = getActiveShortsRenderer();
+    if (activeRenderer) {
+        const renderers = Array.from(document.querySelectorAll('ytd-shorts ytd-reel-video-renderer'));
+        const activeIndex = renderers.indexOf(activeRenderer);
+        if (activeIndex >= 0 && activeIndex < renderers.length - 1) {
+            const nextRenderer = renderers[activeIndex + 1];
+            if (nextRenderer) {
+                nextRenderer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                return true;
+            }
+        }
+    }
+
+    try {
+        const eventInit = {
+            key: 'ArrowDown',
+            code: 'ArrowDown',
+            keyCode: 40,
+            which: 40,
+            bubbles: true,
+            cancelable: true
+        };
+
+        document.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+        document.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+        return true;
+    } catch (_error) {
+        return false;
+    }
+}
+
 export {
     extractShortIdFromHref,
     isShortsWatchPage,
-    getCurrentShortsId
+    getCurrentShortsId,
+    getActiveShortsVideoElement,
+    getActiveShortsRenderer,
+    advanceToNextShort
 };
