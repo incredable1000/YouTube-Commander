@@ -1,4 +1,4 @@
-.custom-seek-buttons {
+﻿.custom-seek-buttons {
     display: inline-flex !important;
     gap: 6px;
     margin-left: 10px;
@@ -770,7 +770,8 @@
 }
 
 .yt-commander-playlist-masthead-button.is-active {
-    background: rgba(62, 166, 255, 0.2);
+    background: rgba(62, 166, 255, 0.24);
+    color: #b5e0ff;
 }
 
 .yt-commander-playlist-masthead-button svg {
@@ -811,18 +812,18 @@
 .yt-commander-playlist-overlay {
     position: absolute;
     inset: 0;
-    z-index: 7;
+    z-index: 8;
     border: none;
     margin: 0;
     padding: 0;
     border-radius: inherit;
     appearance: none;
     -webkit-appearance: none;
-    background: transparent;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.26));
     opacity: 0;
     pointer-events: none;
     cursor: pointer;
-    transition: opacity 0.16s ease, background-color 0.16s ease;
+    transition: opacity 0.18s ease, background-color 0.18s ease;
 }
 
 .yt-commander-playlist-overlay:focus {
@@ -831,14 +832,14 @@
 
 .yt-commander-playlist-overlay__hint {
     position: absolute;
-    right: 10px;
-    bottom: 10px;
+    left: 10px;
+    top: 10px;
     min-width: 58px;
     height: 24px;
     padding: 0 9px;
-    border: 1px solid rgba(255, 255, 255, 0.36);
+    border: 1px solid rgba(255, 255, 255, 0.3);
     border-radius: 999px;
-    background: rgba(15, 15, 15, 0.72);
+    background: rgba(15, 15, 15, 0.78);
     color: #f1f1f1;
     font-family: "YouTube Noto", Roboto, Arial, sans-serif;
     font-size: 11px;
@@ -856,11 +857,11 @@
 }
 
 .yt-commander-playlist-selection-mode .yt-commander-playlist-host .yt-commander-playlist-overlay:hover {
-    background: rgba(0, 0, 0, 0.24);
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.34));
 }
 
 .yt-commander-playlist-host.yt-commander-playlist-selected .yt-commander-playlist-overlay {
-    background: rgba(62, 166, 255, 0.32);
+    background: rgba(62, 166, 255, 0.28);
 }
 
 .yt-commander-playlist-host.yt-commander-playlist-selected .yt-commander-playlist-overlay::before {
@@ -868,18 +869,18 @@
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 42px;
-    height: 42px;
+    width: 48px;
+    height: 48px;
     transform: translate(-50%, -50%);
-    border-radius: 12px;
-    background: rgba(62, 166, 255, 0.94);
+    border-radius: 14px;
+    background: rgba(62, 166, 255, 0.95);
     color: #0f0f0f;
     font-family: "YouTube Noto", Roboto, Arial, sans-serif;
-    font-size: 30px;
+    font-size: 32px;
     font-weight: 800;
-    line-height: 42px;
+    line-height: 48px;
     text-align: center;
-    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.38);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.45);
 }
 
 .yt-commander-playlist-host.yt-commander-playlist-selected .yt-commander-playlist-overlay__hint {
@@ -888,217 +889,794 @@
     color: #0f0f0f;
 }
 
-.yt-commander-save-popup {
+.yt-commander-playlist-action-bar {
     position: fixed;
-    z-index: 100002;
-    width: 340px;
-    border-radius: 12px;
+    left: 50%;
+    bottom: 16px;
+    transform: translateX(-50%) translateY(18px);
+    min-width: 236px;
+    height: 52px;
+    padding: 0 10px 0 14px;
     border: 1px solid rgba(255, 255, 255, 0.15);
-    background: #212121;
-    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.55);
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(39, 39, 39, 0.96), rgba(22, 22, 22, 0.96));
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 16px 34px rgba(0, 0, 0, 0.48);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 100003;
     opacity: 0;
-    transform: translateY(-6px) scale(0.98);
     pointer-events: none;
-    transition: opacity 0.17s ease, transform 0.17s ease;
+    transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
-.yt-commander-save-popup.is-visible {
+.yt-commander-playlist-action-bar.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+}
+
+.yt-commander-playlist-action-count {
+    min-width: 108px;
+    height: 34px;
+    border-radius: 999px;
+    padding: 0 12px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.06);
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    box-sizing: border-box;
+}
+
+.yt-commander-playlist-action-count-label {
+    color: rgba(241, 241, 241, 0.76);
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.12px;
+}
+
+.yt-commander-playlist-action-count-value {
+    color: #ffffff;
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.16px;
+}
+
+.yt-commander-playlist-action-menu-button,
+.yt-commander-playlist-action-exit {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.05);
+    color: #f1f1f1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+
+.yt-commander-playlist-action-menu-button:hover:not(:disabled),
+.yt-commander-playlist-action-exit:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: translateY(-1px);
+}
+
+.yt-commander-playlist-action-menu-button:disabled,
+.yt-commander-playlist-action-exit:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.yt-commander-playlist-action-menu-button svg,
+.yt-commander-playlist-action-exit svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+    pointer-events: none;
+}
+
+.yt-commander-playlist-action-status {
+    position: fixed;
+    left: 50%;
+    bottom: 74px;
+    transform: translateX(-50%) translateY(5px);
+    max-width: min(88vw, 520px);
+    min-height: 20px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(17, 17, 17, 0.92);
+    color: rgba(241, 241, 241, 0.76);
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 12px;
+    line-height: 1.25;
+    text-align: center;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 100003;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.yt-commander-playlist-action-status.is-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.yt-commander-playlist-action-status.is-success {
+    color: #8dffb6;
+}
+
+.yt-commander-playlist-action-status.is-error {
+    color: #ff9d9d;
+}
+
+.yt-commander-playlist-action-status.is-info {
+    color: #a9d9ff;
+}
+
+.yt-commander-playlist-action-menu {
+    position: fixed;
+    width: 246px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    background: #242424;
+    box-shadow: 0 20px 36px rgba(0, 0, 0, 0.56);
+    z-index: 100004;
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+    overflow: hidden;
+}
+
+.yt-commander-playlist-action-menu.is-visible {
     opacity: 1;
     transform: translateY(0) scale(1);
     pointer-events: auto;
 }
 
-.yt-commander-save-popup__header {
-    height: 48px;
-    padding: 0 10px 0 16px;
+.yt-commander-playlist-action-menu__item {
+    width: 100%;
+    min-height: 48px;
+    padding: 0 14px;
+    border: none;
+    background: transparent;
+    color: #f1f1f1;
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 18px;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+}
+
+.yt-commander-playlist-action-menu__item:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.yt-commander-playlist-action-menu__item:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.yt-commander-playlist-action-menu__item-icon {
+    width: 22px;
+    height: 22px;
+    color: rgba(241, 241, 241, 0.9);
+    flex: 0 0 auto;
+}
+
+.yt-commander-playlist-action-menu__item-icon svg {
+    width: 100%;
+    height: 100%;
+    fill: currentColor;
+}
+
+.yt-commander-playlist-action-menu__item-text {
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 15px;
+    font-weight: 500;
+    color: #f1f1f1;
+}
+
+.yt-commander-playlist-panel {
+    position: fixed;
+    width: min(520px, calc(100vw - 14px));
+    max-height: min(78vh, 540px);
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    background: #242424;
+    box-shadow: 0 24px 44px rgba(0, 0, 0, 0.58);
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+    pointer-events: none;
+    z-index: 100005;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.yt-commander-playlist-panel.is-visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+}
+
+.yt-commander-playlist-panel.is-busy {
+    cursor: wait;
+}
+
+.yt-commander-playlist-panel__header {
+    height: 54px;
+    padding: 0 12px 0 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.yt-commander-save-popup__title {
+.yt-commander-playlist-panel__title {
     color: #f1f1f1;
     font-family: "YouTube Noto", Roboto, Arial, sans-serif;
-    font-size: 16px;
-    font-weight: 500;
-    letter-spacing: 0.1px;
+    font-size: 34px;
+    font-weight: 600;
 }
 
-.yt-commander-save-popup__close {
-    width: 32px;
-    height: 32px;
+.yt-commander-playlist-panel__close {
+    width: 34px;
+    height: 34px;
     border: none;
     border-radius: 50%;
     background: transparent;
     color: rgba(241, 241, 241, 0.88);
-    font-size: 20px;
-    line-height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
 }
 
-.yt-commander-save-popup__close:hover {
+.yt-commander-playlist-panel__close:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.12);
 }
 
-.yt-commander-save-popup__subhead {
-    padding: 10px 16px 8px;
+.yt-commander-playlist-panel__close:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
-.yt-commander-save-popup__count {
-    color: rgba(241, 241, 241, 0.68);
+.yt-commander-playlist-panel__close svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+
+.yt-commander-playlist-panel__subhead {
+    padding: 10px 16px 6px;
+}
+
+.yt-commander-playlist-panel__count {
+    color: rgba(241, 241, 241, 0.66);
     font-family: "YouTube Noto", Roboto, Arial, sans-serif;
     font-size: 12px;
+    font-weight: 500;
 }
 
-.yt-commander-save-popup__list {
-    max-height: 320px;
+.yt-commander-playlist-panel__list {
+    flex: 1;
+    min-height: 88px;
+    max-height: min(56vh, 420px);
     overflow: auto;
     padding: 0 8px 8px;
 }
 
-.yt-commander-save-popup__item {
+.yt-commander-playlist-panel__item {
+    width: 100%;
+    min-height: 62px;
+    border: none;
+    border-radius: 12px;
+    background: transparent;
+    color: #f1f1f1;
+    padding: 8px;
+    margin: 0;
     display: flex;
     align-items: center;
     gap: 10px;
-    min-height: 42px;
-    padding: 8px;
-    border-radius: 10px;
+    text-align: left;
     cursor: pointer;
+    box-sizing: border-box;
 }
 
-.yt-commander-save-popup__item:hover {
+.yt-commander-playlist-panel__item:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.08);
 }
 
-.yt-commander-save-popup__item-input {
-    position: absolute;
-    opacity: 0;
-    width: 0;
-    height: 0;
+.yt-commander-playlist-panel__item.is-selected {
+    background: rgba(255, 255, 255, 0.14);
 }
 
-.yt-commander-save-popup__item-mark {
-    width: 18px;
-    height: 18px;
-    border-radius: 3px;
-    border: 2px solid rgba(255, 255, 255, 0.82);
-    background: transparent;
-    position: relative;
+.yt-commander-playlist-panel__item-thumb {
+    width: 58px;
+    height: 34px;
+    border-radius: 7px;
+    background: linear-gradient(135deg, #353535, #202020);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(241, 241, 241, 0.82);
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.18px;
+    text-transform: uppercase;
     flex: 0 0 auto;
 }
 
-.yt-commander-save-popup__item-mark::before {
-    content: '';
-    position: absolute;
-    left: 4px;
-    top: 1px;
-    width: 5px;
-    height: 10px;
-    border-right: 2px solid #0f0f0f;
-    border-bottom: 2px solid #0f0f0f;
-    transform: rotate(40deg);
-    opacity: 0;
-}
-
-.yt-commander-save-popup__item-input:checked + .yt-commander-save-popup__item-mark {
-    background: #3ea6ff;
-    border-color: #3ea6ff;
-}
-
-.yt-commander-save-popup__item-input:checked + .yt-commander-save-popup__item-mark::before {
-    opacity: 1;
-}
-
-.yt-commander-save-popup__item-text {
+.yt-commander-playlist-panel__item-body {
     display: flex;
     flex-direction: column;
     min-width: 0;
 }
 
-.yt-commander-save-popup__item-title {
+.yt-commander-playlist-panel__item-title {
     color: #f1f1f1;
     font-family: "YouTube Noto", Roboto, Arial, sans-serif;
     font-size: 14px;
+    font-weight: 500;
     line-height: 1.25;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.yt-commander-save-popup__item-meta {
+.yt-commander-playlist-panel__item-meta {
     margin-top: 2px;
-    color: rgba(241, 241, 241, 0.58);
+    color: rgba(241, 241, 241, 0.62);
     font-family: "YouTube Noto", Roboto, Arial, sans-serif;
-    font-size: 11px;
+    font-size: 12px;
 }
 
-.yt-commander-save-popup__empty {
-    padding: 14px 10px;
-    color: rgba(241, 241, 241, 0.72);
+.yt-commander-playlist-panel__item-bookmark {
+    margin-left: auto;
+    width: 22px;
+    height: 22px;
+    color: rgba(241, 241, 241, 0.86);
+    flex: 0 0 auto;
+}
+
+.yt-commander-playlist-panel__item-bookmark svg {
+    width: 100%;
+    height: 100%;
+    fill: currentColor;
+}
+
+.yt-commander-playlist-panel__item.is-selected .yt-commander-playlist-panel__item-bookmark {
+    color: #3ea6ff;
+}
+
+.yt-commander-playlist-panel__empty {
+    padding: 18px 8px;
+    color: rgba(241, 241, 241, 0.7);
     font-family: "YouTube Noto", Roboto, Arial, sans-serif;
     font-size: 12px;
     text-align: center;
 }
 
-.yt-commander-save-popup__status {
+.yt-commander-playlist-panel__status {
     min-height: 18px;
     padding: 2px 16px 8px;
-    color: rgba(241, 241, 241, 0.72);
+    color: rgba(241, 241, 241, 0.74);
     font-family: "YouTube Noto", Roboto, Arial, sans-serif;
     font-size: 12px;
+    opacity: 0;
+    transition: opacity 0.16s ease;
 }
 
-.yt-commander-save-popup__status.is-success {
-    color: #79ffa8;
+.yt-commander-playlist-panel__status.is-visible {
+    opacity: 1;
 }
 
-.yt-commander-save-popup__status.is-error {
-    color: #ff8c8c;
+.yt-commander-playlist-panel__status.is-success {
+    color: #8dffb6;
 }
 
-.yt-commander-save-popup__status.is-info {
+.yt-commander-playlist-panel__status.is-error {
+    color: #ff9d9d;
+}
+
+.yt-commander-playlist-panel__status.is-info {
     color: #a9d9ff;
 }
 
-.yt-commander-save-popup__footer {
+.yt-commander-playlist-panel__footer {
     padding: 8px 12px 12px;
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.yt-commander-save-popup__action {
-    min-width: 72px;
-    height: 32px;
+.yt-commander-playlist-panel__new {
+    width: 100%;
+    height: 44px;
     border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     background: rgba(255, 255, 255, 0.08);
     color: #f1f1f1;
     font-family: "YouTube Noto", Roboto, Arial, sans-serif;
-    font-size: 12px;
+    font-size: 18px;
     font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     cursor: pointer;
 }
 
-.yt-commander-save-popup__action:hover:not(:disabled) {
+.yt-commander-playlist-panel__new:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.14);
-    border-color: rgba(255, 255, 255, 0.34);
+    border-color: rgba(255, 255, 255, 0.28);
 }
 
-.yt-commander-save-popup__action:disabled {
+.yt-commander-playlist-panel__new:disabled {
     opacity: 0.45;
     cursor: not-allowed;
 }
 
-.yt-commander-save-popup__action[data-action="done"] {
-    border-color: rgba(62, 166, 255, 0.66);
-    background: rgba(62, 166, 255, 0.3);
+.yt-commander-playlist-panel__new-icon {
+    width: 20px;
+    height: 20px;
+    color: currentColor;
 }
 
-.yt-commander-save-popup__action[data-action="done"]:hover:not(:disabled) {
-    border-color: rgba(62, 166, 255, 0.82);
+.yt-commander-playlist-panel__new-icon svg {
+    width: 100%;
+    height: 100%;
+    fill: currentColor;
+}
+
+.yt-commander-playlist-create-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100006;
+    background: rgba(0, 0, 0, 0.56);
+    opacity: 0;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.18s ease;
+}
+
+.yt-commander-playlist-create-backdrop.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.yt-commander-playlist-create-modal {
+    width: min(420px, calc(100vw - 16px));
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: #222222;
+    box-shadow: 0 22px 44px rgba(0, 0, 0, 0.56);
+    padding: 20px 18px 16px;
+    transform: translateY(8px) scale(0.98);
+    transition: transform 0.18s ease;
+}
+
+.yt-commander-playlist-create-backdrop.is-visible .yt-commander-playlist-create-modal {
+    transform: translateY(0) scale(1);
+}
+
+.yt-commander-playlist-create-modal__title {
+    margin: 0;
+    color: #f1f1f1;
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 37px;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.yt-commander-playlist-create-modal__input {
+    width: 100%;
+    height: 56px;
+    margin-top: 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.02);
+    color: #f1f1f1;
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 34px;
+    font-weight: 500;
+    padding: 0 14px;
+    box-sizing: border-box;
+}
+
+.yt-commander-playlist-create-modal__input::placeholder {
+    color: rgba(241, 241, 241, 0.48);
+}
+
+.yt-commander-playlist-create-modal__input:focus {
+    outline: none;
+    border-color: rgba(62, 166, 255, 0.8);
+    box-shadow: 0 0 0 2px rgba(62, 166, 255, 0.16);
+}
+
+.yt-commander-playlist-create-modal__visibility {
+    position: relative;
+    margin-top: 12px;
+}
+
+.yt-commander-playlist-create-modal__visibility-button {
+    width: 100%;
+    min-height: 56px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.02);
+    color: #f1f1f1;
+    padding: 10px 14px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+}
+
+.yt-commander-playlist-create-modal__visibility-button svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+}
+
+.yt-commander-playlist-create-modal__visibility-text {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+}
+
+.yt-commander-playlist-create-modal__visibility-label {
+    color: rgba(241, 241, 241, 0.72);
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.yt-commander-playlist-create-modal__visibility-value {
+    color: #f1f1f1;
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.yt-commander-playlist-create-modal__visibility-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    background: #242424;
+    box-shadow: 0 18px 30px rgba(0, 0, 0, 0.55);
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+    pointer-events: none;
+    transition: opacity 0.17s ease, transform 0.17s ease;
+    overflow: hidden;
+    z-index: 2;
+}
+
+.yt-commander-playlist-create-modal__visibility-menu.is-visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+}
+
+.yt-commander-playlist-create-modal__visibility-option {
+    width: 100%;
+    min-height: 64px;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: transparent;
+    color: #f1f1f1;
+    text-align: left;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    box-sizing: border-box;
+}
+
+.yt-commander-playlist-create-modal__visibility-option:last-child {
+    border-bottom: none;
+}
+
+.yt-commander-playlist-create-modal__visibility-option:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.yt-commander-playlist-create-modal__visibility-option-icon {
+    width: 22px;
+    height: 22px;
+    color: rgba(241, 241, 241, 0.86);
+    flex: 0 0 auto;
+}
+
+.yt-commander-playlist-create-modal__visibility-option-icon svg {
+    width: 100%;
+    height: 100%;
+    fill: currentColor;
+}
+
+.yt-commander-playlist-create-modal__visibility-option-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.yt-commander-playlist-create-modal__visibility-option-title {
+    color: #f1f1f1;
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 22px;
+    font-weight: 600;
+}
+
+.yt-commander-playlist-create-modal__visibility-option-desc {
+    margin-top: 1px;
+    color: rgba(241, 241, 241, 0.65);
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 11px;
+}
+
+.yt-commander-playlist-create-modal__visibility-option-check {
+    margin-left: auto;
+    width: 18px;
+    height: 18px;
+    color: #3ea6ff;
+    opacity: 0;
+}
+
+.yt-commander-playlist-create-modal__visibility-option-check svg {
+    width: 100%;
+    height: 100%;
+    fill: currentColor;
+}
+
+.yt-commander-playlist-create-modal__visibility-option.is-selected .yt-commander-playlist-create-modal__visibility-option-check {
+    opacity: 1;
+}
+
+.yt-commander-playlist-create-modal__collaborate {
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.yt-commander-playlist-create-modal__collaborate-label {
+    color: #f1f1f1;
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.yt-commander-playlist-create-modal__switch {
+    position: relative;
+    width: 48px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.yt-commander-playlist-create-modal__switch-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.yt-commander-playlist-create-modal__switch-slider {
+    width: 48px;
+    height: 28px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.28);
+    position: relative;
+    cursor: pointer;
+    transition: background-color 0.16s ease;
+}
+
+.yt-commander-playlist-create-modal__switch-slider::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #0f0f0f;
+    transition: transform 0.16s ease;
+}
+
+.yt-commander-playlist-create-modal__switch-input:checked + .yt-commander-playlist-create-modal__switch-slider {
+    background: rgba(62, 166, 255, 0.62);
+}
+
+.yt-commander-playlist-create-modal__switch-input:checked + .yt-commander-playlist-create-modal__switch-slider::before {
+    transform: translateX(20px);
+}
+
+.yt-commander-playlist-create-modal__status {
+    min-height: 18px;
+    margin-top: 10px;
+    color: rgba(241, 241, 241, 0.72);
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 12px;
+    opacity: 0;
+    transition: opacity 0.16s ease;
+}
+
+.yt-commander-playlist-create-modal__status.is-visible {
+    opacity: 1;
+}
+
+.yt-commander-playlist-create-modal__status.is-success {
+    color: #8dffb6;
+}
+
+.yt-commander-playlist-create-modal__status.is-error {
+    color: #ff9d9d;
+}
+
+.yt-commander-playlist-create-modal__status.is-info {
+    color: #a9d9ff;
+}
+
+.yt-commander-playlist-create-modal__actions {
+    margin-top: 8px;
+    display: flex;
+    gap: 10px;
+}
+
+.yt-commander-playlist-create-modal__button {
+    flex: 1;
+    height: 42px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.05);
+    color: #f1f1f1;
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.yt-commander-playlist-create-modal__button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.yt-commander-playlist-create-modal__button--primary {
+    border-color: rgba(62, 166, 255, 0.6);
+    background: rgba(62, 166, 255, 0.28);
+    color: #ffffff;
+}
+
+.yt-commander-playlist-create-modal__button--primary:hover:not(:disabled) {
+    border-color: rgba(62, 166, 255, 0.85);
     background: rgba(62, 166, 255, 0.42);
+}
+
+.yt-commander-playlist-create-modal__button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 @media (max-width: 900px) {
@@ -1111,7 +1689,28 @@
         height: 36px;
     }
 
-    .yt-commander-save-popup {
-        width: min(340px, calc(100vw - 12px));
+    .yt-commander-playlist-action-bar {
+        min-width: min(94vw, 300px);
+        padding: 0 8px 0 10px;
+        height: 48px;
+        gap: 8px;
+    }
+
+    .yt-commander-playlist-action-count {
+        min-width: 98px;
+        height: 32px;
+        padding: 0 10px;
+    }
+
+    .yt-commander-playlist-action-menu-button,
+    .yt-commander-playlist-action-exit {
+        width: 32px;
+        height: 32px;
+    }
+
+    .yt-commander-playlist-panel {
+        width: min(520px, calc(100vw - 10px));
     }
 }
+
+

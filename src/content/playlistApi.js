@@ -13,7 +13,8 @@ const RESPONSE_TYPE = 'YT_COMMANDER_PLAYLIST_BRIDGE_RESPONSE';
 
 const ACTIONS = {
     GET_PLAYLISTS: 'GET_PLAYLISTS',
-    ADD_TO_PLAYLISTS: 'ADD_TO_PLAYLISTS'
+    ADD_TO_PLAYLISTS: 'ADD_TO_PLAYLISTS',
+    CREATE_PLAYLIST_AND_ADD: 'CREATE_PLAYLIST_AND_ADD'
 };
 
 const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{10,15}$/;
@@ -382,6 +383,61 @@ function readText(field) {
 }
 
 /**
+ * Find first playlist id in an arbitrary object tree.
+ * @param {any} node
+ * @param {WeakSet<object>} visited
+ * @returns {string|null}
+ */
+function findPlaylistIdInNode(node, visited = new WeakSet()) {
+    if (!node || typeof node !== 'object') {
+        return null;
+    }
+
+    if (visited.has(node)) {
+        return null;
+    }
+    visited.add(node);
+
+    if (typeof node.playlistId === 'string' && PLAYLIST_ID_PATTERN.test(node.playlistId)) {
+        return node.playlistId;
+    }
+
+    if (Array.isArray(node)) {
+        for (const item of node) {
+            const found = findPlaylistIdInNode(item, visited);
+            if (found) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    for (const value of Object.values(node)) {
+        if (value && typeof value === 'object') {
+            const found = findPlaylistIdInNode(value, visited);
+            if (found) {
+                return found;
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Normalize privacy status to API-friendly value.
+ * @param {string} raw
+ * @returns {'PUBLIC'|'UNLISTED'|'PRIVATE'}
+ */
+function normalizePrivacyStatus(raw) {
+    const value = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
+    if (value === 'PUBLIC' || value === 'UNLISTED') {
+        return value;
+    }
+    return 'PRIVATE';
+}
+
+/**
  * Recursively collect playlist options from a get_add_to_playlist payload.
  * @param {any} node
  * @param {Map<string, {id: string, title: string, privacy: string, isSelected: boolean}>} output
@@ -535,6 +591,55 @@ async function addToPlaylists(payload) {
 }
 
 /**
+ * Create a playlist and add selected videos into it.
+ * @param {{title?: string, privacyStatus?: string, collaborate?: boolean, videoIds?: string[]}} payload
+ * @returns {Promise<{playlistId: string, addedCount: number}>}
+ */
+async function createPlaylistAndAdd(payload) {
+    const title = typeof payload?.title === 'string' ? payload.title.trim() : '';
+    if (!title) {
+        throw new Error('Playlist title is required.');
+    }
+
+    if (title.length > 150) {
+        throw new Error('Playlist title is too long.');
+    }
+
+    const videoIds = sanitizeVideoIds(payload?.videoIds || []);
+    if (videoIds.length === 0) {
+        throw new Error('No selected videos to save.');
+    }
+
+    const privacyStatus = normalizePrivacyStatus(payload?.privacyStatus || 'PRIVATE');
+    const collaborate = payload?.collaborate === true;
+    const config = await getInnertubeConfig();
+
+    const createPayload = {
+        context: config.context,
+        title,
+        privacyStatus
+    };
+
+    if (collaborate) {
+        createPayload.isCollaborative = true;
+        createPayload.collaborationState = 'COLLABORATION_ENABLED';
+    }
+
+    const createResponse = await postInnertube(['playlist/create', 'browse/create_playlist'], createPayload, config);
+    const playlistId = findPlaylistIdInNode(createResponse.body);
+    if (!playlistId) {
+        throw new Error('Playlist created, but ID was not returned.');
+    }
+
+    await addVideosToSinglePlaylist(playlistId, videoIds, config);
+
+    return {
+        playlistId,
+        addedCount: videoIds.length
+    };
+}
+
+/**
  * Post bridge response.
  * @param {string} requestId
  * @param {boolean} success
@@ -568,6 +673,8 @@ async function handleBridgeRequest(message) {
             result = await getPlaylists(payload);
         } else if (action === ACTIONS.ADD_TO_PLAYLISTS) {
             result = await addToPlaylists(payload);
+        } else if (action === ACTIONS.CREATE_PLAYLIST_AND_ADD) {
+            result = await createPlaylistAndAdd(payload);
         } else {
             throw new Error('Unsupported playlist action.');
         }
