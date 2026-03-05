@@ -490,9 +490,10 @@
     transform: rotate(90deg);
 }
 
-/* Video rotation transform with smooth transition */
-.html5-main-video {
-    transition: transform 0.3s ease-in-out;
+/* Rotation transition is scoped to videos we explicitly rotate. */
+.yt-commander-rotatable {
+    transition: transform 0.25s ease-in-out !important;
+    will-change: transform;
 }
 
 /* Rotation Indicator Styles */

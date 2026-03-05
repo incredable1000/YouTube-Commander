@@ -1,364 +1,598 @@
-/**
- * Video Rotation - Refactored with DRY principles
- * Enhanced video rotation functionality using shared utilities
+﻿/**
+ * Video Rotation
+ * Lightweight and resilient rotation controls for YouTube watch/shorts players.
  */
 
-import { 
-    getActiveVideo, 
-    getActivePlayer, 
-    isVideoPage, 
-    isShortsPage 
+import {
+    getActiveVideo,
+    getActivePlayer,
+    getCurrentVideoId,
+    isVideoPage,
+    isShortsPage
 } from './utils/youtube.js';
 
-import { waitForElement } from './utils/events.js';
-
 import { createLogger } from './utils/logger.js';
-import { 
-    createButton, 
-    createIcon, 
-    createRotationIndicator, 
-    showIndicatorOnPlayer 
-} from './utils/ui.js';
-import { 
-    createKeyboardShortcut, 
-    createThrottledObserver 
-} from './utils/events.js';
-import { 
-    getStorageData, 
-    setStorageData, 
-    onStorageChanged 
-} from './utils/storage.js';
-import { 
-    ICONS, 
-    CSS_CLASSES, 
-    STORAGE_KEYS, 
-    DEFAULT_SETTINGS 
-} from '../shared/constants.js';
+import { createKeyboardShortcut, createThrottledObserver } from './utils/events.js';
+import { createRotationIndicator, showIndicatorOnPlayer } from './utils/ui.js';
+import { ICONS } from '../shared/constants.js';
 
-// Create scoped logger
 const logger = createLogger('VideoRotation');
 
-// Module state
-let currentRotation = 0;
+const ROTATION_ANGLES = [0, 90, 180, 270];
+const STORAGE_KEY = 'ytCommanderVideoRotations';
+const STORAGE_WRITE_DEBOUNCE_MS = 280;
+const OBSERVER_THROTTLE_MS = 650;
+
+let isInitialized = false;
+let initPromise = null;
+let isEnabled = true;
+
 let rotationButton = null;
 let keyboardShortcuts = [];
-let settings = { ...DEFAULT_SETTINGS };
+let domObserver = null;
+let runtimeCleanupCallbacks = [];
 
-// Rotation angles
-const ROTATION_ANGLES = [0, 90, 180, 270];
+let activeVideo = null;
+let activeVideoId = null;
+let currentRotation = 0;
+
+let rotationMap = new Map();
+let storageWriteTimer = null;
 
 /**
- * Load settings and rotation state
+ * Initialize rotation feature.
  */
-async function loadSettings() {
+async function initVideoRotation() {
+    if (isInitialized) {
+        return;
+    }
+
+    if (initPromise) {
+        return initPromise;
+    }
+
+    initPromise = (async () => {
+        logger.info('Initializing video rotation');
+
+        await loadRotationMap();
+
+        if (isEnabled) {
+            setupKeyboardShortcuts();
+            startRuntimeTracking();
+            await ensureRotationControls();
+            syncActiveVideoContext();
+        }
+
+        isInitialized = true;
+        logger.info('Video rotation initialized successfully');
+    })();
+
     try {
-        const data = await getStorageData(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
-        settings = { ...DEFAULT_SETTINGS, ...data };
-        
-        // Load saved rotation state
-        const rotationData = await getStorageData('videoRotationState', { rotation: 0 });
-        currentRotation = rotationData.rotation;
-        
-        logger.debug('Settings and rotation state loaded', { currentRotation });
+        await initPromise;
     } catch (error) {
-        logger.error('Failed to load settings', error);
+        logger.error('Failed to initialize video rotation', error);
+        throw error;
+    } finally {
+        initPromise = null;
     }
 }
 
 /**
- * Save rotation state
+ * Load stored per-video rotation state.
  */
-async function saveRotationState() {
+async function loadRotationMap() {
     try {
-        await setStorageData('videoRotationState', { rotation: currentRotation });
-        logger.debug('Rotation state saved', { currentRotation });
+        const result = await new Promise((resolve) => {
+            chrome.storage.local.get([STORAGE_KEY], (data) => {
+                if (chrome.runtime?.lastError) {
+                    logger.warn('Failed to load rotation map', chrome.runtime.lastError.message);
+                    resolve({});
+                    return;
+                }
+                resolve(data || {});
+            });
+        });
+
+        const raw = result[STORAGE_KEY];
+        rotationMap = new Map();
+
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            Object.entries(raw).forEach(([videoId, angle]) => {
+                if (isValidVideoId(videoId)) {
+                    const normalized = normalizeAngle(Number(angle));
+                    if (normalized !== 0) {
+                        rotationMap.set(videoId, normalized);
+                    }
+                }
+            });
+        }
+
+        logger.debug('Rotation map loaded', { entries: rotationMap.size });
     } catch (error) {
-        logger.error('Failed to save rotation state', error);
+        logger.warn('Exception while loading rotation map', error);
+        rotationMap = new Map();
     }
 }
 
 /**
- * Create rotation button
+ * Debounced write of rotation state to local storage.
+ */
+function scheduleRotationMapPersist() {
+    if (storageWriteTimer) {
+        return;
+    }
+
+    storageWriteTimer = setTimeout(() => {
+        storageWriteTimer = null;
+
+        const serialized = Object.fromEntries(rotationMap.entries());
+        chrome.storage.local.set({ [STORAGE_KEY]: serialized }, () => {
+            if (chrome.runtime?.lastError) {
+                logger.warn('Failed to persist rotation map', chrome.runtime.lastError.message);
+            }
+        });
+    }, STORAGE_WRITE_DEBOUNCE_MS);
+}
+
+/**
+ * Ensure rotation button exists on player controls.
+ */
+async function ensureRotationControls() {
+    if (!isEnabled || (!isVideoPage() && !isShortsPage())) {
+        removeRotationButton();
+        return;
+    }
+
+    const controlsHost = findControlsHost();
+    if (!controlsHost) {
+        return;
+    }
+
+    if (!rotationButton || !rotationButton.isConnected) {
+        rotationButton = createRotationButton();
+    }
+
+    if (rotationButton.parentElement !== controlsHost) {
+        controlsHost.insertBefore(rotationButton, controlsHost.firstChild);
+    }
+}
+
+/**
+ * Find the right-side player controls container.
+ * @returns {Element|null}
+ */
+function findControlsHost() {
+    const player = getActivePlayer();
+    if (!player) {
+        return null;
+    }
+
+    return player.querySelector('.ytp-right-controls') || null;
+}
+
+/**
+ * Build rotation button element.
+ * @returns {HTMLButtonElement}
  */
 function createRotationButton() {
-    // Create button with YouTube's standard button class
     const button = document.createElement('button');
+    button.type = 'button';
     button.className = 'ytp-button custom-rotation-button';
     button.title = 'Rotate video 90°';
-    button.setAttribute('aria-label', 'Rotate video');
-    button.setAttribute('data-priority', '2');
-    
-    // Create SVG icon manually (like legacy version)
+    button.setAttribute('aria-label', 'Rotate video 90 degrees');
+
     const svgIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svgIcon.setAttribute('viewBox', '0 0 24 24');
     svgIcon.setAttribute('width', '24');
     svgIcon.setAttribute('height', '24');
-    svgIcon.style.fill = 'white';
-    
+
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', ICONS.ROTATION);
-    
+
     svgIcon.appendChild(path);
     button.appendChild(svgIcon);
-    
-    // Add click handler
-    button.onclick = (e) => {
-        e.stopPropagation();
+
+    button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         rotateVideo();
-    };
-    
+    });
+
     return button;
 }
 
 /**
- * Rotate video to next angle
+ * Sync active video context and apply stored angle for this video.
  */
-async function rotateVideo() {
-    try {
-        const video = getActiveVideo();
-        if (!video) {
-            logger.warn('No active video found for rotation');
-            return;
+function syncActiveVideoContext(forceReapply = false) {
+    const nextVideo = getActiveVideo();
+    const nextVideoId = getActiveVideoId();
+
+    if (nextVideo === activeVideo && nextVideoId === activeVideoId) {
+        if (forceReapply && activeVideo) {
+            applyVideoRotation(activeVideo, currentRotation);
         }
-        
-        // Calculate next rotation angle
-        const currentIndex = ROTATION_ANGLES.indexOf(currentRotation);
-        const nextIndex = (currentIndex + 1) % ROTATION_ANGLES.length;
-        currentRotation = ROTATION_ANGLES[nextIndex];
-        
-        // Apply rotation
-        video.style.transform = `rotate(${currentRotation}deg)`;
-        
-        // Show rotation indicator
-        showRotationIndicator();
-        
-        // Save state
-        await saveRotationState();
-        
-        logger.debug(`Video rotated to ${currentRotation}°`);
-    } catch (error) {
-        logger.error('Failed to rotate video', error);
+        return;
     }
-}
 
-/**
- * Reset video rotation
- */
-async function resetRotation() {
-    try {
-        const video = getActiveVideo();
-        if (!video) return;
-        
+    if (activeVideo && activeVideo !== nextVideo) {
+        clearVideoRotation(activeVideo);
+    }
+
+    activeVideo = nextVideo;
+    activeVideoId = nextVideoId;
+
+    if (!activeVideo) {
         currentRotation = 0;
-        video.style.transform = 'rotate(0deg)';
-        
-        await saveRotationState();
-        
-        logger.debug('Video rotation reset');
-    } catch (error) {
-        logger.error('Failed to reset rotation', error);
+        return;
     }
+
+    currentRotation = activeVideoId ? (rotationMap.get(activeVideoId) || 0) : 0;
+    applyVideoRotation(activeVideo, currentRotation);
 }
 
 /**
- * Show rotation indicator
+ * Rotate active video to next angle.
+ */
+function rotateVideo() {
+    if (!isEnabled) {
+        return;
+    }
+
+    syncActiveVideoContext();
+
+    if (!activeVideo) {
+        logger.debug('No active video available for rotation');
+        return;
+    }
+
+    const currentIndex = ROTATION_ANGLES.indexOf(currentRotation);
+    const nextIndex = (currentIndex + 1) % ROTATION_ANGLES.length;
+
+    currentRotation = ROTATION_ANGLES[nextIndex];
+    applyVideoRotation(activeVideo, currentRotation);
+    persistCurrentVideoRotation();
+    showRotationIndicator();
+
+    logger.debug(`Video rotated to ${currentRotation}°`);
+}
+
+/**
+ * Reset active video rotation to 0°.
+ */
+function resetRotation() {
+    if (!isEnabled) {
+        return;
+    }
+
+    syncActiveVideoContext();
+
+    if (!activeVideo) {
+        return;
+    }
+
+    currentRotation = 0;
+    applyVideoRotation(activeVideo, 0);
+    persistCurrentVideoRotation();
+    showRotationIndicator();
+}
+
+/**
+ * Apply rotation style using CSS rotate property.
+ * @param {HTMLVideoElement} video
+ * @param {number} angle
+ */
+function applyVideoRotation(video, angle) {
+    if (!video) {
+        return;
+    }
+
+    const normalized = normalizeAngle(angle);
+
+    if (normalized === 0) {
+        clearVideoRotation(video);
+        return;
+    }
+
+    const scale = computeFitScale(video, normalized);
+
+    video.classList.add('yt-commander-rotatable');
+    video.style.transformOrigin = 'center center';
+    video.style.transform = `rotate(${normalized}deg) scale(${scale})`;
+}
+
+/**
+ * Clear rotation style.
+ * @param {HTMLVideoElement} video
+ */
+function clearVideoRotation(video) {
+    if (!video) {
+        return;
+    }
+
+    video.style.transform = '';
+    video.style.transformOrigin = '';
+    video.classList.remove('yt-commander-rotatable');
+}
+
+/**
+ * Compute scale factor to keep 90°/270° rotated video inside player bounds.
+ * @param {HTMLVideoElement} video
+ * @param {number} angle
+ * @returns {number}
+ */
+function computeFitScale(video, angle) {
+    if (angle !== 90 && angle !== 270) {
+        return 1;
+    }
+
+    const width = video.clientWidth || video.videoWidth || 0;
+    const height = video.clientHeight || video.videoHeight || 0;
+
+    if (width <= 0 || height <= 0) {
+        return 1;
+    }
+
+    const player = getActivePlayer();
+    const playerRect = player ? player.getBoundingClientRect() : null;
+    const playerWidth = playerRect?.width || width;
+    const playerHeight = playerRect?.height || height;
+
+    if (playerWidth <= 0 || playerHeight <= 0) {
+        return 1;
+    }
+
+    const rotatedWidth = height;
+    const rotatedHeight = width;
+
+    const widthScale = playerWidth / rotatedWidth;
+    const heightScale = playerHeight / rotatedHeight;
+    const scale = Math.min(widthScale, heightScale);
+
+    if (!Number.isFinite(scale) || scale <= 0) {
+        return 1;
+    }
+
+    return scale;
+}
+
+/**
+ * Persist rotation value for current video id.
+ */
+function persistCurrentVideoRotation() {
+    if (!activeVideoId) {
+        return;
+    }
+
+    if (currentRotation === 0) {
+        rotationMap.delete(activeVideoId);
+    } else {
+        rotationMap.set(activeVideoId, currentRotation);
+    }
+
+    scheduleRotationMapPersist();
+}
+
+/**
+ * Show rotation indicator on current player.
  */
 function showRotationIndicator() {
-    try {
-        const player = getActivePlayer();
-        if (!player) return;
-        
-        const indicator = createRotationIndicator(currentRotation);
-        if (indicator) {
-            showIndicatorOnPlayer(indicator, player);
-        }
-    } catch (error) {
-        logger.error('Failed to show rotation indicator', error);
+    const player = getActivePlayer();
+    if (!player) {
+        return;
+    }
+
+    const indicator = createRotationIndicator(currentRotation);
+    if (indicator) {
+        showIndicatorOnPlayer(indicator, player);
     }
 }
 
 /**
- * Set up keyboard shortcuts
+ * Build keyboard shortcuts.
  */
 function setupKeyboardShortcuts() {
-    // Clean up existing shortcuts
-    keyboardShortcuts.forEach(cleanup => cleanup());
+    keyboardShortcuts.forEach((teardown) => teardown());
     keyboardShortcuts = [];
-    
-    // Rotation shortcut (R key)
-    const rotationCleanup = createKeyboardShortcut(
-        { key: 'r', ctrl: false, shift: false, alt: false },
-        rotateVideo
+
+    keyboardShortcuts.push(
+        createKeyboardShortcut(
+            { key: 'r', ctrl: false, shift: false, alt: false },
+            () => rotateVideo()
+        )
     );
-    
-    // Reset rotation shortcut (Shift + R)
-    const resetCleanup = createKeyboardShortcut(
-        { key: 'R', shift: true },
-        resetRotation
+
+    keyboardShortcuts.push(
+        createKeyboardShortcut(
+            { key: 'R', shift: true },
+            () => resetRotation()
+        )
     );
-    
-    keyboardShortcuts.push(rotationCleanup, resetCleanup);
-    
-    logger.debug('Keyboard shortcuts set up');
 }
 
 /**
- * Create and insert rotation controls
+ * Start lightweight DOM/navigation tracking.
  */
-async function createRotationControls() {
-    try {
-        // Only show controls on video pages, not Shorts
-        if (!isVideoPage() || isShortsPage()) {
-            logger.debug('Skipping rotation controls - not on video page or on Shorts');
-            return;
-        }
-        
-        logger.debug('Attempting to create rotation controls');
-        
-        // Wait for right controls to be available (like legacy version)
-        const rightControls = await waitForElement('.ytp-right-controls', 5000);
-        const rightControlsLeft = await waitForElement('.ytp-right-controls-left', 5000);
-        
-        if (!rightControls || !rightControlsLeft) {
-            logger.warn('Right controls not found', { rightControls: !!rightControls, rightControlsLeft: !!rightControlsLeft });
-            return;
-        }
-        
-        logger.debug('Right controls found, creating button');
-        
-        // Remove existing button
-        if (rotationButton) {
-            try {
-                rotationButton.remove();
-                logger.debug('Removed existing rotation button');
-            } catch (removeError) {
-                logger.warn('Failed to remove existing button', removeError);
-            }
-        }
-        
-        // Create new button
-        try {
-            rotationButton = createRotationButton();
-            logger.debug('Rotation button created successfully');
-        } catch (buttonError) {
-            logger.error('Failed to create rotation button', buttonError);
-            return;
-        }
-        
-        // Insert button in the right position (like legacy version)
-        try {
-            // Insert as the first button in the right controls left section
-            rightControlsLeft.insertBefore(rotationButton, rightControlsLeft.firstChild);
-            logger.debug('Button inserted as first child in right controls left');
-        } catch (insertError) {
-            logger.error('Failed to insert rotation button into DOM', insertError);
-            return;
-        }
-        
-        // Apply current rotation if any
-        try {
-            const video = getActiveVideo();
-            if (video && currentRotation !== 0) {
-                video.style.transform = `rotate(${currentRotation}deg)`;
-                logger.debug('Applied saved rotation', { currentRotation });
-            }
-        } catch (rotationError) {
-            logger.warn('Failed to apply saved rotation', rotationError);
-        }
-        
-        logger.debug('Rotation controls created and inserted successfully');
-    } catch (error) {
-        logger.error('Failed to create rotation controls', error);
+function startRuntimeTracking() {
+    if (domObserver || !document.body) {
+        return;
     }
-}
 
-/**
- * Set up navigation observer
- */
-function setupNavigationObserver() {
-    const observer = createThrottledObserver(() => {
-        if (isVideoPage() && !isShortsPage()) {
-            createRotationControls();
+    const handlePotentialPlayerChange = () => {
+        if (!isEnabled) {
+            return;
         }
-    }, 1000);
-    
-    observer.observe(document.body, {
+
+        ensureRotationControls();
+        syncActiveVideoContext(true);
+    };
+
+    document.addEventListener('yt-navigate-finish', handlePotentialPlayerChange);
+    window.addEventListener('popstate', handlePotentialPlayerChange);
+    window.addEventListener('focus', handlePotentialPlayerChange);
+    window.addEventListener('resize', handlePotentialPlayerChange, { passive: true });
+    document.addEventListener('fullscreenchange', handlePotentialPlayerChange);
+
+    runtimeCleanupCallbacks.push(() => document.removeEventListener('yt-navigate-finish', handlePotentialPlayerChange));
+    runtimeCleanupCallbacks.push(() => window.removeEventListener('popstate', handlePotentialPlayerChange));
+    runtimeCleanupCallbacks.push(() => window.removeEventListener('focus', handlePotentialPlayerChange));
+    runtimeCleanupCallbacks.push(() => window.removeEventListener('resize', handlePotentialPlayerChange));
+    runtimeCleanupCallbacks.push(() => document.removeEventListener('fullscreenchange', handlePotentialPlayerChange));
+
+    domObserver = createThrottledObserver(() => {
+        if (!isEnabled) {
+            return;
+        }
+
+        if (!rotationButton || !rotationButton.isConnected) {
+            ensureRotationControls();
+        }
+
+        syncActiveVideoContext(true);
+    }, OBSERVER_THROTTLE_MS);
+
+    domObserver.observe(document.body, {
         childList: true,
         subtree: true
     });
 }
 
 /**
- * Handle settings changes
+ * Stop observers and runtime listeners.
  */
-function handleSettingsChange(changes) {
-    if (changes[STORAGE_KEYS.SETTINGS]) {
-        const newSettings = changes[STORAGE_KEYS.SETTINGS].newValue;
-        settings = { ...DEFAULT_SETTINGS, ...newSettings };
-        logger.info('Settings updated', settings);
+function stopRuntimeTracking() {
+    if (domObserver) {
+        domObserver.disconnect();
+        domObserver = null;
+    }
+
+    while (runtimeCleanupCallbacks.length > 0) {
+        const teardown = runtimeCleanupCallbacks.pop();
+        teardown();
     }
 }
 
 /**
- * Initialize video rotation
+ * Enable rotation controls.
  */
-async function initVideoRotation() {
-    try {
-        logger.info('Initializing video rotation');
-        
-        // Load settings and state
-        await loadSettings();
-        
-        // Set up keyboard shortcuts
-        setupKeyboardShortcuts();
-        
-        // Create rotation controls
-        await createRotationControls();
-        
-        // Listen for settings changes
-        onStorageChanged(handleSettingsChange);
-        
-        // Set up navigation observer
-        setupNavigationObserver();
-        
-        logger.info('Video rotation initialized successfully');
-    } catch (error) {
-        logger.error('Failed to initialize video rotation', error);
+function enable() {
+    isEnabled = true;
+
+    if (!isInitialized) {
+        initVideoRotation();
+        return;
     }
+
+    setupKeyboardShortcuts();
+    startRuntimeTracking();
+    ensureRotationControls();
+    syncActiveVideoContext();
 }
 
 /**
- * Cleanup function
+ * Disable rotation controls and clear active rotation styles.
  */
-function cleanup() {
-    keyboardShortcuts.forEach(cleanup => cleanup());
+function disable() {
+    isEnabled = false;
+
+    keyboardShortcuts.forEach((teardown) => teardown());
     keyboardShortcuts = [];
-    
+
+    stopRuntimeTracking();
+    removeRotationButton();
+
+    if (activeVideo) {
+        clearVideoRotation(activeVideo);
+    }
+
+    activeVideo = null;
+    activeVideoId = null;
+    currentRotation = 0;
+}
+
+/**
+ * Remove rotation button from DOM.
+ */
+function removeRotationButton() {
     if (rotationButton) {
         rotationButton.remove();
         rotationButton = null;
     }
-    
-    // Reset any rotated videos
-    const videos = document.querySelectorAll('video');
-    videos.forEach(video => {
-        video.style.transform = '';
-    });
-    
+}
+
+/**
+ * Cleanup module resources.
+ */
+function cleanup() {
+    disable();
+
+    if (storageWriteTimer) {
+        clearTimeout(storageWriteTimer);
+        storageWriteTimer = null;
+    }
+
+    isInitialized = false;
+    initPromise = null;
+
     logger.info('Video rotation cleaned up');
 }
 
-// Initialize when DOM is ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initVideoRotation);
-} else {
-    initVideoRotation();
+/**
+ * Get valid current video id for watch/shorts pages.
+ * @returns {string|null}
+ */
+function getActiveVideoId() {
+    if (isVideoPage()) {
+        const watchId = getCurrentVideoId();
+        return isValidVideoId(watchId) ? watchId : null;
+    }
+
+    if (isShortsPage()) {
+        const parts = location.pathname.split('/shorts/');
+        const shortsId = parts[1] ? parts[1].split('/')[0] : null;
+        return isValidVideoId(shortsId) ? shortsId : null;
+    }
+
+    return null;
 }
 
-// Export for potential external use
+/**
+ * Normalize angle to 0/90/180/270.
+ * @param {number} angle
+ * @returns {number}
+ */
+function normalizeAngle(angle) {
+    const rounded = Math.round(Number(angle) || 0);
+    return ROTATION_ANGLES.includes(rounded) ? rounded : 0;
+}
+
+/**
+ * Validate YouTube-like id.
+ * @param {string|null} value
+ * @returns {boolean}
+ */
+function isValidVideoId(value) {
+    return typeof value === 'string' && /^[A-Za-z0-9_-]{10,15}$/.test(value);
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        initVideoRotation().catch((error) => {
+            logger.error('Failed to initialize video rotation on DOMContentLoaded', error);
+        });
+    });
+} else {
+    initVideoRotation().catch((error) => {
+        logger.error('Failed to initialize video rotation', error);
+    });
+}
+
 export {
     initVideoRotation,
     rotateVideo,
     resetRotation,
+    enable,
+    disable,
     cleanup
 };
+
