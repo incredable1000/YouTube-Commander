@@ -1,25 +1,56 @@
 /**
- * Scroll To Top - Refactored with DRY principles
- * Enhanced scroll-to-top functionality using shared utilities
+ * Scroll To Top
+ * Reliable, low-overhead scroll-to-top button for YouTube pages.
  */
 
 import { createLogger } from './utils/logger.js';
-import { createIcon, createButton } from './utils/ui.js';
-import { throttle, addEventListenerWithCleanup } from './utils/events.js';
-import { ICONS } from '../shared/constants.js';
+import { createIcon } from './utils/ui.js';
+import { addEventListenerWithCleanup } from './utils/events.js';
 
-// Create scoped logger
 const logger = createLogger('ScrollToTop');
 
-// Module state
+const BUTTON_ID = 'yt-scroll-to-top';
+const SCROLL_THRESHOLD = 200;
+
 let scrollButton = null;
-let cleanupFunctions = [];
+let initialized = false;
+let enabled = true;
+let visible = false;
+let scrollListenerCleanup = null;
+let clickListenerCleanup = null;
+let navigateListenerCleanup = null;
+let pendingFrame = false;
 
 /**
- * Create scroll-to-top button with modern styling
+ * Return the best available scrolling element.
+ * @returns {HTMLElement}
+ */
+function getScrollElement() {
+    return document.scrollingElement || document.documentElement;
+}
+
+/**
+ * Get current vertical scroll offset.
+ * @returns {number}
+ */
+function getCurrentScrollTop() {
+    const scrollElement = getScrollElement();
+    if (scrollElement && typeof scrollElement.scrollTop === 'number') {
+        return scrollElement.scrollTop;
+    }
+    return window.scrollY || 0;
+}
+
+/**
+ * Build a single scroll button instance.
+ * @returns {HTMLButtonElement}
  */
 function createScrollToTopButton() {
-    // Create icon
+    const existing = document.getElementById(BUTTON_ID);
+    if (existing) {
+        existing.remove();
+    }
+
     const icon = createIcon({
         viewBox: '0 0 24 24',
         width: '20',
@@ -27,17 +58,14 @@ function createScrollToTopButton() {
         path: 'M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z',
         fill: 'currentColor'
     });
-    
-    // Apply rotation for up arrow
     icon.style.transform = 'rotate(-90deg)';
-    
-    // Create button with icon
+
     const button = document.createElement('button');
-    button.id = 'yt-scroll-to-top';
+    button.id = BUTTON_ID;
+    button.type = 'button';
     button.setAttribute('aria-label', 'Scroll to top');
     button.appendChild(icon);
-    
-    // Apply modern styling
+
     Object.assign(button.style, {
         position: 'fixed',
         bottom: '20px',
@@ -49,157 +77,208 @@ function createScrollToTopButton() {
         background: 'rgba(0, 0, 0, 0.8)',
         color: '#fff',
         cursor: 'pointer',
-        display: 'none',
+        display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         opacity: '0',
-        transition: 'all 0.3s ease',
+        pointerEvents: 'none',
+        transform: 'translateY(8px) scale(0.96)',
+        transition: 'opacity 0.2s ease, transform 0.2s ease, background-color 0.2s ease',
         zIndex: '9999',
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
         backdropFilter: 'blur(10px)'
     });
-    
-    // Add hover effects
+
     button.addEventListener('mouseenter', () => {
+        if (!enabled) {
+            return;
+        }
         button.style.background = 'rgba(255, 255, 255, 0.2)';
-        button.style.transform = 'scale(1.1)';
     });
-    
+
     button.addEventListener('mouseleave', () => {
         button.style.background = 'rgba(0, 0, 0, 0.8)';
-        button.style.transform = 'scale(1)';
     });
-    
+
     return button;
 }
 
 /**
- * Toggle button visibility based on scroll position
+ * Update button visibility state without redundant style writes.
+ * @param {boolean} shouldShow
  */
-function toggleButtonVisibility() {
-    if (!scrollButton) return;
-    
-    const scrollTop = window.scrollY || document.documentElement.scrollTop;
-    const shouldShow = scrollTop > 200; // Show after scrolling 200px
-    
-    if (shouldShow) {
-        scrollButton.style.display = 'flex';
-        // Small delay to ensure display: flex is applied before opacity transition
-        requestAnimationFrame(() => {
-            scrollButton.style.opacity = '1';
-        });
-    } else {
-        scrollButton.style.opacity = '0';
-        setTimeout(() => {
-            if (scrollButton && scrollTop <= 200) {
-                scrollButton.style.display = 'none';
-            }
-        }, 300);
+function setButtonVisibility(shouldShow) {
+    if (!scrollButton || visible === shouldShow) {
+        return;
     }
+
+    visible = shouldShow;
+    scrollButton.style.opacity = shouldShow ? '1' : '0';
+    scrollButton.style.pointerEvents = shouldShow ? 'auto' : 'none';
+    scrollButton.style.transform = shouldShow ? 'translateY(0) scale(1)' : 'translateY(8px) scale(0.96)';
 }
 
 /**
- * Smooth scroll to top
+ * Compute and apply button visibility.
+ */
+function updateVisibility() {
+    if (!scrollButton || !enabled) {
+        setButtonVisibility(false);
+        return;
+    }
+
+    const shouldShow = getCurrentScrollTop() > SCROLL_THRESHOLD;
+    setButtonVisibility(shouldShow);
+}
+
+/**
+ * Schedule a visibility update on next frame.
+ */
+function scheduleVisibilityUpdate() {
+    if (pendingFrame) {
+        return;
+    }
+
+    pendingFrame = true;
+    window.requestAnimationFrame(() => {
+        pendingFrame = false;
+        updateVisibility();
+    });
+}
+
+/**
+ * Smoothly scroll to top.
  */
 function scrollToTop() {
+    const prefersReducedMotion = window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const behavior = prefersReducedMotion ? 'auto' : 'smooth';
+
     try {
-        window.scrollTo({
-            top: 0,
-            behavior: 'smooth'
-        });
-        
-        logger.debug('Scrolled to top');
+        const scrollElement = getScrollElement();
+        if (scrollElement && typeof scrollElement.scrollTo === 'function') {
+            scrollElement.scrollTo({ top: 0, behavior });
+            return;
+        }
+
+        window.scrollTo({ top: 0, behavior });
     } catch (error) {
-        // Fallback for older browsers
         window.scrollTo(0, 0);
         logger.warn('Used fallback scroll method', error);
     }
 }
 
 /**
- * Initialize scroll-to-top functionality
+ * Attach event listeners required while enabled.
+ */
+function attachRuntimeListeners() {
+    if (scrollListenerCleanup) {
+        return;
+    }
+
+    scrollListenerCleanup = addEventListenerWithCleanup(window, 'scroll', scheduleVisibilityUpdate, { passive: true });
+    navigateListenerCleanup = addEventListenerWithCleanup(document, 'yt-navigate-finish', scheduleVisibilityUpdate);
+}
+
+/**
+ * Detach listeners to reduce overhead while disabled.
+ */
+function detachRuntimeListeners() {
+    if (scrollListenerCleanup) {
+        scrollListenerCleanup();
+        scrollListenerCleanup = null;
+    }
+
+    if (navigateListenerCleanup) {
+        navigateListenerCleanup();
+        navigateListenerCleanup = null;
+    }
+}
+
+/**
+ * Initialize scroll-to-top functionality.
  */
 function initScrollToTop() {
+    if (initialized) {
+        return;
+    }
+
     try {
-        logger.info('Initializing scroll-to-top functionality');
-        
-        // Create button
+        if (!document.body) {
+            return;
+        }
+
         scrollButton = createScrollToTopButton();
         document.body.appendChild(scrollButton);
-        
-        // Set up throttled scroll listener for better performance
-        const throttledToggle = throttle(toggleButtonVisibility, 100);
-        const scrollCleanup = addEventListenerWithCleanup(
-            window, 
-            'scroll', 
-            throttledToggle,
-            { passive: true }
-        );
-        cleanupFunctions.push(scrollCleanup);
-        
-        // Set up click handler
-        const clickCleanup = addEventListenerWithCleanup(
-            scrollButton,
-            'click',
-            scrollToTop
-        );
-        cleanupFunctions.push(clickCleanup);
-        
-        // Initial visibility check
-        toggleButtonVisibility();
-        
-        logger.info('Scroll-to-top initialized successfully');
+
+        clickListenerCleanup = addEventListenerWithCleanup(scrollButton, 'click', (event) => {
+            event.preventDefault();
+            scrollToTop();
+        });
+
+        initialized = true;
+        attachRuntimeListeners();
+        updateVisibility();
+        logger.info('Scroll-to-top initialized');
     } catch (error) {
         logger.error('Failed to initialize scroll-to-top', error);
     }
 }
 
 /**
- * Enable the scroll-to-top feature
+ * Enable scroll-to-top feature.
  */
 function enable() {
-    if (!scrollButton) {
+    enabled = true;
+
+    if (!initialized) {
         initScrollToTop();
-    } else if (scrollButton.style.display === 'none') {
-        scrollButton.style.display = '';
-        toggleButtonVisibility();
+    } else {
+        attachRuntimeListeners();
+        updateVisibility();
     }
+
     logger.info('Scroll-to-top enabled');
 }
 
 /**
- * Disable the scroll-to-top feature
+ * Disable scroll-to-top feature.
  */
 function disable() {
-    if (scrollButton) {
-        scrollButton.style.display = 'none';
-    }
+    enabled = false;
+    detachRuntimeListeners();
+    setButtonVisibility(false);
     logger.info('Scroll-to-top disabled');
 }
 
 /**
- * Cleanup function
+ * Cleanup all listeners and DOM artifacts.
  */
 function cleanup() {
-    cleanupFunctions.forEach(cleanup => cleanup());
-    cleanupFunctions = [];
-    
+    detachRuntimeListeners();
+
+    if (clickListenerCleanup) {
+        clickListenerCleanup();
+        clickListenerCleanup = null;
+    }
+
     if (scrollButton) {
         scrollButton.remove();
         scrollButton = null;
     }
-    
+
+    initialized = false;
+    visible = false;
+    pendingFrame = false;
     logger.info('Scroll-to-top cleaned up');
 }
 
-// Initialize when DOM is ready
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initScrollToTop);
+    document.addEventListener('DOMContentLoaded', initScrollToTop, { once: true });
 } else {
     initScrollToTop();
 }
 
-// Export for potential external use
 export {
     initScrollToTop,
     enable,
