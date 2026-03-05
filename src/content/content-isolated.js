@@ -195,6 +195,10 @@ function applySettings() {
     
     // Update settings for modules that support it
     updateModuleSettings();
+
+    // Main world audio controls do not exist in isolated world moduleInstances.
+    // Forward the current audio toggle explicitly so auto-switch stays in sync.
+    sendAudioSettingsToMainWorld();
     
     Object.entries(featureMap).forEach(([settingKey, moduleName]) => {
         const isEnabled = currentSettings[settingKey] !== false; // Default to enabled
@@ -208,6 +212,15 @@ function applySettings() {
             }
         }
     });
+}
+
+// Forward audio settings to the main-world audio controls script
+function sendAudioSettingsToMainWorld() {
+    const enabled = currentSettings.audioEnabled !== false;
+    window.postMessage({
+        type: 'YT_COMMANDER_AUDIO_SETTINGS',
+        enabled
+    }, '*');
 }
 
 // Update module settings
