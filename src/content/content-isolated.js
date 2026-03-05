@@ -101,6 +101,7 @@ async function initializeModules() {
             import('./shortsCounter.js').catch(e => { logger.warn('Failed to import shortsCounter:', e); throw e; }),
             import('./videoRotation.js').catch(e => { logger.warn('Failed to import videoRotation:', e); throw e; }),
             import('./playlistControls.js').catch(e => { logger.warn('Failed to import playlistControls:', e); throw e; }),
+            import('./playlistMultiSelect.js').catch(e => { logger.warn('Failed to import playlistMultiSelect:', e); throw e; }),
             import('./qualityControls-wrapper.js').catch(e => { logger.warn('Failed to import qualityControls-wrapper:', e); throw e; }),
             import('./watchedHistory.js').catch(e => { logger.warn('Failed to import watchedHistory:', e); throw e; }),
         ]);
@@ -116,6 +117,7 @@ async function initializeModules() {
                     'shortsCounter',
                     'videoRotation',
                     'playlistControls',
+                    'playlistMultiSelect',
                     'qualityControlsWrapper',
                     'watchedHistory'
                 ];
@@ -134,6 +136,7 @@ async function initializeModules() {
                 if (module.initShortsCounter) initPromises.push(module.initShortsCounter());
                 if (module.initVideoRotation) initPromises.push(module.initVideoRotation());
                 if (module.initPlaylistControls) initPromises.push(module.initPlaylistControls());
+                if (module.initPlaylistMultiSelect) initPromises.push(module.initPlaylistMultiSelect());
                 if (module.initQualityWrapper) initPromises.push(module.initQualityWrapper());
                 if (module.initWatchedHistory) initPromises.push(module.initWatchedHistory());
             } else {
@@ -183,14 +186,14 @@ async function loadSettings() {
 // Apply settings to enable/disable features
 function applySettings() {
     const featureMap = {
-        seekEnabled: 'seekControls',
-        qualityEnabled: 'qualityControlsWrapper', 
-        audioEnabled: 'audioTrackControls',
-        historyEnabled: 'watchedHistory',
-        scrollEnabled: 'scrollToTop',
-        shortsEnabled: 'shortsCounter',
-        rotationEnabled: 'videoRotation',
-        playlistEnabled: 'playlistControls'
+        seekEnabled: ['seekControls'],
+        qualityEnabled: ['qualityControlsWrapper'],
+        audioEnabled: ['audioTrackControls'],
+        historyEnabled: ['watchedHistory'],
+        scrollEnabled: ['scrollToTop'],
+        shortsEnabled: ['shortsCounter'],
+        rotationEnabled: ['videoRotation'],
+        playlistEnabled: ['playlistControls', 'playlistMultiSelect']
     };
     
     // Update settings for modules that support it
@@ -200,17 +203,20 @@ function applySettings() {
     // Forward the current audio toggle explicitly so auto-switch stays in sync.
     sendAudioSettingsToMainWorld();
     
-    Object.entries(featureMap).forEach(([settingKey, moduleName]) => {
+    Object.entries(featureMap).forEach(([settingKey, moduleNames]) => {
         const isEnabled = currentSettings[settingKey] !== false; // Default to enabled
-        const moduleInstance = moduleInstances[moduleName];
-        
-        if (moduleInstance) {
+        moduleNames.forEach((moduleName) => {
+            const moduleInstance = moduleInstances[moduleName];
+            if (!moduleInstance) {
+                return;
+            }
+
             if (isEnabled) {
                 enableFeature(moduleName, moduleInstance);
             } else {
                 disableFeature(moduleName, moduleInstance);
             }
-        }
+        });
     });
 }
 

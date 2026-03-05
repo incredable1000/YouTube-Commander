@@ -94,12 +94,13 @@ async function initializeMainWorldModules() {
         // Import refactored main world modules
         const modules = await Promise.allSettled([
             import('./qualityControls.js').catch(e => { logger.warn('Failed to import qualityControls:', e); throw e; }),
-            import('./audioTrackControls.js').catch(e => { logger.warn('Failed to import audioTrackControls:', e); throw e; })
+            import('./audioTrackControls.js').catch(e => { logger.warn('Failed to import audioTrackControls:', e); throw e; }),
+            import('./playlistApi.js').catch(e => { logger.warn('Failed to import playlistApi:', e); throw e; })
         ]);
         
         // Initialize successfully imported modules
         modules.forEach((result, index) => {
-            const moduleName = ['qualityControls', 'audioTrackControls'][index];
+            const moduleName = ['qualityControls', 'audioTrackControls', 'playlistApi'][index];
             
             if (result.status === 'fulfilled') {
                 logger.info(`${moduleName} module loaded successfully`);
