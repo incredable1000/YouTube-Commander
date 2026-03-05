@@ -1,7 +1,7 @@
 .custom-seek-buttons {
     display: inline-flex !important;
-    gap: 4px;
-    margin-left: 12px;
+    gap: 6px;
+    margin-left: 10px;
     align-items: center;
     position: relative;
     z-index: 1000;
@@ -9,34 +9,62 @@
 }
 
 .custom-seek-button {
-    background: transparent;
-    border: none;
+    background: rgba(0, 0, 0, 0.58);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     color: white;
-    padding: 4px 6px;
-    font-size: 16px;
+    padding: 0 8px;
+    font-size: 11px;
     font-weight: 600;
     cursor: pointer;
     font-family: 'YouTube Noto', Roboto, Arial, sans-serif;
-    transition: all 0.2s ease;
-    height: auto;
+    transition: all 0.15s ease;
+    height: 24px;
     display: inline-flex !important;
     align-items: center;
-    min-width: 32px;
+    min-width: 34px;
     justify-content: center;
     outline: none;
-    margin: 0 3px;
+    margin: 0;
     user-select: none;
-    opacity: 0.8;
+    opacity: 0.95;
+    border-radius: 999px;
+    letter-spacing: 0.2px;
+    line-height: 1;
 }
 
 .custom-seek-button:hover {
     opacity: 1;
-    transform: scale(1.1);
-    text-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+    transform: translateY(-1px);
+    background: rgba(0, 0, 0, 0.72);
+    border-color: rgba(255, 255, 255, 0.32);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.32);
 }
 
 .custom-seek-button:active {
-    transform: scale(0.9);
+    transform: translateY(0);
+    background: rgba(0, 0, 0, 0.8);
+}
+
+.custom-seek-button::before {
+    font-size: 11px;
+    opacity: 0.92;
+    margin-right: 4px;
+}
+
+.custom-seek-button.backward::before {
+    content: '-';
+}
+
+.custom-seek-button.forward::before {
+    content: '+';
+}
+
+.custom-seek-button.backward {
+    background: rgba(0, 0, 0, 0.52);
+}
+
+.custom-seek-button.forward {
+    background: rgba(0, 0, 0, 0.62);
 }
 
 /* YouTube-style seek burst overlay */

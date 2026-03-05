@@ -475,15 +475,21 @@ async function createOrUpdateSeekButtons() {
             }
         }
 
-        const host = totalTime?.parentElement;
-        if (!host) {
+        const mountPoint = resolveSeekButtonsMountPoint(totalTime);
+        if (!mountPoint) {
             return;
         }
 
-        if (!buttonsContainer || !buttonsContainer.isConnected || buttonsContainer.parentElement !== host) {
+        const { parent, anchor } = mountPoint;
+        const desiredSibling = anchor.nextSibling;
+
+        if (!buttonsContainer || !buttonsContainer.isConnected) {
             removeSeekButtons();
             buttonsContainer = buildSeekButtonsContainer();
-            host.appendChild(buttonsContainer);
+        }
+
+        if (buttonsContainer.parentElement !== parent || buttonsContainer.previousSibling !== anchor) {
+            parent.insertBefore(buttonsContainer, desiredSibling);
         }
 
         updateSeekButtons();
@@ -498,6 +504,28 @@ async function createOrUpdateSeekButtons() {
             createOrUpdateSeekButtons();
         }
     }
+}
+
+/**
+ * Resolve parent + anchor where seek controls should be inserted.
+ * We place the controls beside the time display, not inside it.
+ * @param {Element} totalTimeElement
+ * @returns {{ parent: Element, anchor: Element }|null}
+ */
+function resolveSeekButtonsMountPoint(totalTimeElement) {
+    if (!totalTimeElement) {
+        return null;
+    }
+
+    const timeDisplay = totalTimeElement.closest('.ytp-time-display') || totalTimeElement.parentElement;
+    if (!timeDisplay || !timeDisplay.parentElement) {
+        return null;
+    }
+
+    return {
+        parent: timeDisplay.parentElement,
+        anchor: timeDisplay
+    };
 }
 
 /**
