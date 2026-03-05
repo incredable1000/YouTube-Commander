@@ -3,85 +3,48 @@
  * Tracks unique Shorts views and displays a themed floating counter.
  */
 
-import { isShortsPage, getCurrentVideoId } from './utils/youtube.js';
 import { createLogger } from './utils/logger.js';
 import { createThrottledObserver, addEventListenerWithCleanup } from './utils/events.js';
-import { getLocalStorageData, setLocalStorageData } from './utils/storage.js';
+import {
+    SESSION_STORAGE_KEY,
+    LABEL_ID,
+    SAVE_DEBOUNCE_MS,
+    OBSERVER_THROTTLE_MS
+} from './shorts-counter/constants.js';
+import { isShortsWatchPage, getCurrentShortsId } from './shorts-counter/pageContext.js';
+import { loadCounterState, saveCounterState } from './shorts-counter/sessionStore.js';
+import { createShortsCounterUi } from './shorts-counter/ui.js';
 
 const logger = createLogger('ShortsCounter');
-
-const STORAGE_KEY = 'shortsCounterData';
-const LABEL_ID = 'shorts-counter-label';
-const SAVE_DEBOUNCE_MS = 700;
 
 let countedVideos = new Set();
 let counter = 0;
 
-let counterLabel = null;
-let counterValue = null;
-
 let observer = null;
 let pageListenerCleanups = [];
-let counterClickCleanup = null;
 
 let saveTimer = null;
-let animationTimer = null;
 let contextCheckScheduled = false;
 
 let lastShortId = null;
 let initialized = false;
 let enabled = true;
 
-/**
- * Parse short ID from a URL/href.
- * @param {string} href
- * @returns {string|null}
- */
-function extractShortIdFromHref(href) {
-    if (!href || typeof href !== 'string') {
-        return null;
+const counterUi = createShortsCounterUi({
+    labelId: LABEL_ID,
+    onReset: () => {
+        void resetCounter();
     }
-
-    try {
-        const url = new URL(href, window.location.origin);
-        const pathMatch = url.pathname.match(/\/shorts\/([^/?#]+)/);
-        if (pathMatch?.[1]) {
-            return pathMatch[1];
-        }
-
-        const queryId = url.searchParams.get('v');
-        return queryId || null;
-    } catch (error) {
-        return null;
-    }
-}
+});
 
 /**
- * Ensure loaded storage data is valid.
- * @param {object|null} rawData
- */
-function hydrateCounterData(rawData) {
-    const safeData = rawData && typeof rawData === 'object' ? rawData : {};
-    const storedIds = Array.isArray(safeData.countedVideos)
-        ? safeData.countedVideos.filter((id) => typeof id === 'string' && id.length > 0)
-        : [];
-
-    countedVideos = new Set(storedIds);
-
-    const parsedCounter = Number.isFinite(safeData.counter) && safeData.counter >= 0
-        ? Math.floor(safeData.counter)
-        : countedVideos.size;
-
-    counter = Math.max(parsedCounter, countedVideos.size);
-}
-
-/**
- * Load counter data from local storage.
+ * Load counter data from tab-session storage.
  */
 async function loadCounterData() {
     try {
-        const data = await getLocalStorageData({ [STORAGE_KEY]: null }, {});
-        hydrateCounterData(data[STORAGE_KEY]);
+        const state = loadCounterState(SESSION_STORAGE_KEY);
+        countedVideos = state.countedVideos;
+        counter = state.counter;
         logger.debug('Counter data loaded', { counter, uniqueVideos: countedVideos.size });
     } catch (error) {
         logger.error('Failed to load counter data', error);
@@ -91,16 +54,11 @@ async function loadCounterData() {
 }
 
 /**
- * Persist counter data to local storage.
+ * Persist counter data to tab-session storage.
  */
 async function saveCounterData() {
     try {
-        await setLocalStorageData({
-            [STORAGE_KEY]: {
-                countedVideos: Array.from(countedVideos),
-                counter
-            }
-        });
+        saveCounterState(SESSION_STORAGE_KEY, { countedVideos, counter });
     } catch (error) {
         logger.error('Failed to save counter data', error);
     }
@@ -134,127 +92,26 @@ async function flushPendingSave() {
 }
 
 /**
- * Create or recreate the floating counter element.
+ * Ensure label is mounted and synchronized.
  */
-function createCounterLabel() {
-    const existing = document.getElementById(LABEL_ID);
-    if (existing) {
-        existing.remove();
+function ensureCounterLabel() {
+    if (!counterUi.isMounted()) {
+        counterUi.mount();
     }
-
-    counterLabel = document.createElement('button');
-    counterLabel.id = LABEL_ID;
-    counterLabel.type = 'button';
-    counterLabel.className = 'yt-commander-shorts-counter';
-    counterLabel.setAttribute('aria-label', 'Shorts watched counter. Click to reset.');
-    counterLabel.title = 'Shorts watched (click to reset)';
-    counterLabel.innerHTML = `
-        <span class="yt-commander-shorts-counter__badge" aria-hidden="true"></span>
-        <span class="yt-commander-shorts-counter__text">Shorts</span>
-        <span class="yt-commander-shorts-counter__count">0</span>
-    `;
-
-    counterValue = counterLabel.querySelector('.yt-commander-shorts-counter__count');
-
-    if (counterClickCleanup) {
-        counterClickCleanup();
-        counterClickCleanup = null;
-    }
-    counterClickCleanup = addEventListenerWithCleanup(counterLabel, 'click', () => {
-        void resetCounter();
-    });
-
-    document.body.appendChild(counterLabel);
 }
 
 /**
- * Remove counter element and related handlers.
+ * Remove counter element.
  */
 function removeCounterLabel() {
-    if (counterClickCleanup) {
-        counterClickCleanup();
-        counterClickCleanup = null;
-    }
-
-    if (counterLabel) {
-        counterLabel.remove();
-    }
-
-    counterLabel = null;
-    counterValue = null;
-}
-
-/**
- * Show animated +N chip for count increments.
- * @param {number} delta
- */
-function showCounterDelta(delta) {
-    if (!counterLabel || delta <= 0) {
-        return;
-    }
-
-    const deltaChip = document.createElement('span');
-    deltaChip.className = 'yt-commander-shorts-counter__delta';
-    deltaChip.textContent = `+${delta}`;
-    counterLabel.appendChild(deltaChip);
-
-    window.requestAnimationFrame(() => {
-        deltaChip.classList.add('yt-commander-shorts-counter__delta--visible');
-    });
-
-    window.setTimeout(() => {
-        deltaChip.remove();
-    }, 760);
-}
-
-/**
- * Trigger count increase animation.
- * @param {number} delta
- */
-function animateCounterIncrease(delta) {
-    if (!counterLabel || !counterValue) {
-        return;
-    }
-
-    counterLabel.classList.remove('yt-commander-shorts-counter--bump');
-    counterValue.classList.remove('yt-commander-shorts-counter__count--jump');
-    void counterLabel.offsetWidth;
-
-    counterLabel.classList.add('yt-commander-shorts-counter--bump');
-    counterValue.classList.add('yt-commander-shorts-counter__count--jump');
-    showCounterDelta(delta);
-
-    if (animationTimer) {
-        window.clearTimeout(animationTimer);
-    }
-    animationTimer = window.setTimeout(() => {
-        if (counterLabel) {
-            counterLabel.classList.remove('yt-commander-shorts-counter--bump');
-        }
-        if (counterValue) {
-            counterValue.classList.remove('yt-commander-shorts-counter__count--jump');
-        }
-        animationTimer = null;
-    }, 460);
+    counterUi.unmount();
 }
 
 /**
  * Animate reset feedback.
  */
 function animateCounterReset() {
-    if (!counterLabel) {
-        return;
-    }
-
-    counterLabel.classList.remove('yt-commander-shorts-counter--reset');
-    void counterLabel.offsetWidth;
-    counterLabel.classList.add('yt-commander-shorts-counter--reset');
-
-    window.setTimeout(() => {
-        if (counterLabel) {
-            counterLabel.classList.remove('yt-commander-shorts-counter--reset');
-        }
-    }, 380);
+    counterUi.animateReset();
 }
 
 /**
@@ -264,47 +121,7 @@ function animateCounterReset() {
  * @param {number} options.delta
  */
 function updateCounterDisplay({ animate = false, delta = 1 } = {}) {
-    if (!counterLabel || !counterValue) {
-        return;
-    }
-
-    counterValue.textContent = counter.toLocaleString();
-
-    if (animate) {
-        animateCounterIncrease(delta);
-    }
-}
-
-/**
- * Derive the current active Shorts video ID.
- * @returns {string|null}
- */
-function getCurrentShortsId() {
-    if (!isShortsPage()) {
-        return null;
-    }
-
-    const fromUrl = extractShortIdFromHref(window.location.href);
-    if (fromUrl) {
-        return fromUrl;
-    }
-
-    const activeRenderer = document.querySelector('ytd-shorts ytd-reel-video-renderer[is-active]');
-    if (activeRenderer) {
-        const rendererId = activeRenderer.getAttribute('video-id') || activeRenderer.dataset?.videoId;
-        if (rendererId) {
-            return rendererId;
-        }
-
-        const activeLink = activeRenderer.querySelector('a[href*="/shorts/"]');
-        const fromRendererLink = extractShortIdFromHref(activeLink?.href || '');
-        if (fromRendererLink) {
-            return fromRendererLink;
-        }
-    }
-
-    const fromQuery = getCurrentVideoId();
-    return fromQuery || null;
+    counterUi.setCount(counter, { animate, delta });
 }
 
 /**
@@ -315,7 +132,7 @@ async function syncCounterWithCurrentShort() {
         return;
     }
 
-    if (!isShortsPage()) {
+    if (!isShortsWatchPage()) {
         lastShortId = null;
         removeCounterLabel();
         return;
@@ -325,10 +142,8 @@ async function syncCounterWithCurrentShort() {
         return;
     }
 
-    if (!counterLabel) {
-        createCounterLabel();
-        updateCounterDisplay();
-    }
+    ensureCounterLabel();
+    updateCounterDisplay();
 
     const shortId = getCurrentShortsId();
     if (!shortId || shortId === lastShortId) {
@@ -376,7 +191,7 @@ function setupNavigationObserver() {
         () => {
             scheduleContextCheck();
         },
-        260,
+        OBSERVER_THROTTLE_MS,
         {
             childList: true,
             subtree: true,
@@ -413,15 +228,23 @@ function attachPageListeners() {
         return;
     }
 
-    pageListenerCleanups.push(addEventListenerWithCleanup(document, 'yt-navigate-finish', scheduleContextCheck));
-    pageListenerCleanups.push(addEventListenerWithCleanup(document, 'yt-page-data-updated', scheduleContextCheck));
-    pageListenerCleanups.push(addEventListenerWithCleanup(window, 'popstate', scheduleContextCheck));
-    pageListenerCleanups.push(addEventListenerWithCleanup(window, 'focus', scheduleContextCheck));
-    pageListenerCleanups.push(addEventListenerWithCleanup(document, 'visibilitychange', () => {
+    const onVisibilityChange = () => {
         if (!document.hidden) {
             scheduleContextCheck();
         }
-    }));
+    };
+
+    const listenerSpecs = [
+        [document, 'yt-navigate-finish', scheduleContextCheck],
+        [document, 'yt-page-data-updated', scheduleContextCheck],
+        [window, 'popstate', scheduleContextCheck],
+        [window, 'focus', scheduleContextCheck],
+        [document, 'visibilitychange', onVisibilityChange]
+    ];
+
+    listenerSpecs.forEach(([target, eventName, handler]) => {
+        pageListenerCleanups.push(addEventListenerWithCleanup(target, eventName, handler));
+    });
 }
 
 /**
@@ -522,11 +345,6 @@ function cleanup() {
     enabled = false;
     stopRuntime();
     removeCounterLabel();
-
-    if (animationTimer) {
-        window.clearTimeout(animationTimer);
-        animationTimer = null;
-    }
 
     if (saveTimer) {
         void flushPendingSave();

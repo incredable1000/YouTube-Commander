@@ -580,109 +580,122 @@
     }
 }
 
-/* Shorts Counter (dark YouTube-themed UI) */
+/* Shorts Counter (session-only, shorts-watch-page only) */
 .yt-commander-shorts-counter {
     position: fixed;
-    top: 84px;
+    top: 82px;
     right: 20px;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    min-width: 94px;
-    height: 40px;
-    padding: 0 12px;
+    gap: 10px;
+    min-width: 78px;
+    height: 44px;
+    padding: 0 14px 0 12px;
     border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background: linear-gradient(180deg, rgba(34, 34, 34, 0.94), rgba(18, 18, 18, 0.94));
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background:
+        radial-gradient(110px 52px at 12% 12%, rgba(255, 77, 77, 0.3), rgba(255, 77, 77, 0)),
+        linear-gradient(180deg, rgba(38, 38, 38, 0.96), rgba(15, 15, 15, 0.96));
     color: #f1f1f1;
     font-family: "YouTube Noto", Roboto, Arial, sans-serif;
-    font-size: 12px;
-    font-weight: 500;
     line-height: 1;
     cursor: pointer;
     user-select: none;
     z-index: 99999;
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.46), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    backdrop-filter: blur(10px) saturate(130%);
-    -webkit-backdrop-filter: blur(10px) saturate(130%);
-    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+    box-shadow:
+        0 12px 30px rgba(0, 0, 0, 0.5),
+        0 0 0 1px rgba(255, 60, 60, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .yt-commander-shorts-counter:hover {
-    transform: translateY(-1px) scale(1.02);
-    border-color: rgba(255, 255, 255, 0.22);
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    transform: translateY(-1px) scale(1.03);
+    border-color: rgba(255, 255, 255, 0.3);
+    box-shadow:
+        0 16px 34px rgba(0, 0, 0, 0.58),
+        0 0 0 1px rgba(255, 70, 70, 0.34),
+        0 0 18px rgba(255, 72, 72, 0.24),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .yt-commander-shorts-counter:active {
-    transform: translateY(0) scale(0.99);
+    transform: translateY(0) scale(0.98);
 }
 
 .yt-commander-shorts-counter__badge {
-    width: 10px;
-    height: 10px;
+    width: 9px;
+    height: 9px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #ff4e45, #ff1f1f);
-    box-shadow: 0 0 0 3px rgba(255, 31, 31, 0.18), 0 0 10px rgba(255, 31, 31, 0.35);
+    background: radial-gradient(circle at 35% 35%, #ffb1ad, #ff2d2d 62%);
+    box-shadow: 0 0 0 4px rgba(255, 45, 45, 0.2), 0 0 12px rgba(255, 45, 45, 0.45);
     flex: 0 0 auto;
-}
-
-.yt-commander-shorts-counter__text {
-    color: rgba(241, 241, 241, 0.76);
-    letter-spacing: 0.24px;
-    font-size: 11px;
+    animation: yt-commander-shorts-counter-badge-pulse 1.8s ease-in-out infinite;
 }
 
 .yt-commander-shorts-counter__count {
-    min-width: 18px;
+    min-width: 26px;
     text-align: right;
     color: #ffffff;
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: 0.2px;
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: 0.28px;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55), 0 0 12px rgba(255, 69, 69, 0.2);
 }
 
 .yt-commander-shorts-counter--bump {
-    animation: yt-commander-shorts-counter-bump 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    animation: yt-commander-shorts-counter-bump 460ms cubic-bezier(0.2, 0.85, 0.2, 1);
 }
 
 .yt-commander-shorts-counter__count--jump {
-    animation: yt-commander-shorts-count-jump 420ms cubic-bezier(0.16, 0.9, 0.28, 1);
+    animation: yt-commander-shorts-count-jump 460ms cubic-bezier(0.15, 0.92, 0.24, 1);
 }
 
 .yt-commander-shorts-counter__delta {
     position: absolute;
-    top: -6px;
-    right: 12px;
-    color: #7bffaf;
-    font-size: 12px;
-    font-weight: 700;
-    text-shadow: 0 0 10px rgba(123, 255, 175, 0.4);
+    top: -9px;
+    right: 14px;
+    color: #8bffba;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    text-shadow: 0 0 14px rgba(123, 255, 175, 0.48);
     pointer-events: none;
     opacity: 0;
-    transform: translateY(6px) scale(0.86);
+    transform: translateY(7px) scale(0.84);
 }
 
 .yt-commander-shorts-counter__delta--visible {
-    animation: yt-commander-shorts-counter-delta 720ms cubic-bezier(0.2, 0.75, 0.25, 1) forwards;
+    animation: yt-commander-shorts-counter-delta 760ms cubic-bezier(0.18, 0.78, 0.23, 1) forwards;
 }
 
 .yt-commander-shorts-counter--reset {
-    animation: yt-commander-shorts-counter-reset 360ms ease;
+    animation: yt-commander-shorts-counter-reset 380ms ease;
+}
+
+@keyframes yt-commander-shorts-counter-badge-pulse {
+    0%,
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 4px rgba(255, 45, 45, 0.2), 0 0 12px rgba(255, 45, 45, 0.45);
+    }
+    50% {
+        transform: scale(1.12);
+        box-shadow: 0 0 0 6px rgba(255, 45, 45, 0.12), 0 0 16px rgba(255, 45, 45, 0.62);
+    }
 }
 
 @keyframes yt-commander-shorts-counter-bump {
     0% {
         transform: scale(1);
-        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.46), inset 0 1px 0 rgba(255, 255, 255, 0.06);
     }
-    40% {
-        transform: scale(1.09);
-        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.56), 0 0 18px rgba(255, 46, 46, 0.26);
+    42% {
+        transform: scale(1.11);
     }
     100% {
         transform: scale(1);
-        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.46), inset 0 1px 0 rgba(255, 255, 255, 0.06);
     }
 }
 
@@ -690,8 +703,8 @@
     0% {
         transform: translateY(0) scale(1);
     }
-    35% {
-        transform: translateY(-5px) scale(1.2);
+    38% {
+        transform: translateY(-6px) scale(1.24);
     }
     100% {
         transform: translateY(0) scale(1);
@@ -701,27 +714,40 @@
 @keyframes yt-commander-shorts-counter-delta {
     0% {
         opacity: 0;
-        transform: translateY(6px) scale(0.86);
+        transform: translateY(7px) scale(0.84);
     }
-    30% {
+    28% {
         opacity: 1;
-        transform: translateY(-2px) scale(1.04);
+        transform: translateY(-1px) scale(1.06);
     }
     100% {
         opacity: 0;
-        transform: translateY(-16px) scale(0.92);
+        transform: translateY(-18px) scale(0.92);
     }
 }
 
 @keyframes yt-commander-shorts-counter-reset {
     0% {
-        background: linear-gradient(180deg, rgba(34, 34, 34, 0.94), rgba(18, 18, 18, 0.94));
+        transform: scale(1);
+        box-shadow:
+            0 12px 30px rgba(0, 0, 0, 0.5),
+            0 0 0 1px rgba(255, 60, 60, 0.18),
+            inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
-    35% {
-        background: linear-gradient(180deg, rgba(32, 120, 74, 0.95), rgba(18, 88, 53, 0.95));
+    45% {
+        transform: scale(1.05);
+        box-shadow:
+            0 14px 32px rgba(0, 0, 0, 0.56),
+            0 0 0 1px rgba(94, 255, 171, 0.36),
+            0 0 22px rgba(94, 255, 171, 0.28),
+            inset 0 1px 0 rgba(255, 255, 255, 0.12);
     }
     100% {
-        background: linear-gradient(180deg, rgba(34, 34, 34, 0.94), rgba(18, 18, 18, 0.94));
+        transform: scale(1);
+        box-shadow:
+            0 12px 30px rgba(0, 0, 0, 0.5),
+            0 0 0 1px rgba(255, 60, 60, 0.18),
+            inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
 }
 
@@ -729,17 +755,13 @@
     .yt-commander-shorts-counter {
         top: 74px;
         right: 12px;
-        min-width: 88px;
-        height: 36px;
-        padding: 0 10px;
-    }
-
-    .yt-commander-shorts-counter__text {
-        font-size: 10px;
+        min-width: 70px;
+        height: 40px;
+        padding: 0 12px 0 10px;
     }
 
     .yt-commander-shorts-counter__count {
-        font-size: 13px;
+        font-size: 20px;
     }
 }
 
