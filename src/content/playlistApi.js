@@ -14,12 +14,14 @@ const RESPONSE_TYPE = 'YT_COMMANDER_PLAYLIST_BRIDGE_RESPONSE';
 const ACTIONS = {
     GET_PLAYLISTS: 'GET_PLAYLISTS',
     ADD_TO_PLAYLISTS: 'ADD_TO_PLAYLISTS',
-    CREATE_PLAYLIST_AND_ADD: 'CREATE_PLAYLIST_AND_ADD'
+    CREATE_PLAYLIST_AND_ADD: 'CREATE_PLAYLIST_AND_ADD',
+    REMOVE_FROM_PLAYLIST: 'REMOVE_FROM_PLAYLIST'
 };
 
 const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{10,15}$/;
 const PLAYLIST_ID_PATTERN = /^[A-Za-z0-9_-]{2,120}$/;
 const MAX_BATCH_SIZE = 45;
+const REMOVE_LOOKUP_CONCURRENCY = 4;
 
 let isInitialized = false;
 let cachedAuthHeader = null;
@@ -344,6 +346,20 @@ function sanitizePlaylistIds(rawPlaylistIds) {
 }
 
 /**
+ * Validate a single playlist id.
+ * @param {string} rawPlaylistId
+ * @returns {string}
+ */
+function sanitizePlaylistId(rawPlaylistId) {
+    if (typeof rawPlaylistId !== 'string') {
+        return '';
+    }
+
+    const playlistId = rawPlaylistId.trim();
+    return PLAYLIST_ID_PATTERN.test(playlistId) ? playlistId : '';
+}
+
+/**
  * Split array into chunks.
  * @param {string[]} items
  * @param {number} size
@@ -355,6 +371,40 @@ function chunk(items, size) {
         chunks.push(items.slice(index, index + size));
     }
     return chunks;
+}
+
+/**
+ * Run async mapper with limited concurrency.
+ * @template T,U
+ * @param {T[]} items
+ * @param {number} concurrency
+ * @param {(item: T, index: number) => Promise<U>} mapper
+ * @returns {Promise<U[]>}
+ */
+async function mapWithConcurrency(items, concurrency, mapper) {
+    if (!Array.isArray(items) || items.length === 0) {
+        return [];
+    }
+
+    const safeConcurrency = Math.max(1, Math.min(concurrency, items.length));
+    const results = new Array(items.length);
+    let nextIndex = 0;
+
+    const workers = Array.from({ length: safeConcurrency }, async () => {
+        while (true) {
+            const currentIndex = nextIndex;
+            nextIndex += 1;
+
+            if (currentIndex >= items.length) {
+                break;
+            }
+
+            results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+        }
+    });
+
+    await Promise.all(workers);
+    return results;
 }
 
 /**
@@ -491,6 +541,178 @@ function collectPlaylistOptions(node, output, visited) {
 }
 
 /**
+ * Build payload for playlist/get_add_to_playlist endpoint.
+ * @param {object} context
+ * @param {string} [videoId]
+ * @returns {object}
+ */
+function buildGetAddToPlaylistPayload(context, videoId = '') {
+    const payload = {
+        context,
+        excludeWatchLater: false
+    };
+
+    if (VIDEO_ID_PATTERN.test(videoId)) {
+        payload.videoId = videoId;
+        payload.videoIds = [videoId];
+    }
+
+    return payload;
+}
+
+/**
+ * Normalize remove action shape for playlist/edit requests.
+ * @param {any} rawAction
+ * @param {string} videoIdFallback
+ * @returns {{action: 'ACTION_REMOVE_VIDEO', setVideoId?: string, removedVideoId?: string}|null}
+ */
+function normalizeRemoveAction(rawAction, videoIdFallback) {
+    if (!rawAction || typeof rawAction !== 'object') {
+        return null;
+    }
+
+    const actionType = typeof rawAction.action === 'string' ? rawAction.action : 'ACTION_REMOVE_VIDEO';
+    if (actionType !== 'ACTION_REMOVE_VIDEO') {
+        return null;
+    }
+
+    const setVideoId = typeof rawAction.setVideoId === 'string' ? rawAction.setVideoId.trim() : '';
+    if (setVideoId) {
+        return {
+            action: 'ACTION_REMOVE_VIDEO',
+            setVideoId
+        };
+    }
+
+    const removedVideoId = typeof rawAction.removedVideoId === 'string'
+        ? rawAction.removedVideoId.trim()
+        : '';
+    if (VIDEO_ID_PATTERN.test(removedVideoId)) {
+        return {
+            action: 'ACTION_REMOVE_VIDEO',
+            removedVideoId
+        };
+    }
+
+    if (VIDEO_ID_PATTERN.test(videoIdFallback)) {
+        return {
+            action: 'ACTION_REMOVE_VIDEO',
+            removedVideoId: videoIdFallback
+        };
+    }
+
+    return null;
+}
+
+/**
+ * Resolve remove action from one playlist option renderer.
+ * @param {any} renderer
+ * @param {string} playlistId
+ * @param {string} videoId
+ * @returns {{action: 'ACTION_REMOVE_VIDEO', setVideoId?: string, removedVideoId?: string}|null}
+ */
+function readRemoveActionFromOptionRenderer(renderer, playlistId, videoId) {
+    if (!renderer || typeof renderer !== 'object') {
+        return null;
+    }
+
+    const rendererPlaylistId = renderer.playlistId
+        || renderer.addToPlaylistServiceEndpoint?.playlistEditEndpoint?.playlistId
+        || renderer.navigationEndpoint?.watchEndpoint?.playlistId
+        || '';
+    if (rendererPlaylistId !== playlistId) {
+        return null;
+    }
+
+    const endpoints = [
+        renderer.toggledServiceEndpoint?.playlistEditEndpoint,
+        renderer.toggledServiceEndpoint?.addToPlaylistServiceEndpoint?.playlistEditEndpoint,
+        renderer.addToPlaylistServiceEndpoint?.playlistEditEndpoint,
+        renderer.serviceEndpoint?.playlistEditEndpoint
+    ];
+
+    for (const endpoint of endpoints) {
+        if (!endpoint || typeof endpoint !== 'object') {
+            continue;
+        }
+
+        const endpointPlaylistId = typeof endpoint.playlistId === 'string' ? endpoint.playlistId.trim() : '';
+        if (endpointPlaylistId && endpointPlaylistId !== playlistId) {
+            continue;
+        }
+
+        if (Array.isArray(endpoint.actions)) {
+            for (const action of endpoint.actions) {
+                const normalized = normalizeRemoveAction(action, videoId);
+                if (normalized) {
+                    return normalized;
+                }
+            }
+        }
+
+        const directAction = normalizeRemoveAction(endpoint, videoId);
+        if (directAction) {
+            return directAction;
+        }
+    }
+
+    const selectedInTarget = renderer.isSelected === true || renderer.containsSelectedVideos === true;
+    if (selectedInTarget) {
+        return normalizeRemoveAction({ action: 'ACTION_REMOVE_VIDEO' }, videoId);
+    }
+
+    return null;
+}
+
+/**
+ * Recursively find remove action for target playlist from get_add_to_playlist payload.
+ * @param {any} node
+ * @param {string} playlistId
+ * @param {string} videoId
+ * @param {WeakSet<object>} visited
+ * @returns {{action: 'ACTION_REMOVE_VIDEO', setVideoId?: string, removedVideoId?: string}|null}
+ */
+function findRemoveActionInNode(node, playlistId, videoId, visited = new WeakSet()) {
+    if (!node || typeof node !== 'object') {
+        return null;
+    }
+
+    if (visited.has(node)) {
+        return null;
+    }
+    visited.add(node);
+
+    const renderer = node.playlistAddToOptionRenderer;
+    if (renderer && typeof renderer === 'object') {
+        const action = readRemoveActionFromOptionRenderer(renderer, playlistId, videoId);
+        if (action) {
+            return action;
+        }
+    }
+
+    if (Array.isArray(node)) {
+        for (const item of node) {
+            const found = findRemoveActionInNode(item, playlistId, videoId, visited);
+            if (found) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    for (const value of Object.values(node)) {
+        if (value && typeof value === 'object') {
+            const found = findRemoveActionInNode(value, playlistId, videoId, visited);
+            if (found) {
+                return found;
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
  * Load playlists for save popup.
  * @param {{videoIds?: string[]}} payload
  * @returns {Promise<{playlists: Array<{id: string, title: string, privacy: string, isSelected: boolean}>}>}
@@ -498,15 +720,7 @@ function collectPlaylistOptions(node, output, visited) {
 async function getPlaylists(payload) {
     const videoIds = sanitizeVideoIds(payload?.videoIds || []);
     const config = await getInnertubeConfig();
-
-    const requestPayload = {
-        context: config.context,
-        excludeWatchLater: false
-    };
-    if (videoIds.length > 0) {
-        requestPayload.videoId = videoIds[0];
-        requestPayload.videoIds = [videoIds[0]];
-    }
+    const requestPayload = buildGetAddToPlaylistPayload(config.context, videoIds[0] || '');
 
     const response = await postInnertube('playlist/get_add_to_playlist', requestPayload, config);
     const map = new Map();
@@ -586,6 +800,156 @@ async function addToPlaylists(payload) {
         requestedVideoCount: videoIds.length,
         requestedPlaylistCount: playlistIds.length,
         successCount,
+        failures
+    };
+}
+
+/**
+ * Resolve one remove action for a video in a specific playlist.
+ * @param {string} playlistId
+ * @param {string} videoId
+ * @param {{apiKey: string, context: object, headers: Record<string, string>}} config
+ * @returns {Promise<{action: 'ACTION_REMOVE_VIDEO', setVideoId?: string, removedVideoId?: string}|null>}
+ */
+async function resolveRemoveActionForVideo(playlistId, videoId, config) {
+    const payload = buildGetAddToPlaylistPayload(config.context, videoId);
+    const response = await postInnertube('playlist/get_add_to_playlist', payload, config);
+    return findRemoveActionInNode(response.body, playlistId, videoId, new WeakSet());
+}
+
+/**
+ * Remove selected videos from one playlist/watch-later list.
+ * @param {{playlistId?: string, videoIds?: string[]}} payload
+ * @returns {Promise<{
+ *   playlistId: string,
+ *   requestedVideoCount: number,
+ *   removedCount: number,
+ *   removedVideoIds: string[],
+ *   failures: Array<{videoId: string, error: string}>
+ * }>}
+ */
+async function removeFromPlaylist(payload) {
+    const playlistId = sanitizePlaylistId(payload?.playlistId || '');
+    if (!playlistId) {
+        throw new Error('No valid playlist selected.');
+    }
+
+    const videoIds = sanitizeVideoIds(payload?.videoIds || []);
+    if (videoIds.length === 0) {
+        throw new Error('No valid selected videos found.');
+    }
+
+    const config = await getInnertubeConfig();
+    const lookupResults = await mapWithConcurrency(
+        videoIds,
+        REMOVE_LOOKUP_CONCURRENCY,
+        async (videoId) => {
+            try {
+                const action = await resolveRemoveActionForVideo(playlistId, videoId, config);
+                if (!action) {
+                    return {
+                        videoId,
+                        action: null,
+                        error: 'Video is not removable from this playlist.'
+                    };
+                }
+
+                return {
+                    videoId,
+                    action,
+                    error: ''
+                };
+            } catch (error) {
+                return {
+                    videoId,
+                    action: null,
+                    error: error instanceof Error ? error.message : 'Failed to resolve remove action.'
+                };
+            }
+        }
+    );
+
+    const failures = [];
+    const actionEntries = [];
+    const actionKeys = new Set();
+
+    lookupResults.forEach((result) => {
+        if (!result?.action) {
+            failures.push({
+                videoId: result?.videoId || '',
+                error: result?.error || 'Video is not removable from this playlist.'
+            });
+            return;
+        }
+
+        const key = result.action.setVideoId
+            ? `set:${result.action.setVideoId}`
+            : `video:${result.action.removedVideoId || result.videoId}`;
+
+        if (actionKeys.has(key)) {
+            return;
+        }
+
+        actionKeys.add(key);
+        actionEntries.push({
+            key,
+            videoId: result.videoId,
+            action: result.action
+        });
+    });
+
+    if (actionEntries.length === 0) {
+        throw new Error(failures[0]?.error || 'No removable videos found in this playlist.');
+    }
+
+    const appliedVideoIds = new Set();
+    const actionBatches = chunk(actionEntries, MAX_BATCH_SIZE);
+
+    for (const batchEntries of actionBatches) {
+        const batchPayload = {
+            context: config.context,
+            playlistId,
+            actions: batchEntries.map((entry) => entry.action)
+        };
+
+        try {
+            await postInnertube(['playlist/edit_playlist', 'browse/edit_playlist'], batchPayload, config);
+            batchEntries.forEach((entry) => {
+                appliedVideoIds.add(entry.videoId);
+            });
+        } catch (batchError) {
+            logger.warn('Batch remove failed, retrying items individually', batchError);
+            for (const entry of batchEntries) {
+                try {
+                    await postInnertube(
+                        ['playlist/edit_playlist', 'browse/edit_playlist'],
+                        {
+                            context: config.context,
+                            playlistId,
+                            actions: [entry.action]
+                        },
+                        config
+                    );
+                    appliedVideoIds.add(entry.videoId);
+                } catch (singleError) {
+                    failures.push({
+                        videoId: entry.videoId,
+                        error: singleError instanceof Error ? singleError.message : 'Failed to remove video.'
+                    });
+                }
+            }
+        }
+    }
+
+    if (appliedVideoIds.size === 0) {
+        throw new Error(failures[0]?.error || 'Failed to remove selected videos.');
+    }
+
+    return {
+        playlistId,
+        requestedVideoCount: videoIds.length,
+        removedCount: appliedVideoIds.size,
+        removedVideoIds: Array.from(appliedVideoIds),
         failures
     };
 }
@@ -673,6 +1037,8 @@ async function handleBridgeRequest(message) {
             result = await getPlaylists(payload);
         } else if (action === ACTIONS.ADD_TO_PLAYLISTS) {
             result = await addToPlaylists(payload);
+        } else if (action === ACTIONS.REMOVE_FROM_PLAYLIST) {
+            result = await removeFromPlaylist(payload);
         } else if (action === ACTIONS.CREATE_PLAYLIST_AND_ADD) {
             result = await createPlaylistAndAdd(payload);
         } else {

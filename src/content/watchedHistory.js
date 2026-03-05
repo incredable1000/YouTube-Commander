@@ -635,6 +635,7 @@ function schedulePlaybackBinding() {
             return;
         }
 
+        pruneDisconnectedPlaybackBindings();
         bindPlayHandler(activeVideo, pageVideoId);
     };
 
@@ -642,30 +643,114 @@ function schedulePlaybackBinding() {
 }
 
 /**
+ * Remove listener bindings from disconnected video elements.
+ */
+function pruneDisconnectedPlaybackBindings() {
+    for (const [video, binding] of playbackBindings.entries()) {
+        if (video.isConnected) {
+            continue;
+        }
+
+        video.removeEventListener('play', binding.onPlay);
+        video.removeEventListener('loadeddata', binding.onLoadedData);
+        playbackBindings.delete(video);
+    }
+}
+
+/**
+ * Resolve the most accurate currently playing video id.
+ * @param {HTMLVideoElement} video
+ * @param {string|null} [fallbackVideoId]
+ * @returns {string|null}
+ */
+function resolvePlaybackVideoId(video, fallbackVideoId = null) {
+    if (isValidVideoId(fallbackVideoId)) {
+        return fallbackVideoId;
+    }
+
+    if (location.pathname.startsWith('/shorts/')) {
+        const renderer = video?.closest?.('ytd-reel-video-renderer');
+        if (renderer) {
+            const rendererLink = renderer.querySelector('a[href*="/shorts/"], a[href*="/watch?v="]');
+            if (rendererLink?.href) {
+                const rendererVideoId = extractVideoId(rendererLink.href);
+                if (isValidVideoId(rendererVideoId)) {
+                    return rendererVideoId;
+                }
+            }
+        }
+
+        const activeRenderer = getActiveShortsRenderer();
+        if (activeRenderer) {
+            const activeLink = activeRenderer.querySelector('a[href*="/shorts/"], a[href*="/watch?v="]');
+            if (activeLink?.href) {
+                const activeVideoId = extractVideoId(activeLink.href);
+                if (isValidVideoId(activeVideoId)) {
+                    return activeVideoId;
+                }
+            }
+        }
+    }
+
+    return getCurrentPageVideoId();
+}
+
+/**
  * Attach one play handler per video element.
  * @param {HTMLVideoElement} video
- * @param {string} videoId
+ * @param {string|null} currentVideoId
  */
-function bindPlayHandler(video, videoId) {
-    if (playbackBindings.has(video)) {
+function bindPlayHandler(video, currentVideoId = null) {
+    const existing = playbackBindings.get(video);
+    if (existing) {
+        existing.markCurrent(currentVideoId);
         return;
     }
 
-    const onPlay = () => {
+    const binding = {
+        lastMarkedId: '',
+        onPlay: null,
+        onLoadedData: null,
+        markCurrent: (_seedVideoId) => {}
+    };
+
+    const markCurrent = (seedVideoId = null) => {
         if (!isEnabled) {
             return;
         }
 
-        addToWatchedHistory(videoId).catch((error) => {
+        const resolvedVideoId = resolvePlaybackVideoId(video, seedVideoId);
+        if (!isValidVideoId(resolvedVideoId)) {
+            return;
+        }
+
+        if (binding.lastMarkedId === resolvedVideoId && watchedIds.has(resolvedVideoId)) {
+            return;
+        }
+
+        binding.lastMarkedId = resolvedVideoId;
+        addToWatchedHistory(resolvedVideoId).catch((error) => {
             logger.error('Failed to mark video on play event', error);
         });
     };
 
-    video.addEventListener('play', onPlay);
-    playbackBindings.set(video, onPlay);
+    const onPlay = () => markCurrent();
+    const onLoadedData = () => {
+        if (!video.paused) {
+            markCurrent();
+        }
+    };
 
-    if (!video.paused) {
-        onPlay();
+    binding.onPlay = onPlay;
+    binding.onLoadedData = onLoadedData;
+    binding.markCurrent = markCurrent;
+
+    video.addEventListener('play', onPlay);
+    video.addEventListener('loadeddata', onLoadedData);
+    playbackBindings.set(video, binding);
+
+    if (!video.paused || isValidVideoId(currentVideoId)) {
+        markCurrent(currentVideoId);
     }
 }
 
@@ -735,8 +820,9 @@ function getActiveShortsRenderer() {
  * Remove all bound video play handlers.
  */
 function clearPlaybackBindings() {
-    for (const [video, handler] of playbackBindings.entries()) {
-        video.removeEventListener('play', handler);
+    for (const [video, binding] of playbackBindings.entries()) {
+        video.removeEventListener('play', binding.onPlay);
+        video.removeEventListener('loadeddata', binding.onLoadedData);
     }
     playbackBindings.clear();
 }

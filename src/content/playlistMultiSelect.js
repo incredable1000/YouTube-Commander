@@ -5,77 +5,59 @@
 
 import { createLogger } from './utils/logger.js';
 import { createThrottledObserver } from './utils/events.js';
+import {
+    BRIDGE_SOURCE,
+    REQUEST_TYPE,
+    RESPONSE_TYPE,
+    ACTIONS,
+    FEED_RENDERER_SELECTOR,
+    VIDEO_LINK_SELECTOR,
+    VIDEO_ID_PATTERN,
+    MASTHEAD_SLOT_CLASS,
+    MASTHEAD_BUTTON_CLASS,
+    MASTHEAD_BADGE_CLASS,
+    HOST_CLASS,
+    HOST_SELECTED_CLASS,
+    OVERLAY_CLASS,
+    ACTION_BAR_CLASS,
+    ACTION_MENU_CLASS,
+    PLAYLIST_PANEL_CLASS,
+    CREATE_BACKDROP_CLASS,
+    CREATE_MODAL_CLASS,
+    ROOT_SELECTION_CLASS,
+    REQUEST_TIMEOUT_MS,
+    PROCESS_CHUNK_SIZE,
+    STATUS_KIND,
+    VISIBILITY_OPTIONS
+} from './playlist-multi-select/constants.js';
+import {
+    createSvgIcon,
+    createMastheadIcon,
+    createDotsIcon,
+    createBookmarkIcon,
+    createCloseIcon,
+    createPlusIcon,
+    createChevronDownIcon,
+    createCheckIcon,
+    createRemoveIcon
+} from './playlist-multi-select/icons.js';
+import {
+    extractVideoId,
+    isEligiblePage,
+    resolveMastheadMountPoint,
+    getCurrentPlaylistId,
+    isPlaylistCollectionPage,
+    getRemoveActionLabel
+} from './playlist-multi-select/pageContext.js';
+import { createBridgeClient } from './playlist-multi-select/bridge.js';
 
 const logger = createLogger('PlaylistMultiSelect');
-
-const BRIDGE_SOURCE = 'yt-commander';
-const REQUEST_TYPE = 'YT_COMMANDER_PLAYLIST_BRIDGE_REQUEST';
-const RESPONSE_TYPE = 'YT_COMMANDER_PLAYLIST_BRIDGE_RESPONSE';
-
-const ACTIONS = {
-    GET_PLAYLISTS: 'GET_PLAYLISTS',
-    ADD_TO_PLAYLISTS: 'ADD_TO_PLAYLISTS',
-    CREATE_PLAYLIST_AND_ADD: 'CREATE_PLAYLIST_AND_ADD'
-};
-
-const FEED_RENDERER_SELECTOR = [
-    'ytd-rich-item-renderer',
-    'ytd-video-renderer',
-    'ytd-grid-video-renderer',
-    'ytd-rich-grid-slim-media',
-    'ytd-compact-video-renderer',
-    'ytd-playlist-video-renderer',
-    'ytd-playlist-panel-video-renderer',
-    'ytd-reel-item-renderer',
-    'ytd-shorts-lockup-view-model',
-    'yt-lockup-view-model'
-].join(', ');
-
-const VIDEO_LINK_SELECTOR = 'a[href*="/watch?v="], a[href*="/shorts/"]';
-const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{10,15}$/;
-
-const MASTHEAD_SLOT_CLASS = 'yt-commander-playlist-masthead-slot';
-const MASTHEAD_BUTTON_CLASS = 'yt-commander-playlist-masthead-button';
-const MASTHEAD_BADGE_CLASS = 'yt-commander-playlist-masthead-badge';
-
-const HOST_CLASS = 'yt-commander-playlist-host';
-const HOST_SELECTED_CLASS = 'yt-commander-playlist-selected';
-const OVERLAY_CLASS = 'yt-commander-playlist-overlay';
-
-const ACTION_BAR_CLASS = 'yt-commander-playlist-action-bar';
-const ACTION_MENU_CLASS = 'yt-commander-playlist-action-menu';
-const PLAYLIST_PANEL_CLASS = 'yt-commander-playlist-panel';
-const CREATE_BACKDROP_CLASS = 'yt-commander-playlist-create-backdrop';
-const CREATE_MODAL_CLASS = 'yt-commander-playlist-create-modal';
-
-const ROOT_SELECTION_CLASS = 'yt-commander-playlist-selection-mode';
-
-const REQUEST_TIMEOUT_MS = 30000;
-const PROCESS_CHUNK_SIZE = 120;
-
-const STATUS_KIND = {
-    INFO: 'info',
-    SUCCESS: 'success',
-    ERROR: 'error'
-};
-
-const VISIBILITY_OPTIONS = [
-    {
-        value: 'PUBLIC',
-        label: 'Public',
-        description: 'Anyone can search for and view'
-    },
-    {
-        value: 'UNLISTED',
-        label: 'Unlisted',
-        description: 'Anyone with the link can view'
-    },
-    {
-        value: 'PRIVATE',
-        label: 'Private',
-        description: 'Only you can view'
-    }
-];
+const bridgeClient = createBridgeClient({
+    source: BRIDGE_SOURCE,
+    requestType: REQUEST_TYPE,
+    responseType: RESPONSE_TYPE,
+    timeoutMs: REQUEST_TIMEOUT_MS
+});
 
 let isInitialized = false;
 let isEnabled = true;
@@ -100,6 +82,7 @@ let actionBarStatus = null;
 
 let actionMenu = null;
 let actionMenuSaveButton = null;
+let actionMenuRemoveButton = null;
 
 let playlistPanel = null;
 let playlistPanelCount = null;
@@ -124,14 +107,12 @@ let pendingContainers = new Set();
 let renderScheduled = false;
 
 let lastKnownUrl = location.href;
-let bridgeRequestCounter = 0;
 let statusTimer = null;
 let lastPlaylistProbeVideoId = '';
 let createVisibility = 'PRIVATE';
 
 const selectedVideoIds = new Set();
 const selectedPlaylistIds = new Set();
-const pendingBridgeRequests = new Map();
 const cleanupCallbacks = [];
 const playlistMap = new Map();
 
@@ -173,152 +154,6 @@ function visibilityIconPath(value) {
     }
 
     return 'M12 17a2 2 0 100-4 2 2 0 000 4zm6-8h-1V7a5 5 0 00-10 0v2H6a2 2 0 00-2 2v9a2 2 0 002 2h12a2 2 0 002-2v-9a2 2 0 00-2-2zm-9-2a3 3 0 116 0v2H9V7zm9 13H6v-9h12v9z';
-}
-
-/**
- * Create an SVG icon from a single path.
- * @param {string} path
- * @param {string} [viewBox]
- * @returns {SVGSVGElement}
- */
-function createSvgIcon(path, viewBox = '0 0 24 24') {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', viewBox);
-    svg.setAttribute('aria-hidden', 'true');
-    svg.setAttribute('focusable', 'false');
-
-    const iconPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    iconPath.setAttribute('d', path);
-    svg.appendChild(iconPath);
-
-    return svg;
-}
-
-/**
- * Build icon for masthead button.
- * @returns {SVGSVGElement}
- */
-function createMastheadIcon() {
-    return createSvgIcon('M4 5h11v2H4V5zm0 6h11v2H4v-2zm0 6h7v2H4v-2zm14.7-5.3L20 13l-4.7 4.7-2.3-2.3 1.4-1.4.9.9z');
-}
-
-/**
- * Build icon for action menu button.
- * @returns {SVGSVGElement}
- */
-function createDotsIcon() {
-    return createSvgIcon('M12 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z');
-}
-
-/**
- * Build bookmark icon.
- * @returns {SVGSVGElement}
- */
-function createBookmarkIcon() {
-    return createSvgIcon('M6 3h12c1.1 0 2 .9 2 2v16l-8-4-8 4V5c0-1.1.9-2 2-2zm0 2v12.76l6-3 6 3V5H6z');
-}
-
-/**
- * Build close icon.
- * @returns {SVGSVGElement}
- */
-function createCloseIcon() {
-    return createSvgIcon('M18.3 5.71 12 12l6.3 6.29-1.41 1.42-6.3-6.31-6.3 6.31-1.41-1.42L9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.3-6.3z');
-}
-
-/**
- * Build plus icon.
- * @returns {SVGSVGElement}
- */
-function createPlusIcon() {
-    return createSvgIcon('M19 11H13V5h-2v6H5v2h6v6h2v-6h6z');
-}
-
-/**
- * Build chevron-down icon.
- * @returns {SVGSVGElement}
- */
-function createChevronDownIcon() {
-    return createSvgIcon('M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z');
-}
-
-/**
- * Build check icon.
- * @returns {SVGSVGElement}
- */
-function createCheckIcon() {
-    return createSvgIcon('M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z');
-}
-
-/**
- * Extract YouTube video id from URL.
- * @param {string} url
- * @returns {string|null}
- */
-function extractVideoId(url) {
-    if (typeof url !== 'string' || !url) {
-        return null;
-    }
-
-    try {
-        const parsed = new URL(url, location.origin);
-        const watchId = parsed.searchParams.get('v');
-        if (watchId && VIDEO_ID_PATTERN.test(watchId)) {
-            return watchId;
-        }
-
-        if (parsed.pathname.startsWith('/shorts/')) {
-            const shortsId = parsed.pathname.split('/shorts/')[1]?.split('/')[0] || '';
-            if (VIDEO_ID_PATTERN.test(shortsId)) {
-                return shortsId;
-            }
-        }
-    } catch (_error) {
-        return null;
-    }
-
-    return null;
-}
-
-/**
- * Check whether page supports card selection.
- * @returns {boolean}
- */
-function isEligiblePage() {
-    const path = location.pathname || '';
-    return path !== '/watch' && !path.startsWith('/shorts/');
-}
-
-/**
- * Resolve where to mount masthead button near search/voice controls.
- * @returns {{parent: Element, anchor: ChildNode|null}|null}
- */
-function resolveMastheadMountPoint() {
-    const center = document.querySelector('ytd-masthead #center');
-    if (!center) {
-        return null;
-    }
-
-    const voiceRenderer = center.querySelector('ytd-button-renderer#voice-search-button')
-        || center.querySelector('#voice-search-button')?.closest('ytd-button-renderer')
-        || center.querySelector('#voice-search-button');
-
-    if (voiceRenderer && voiceRenderer.parentElement) {
-        return {
-            parent: voiceRenderer.parentElement,
-            anchor: voiceRenderer.nextSibling
-        };
-    }
-
-    const searchBox = center.querySelector('ytd-searchbox');
-    if (searchBox && searchBox.parentElement) {
-        return {
-            parent: searchBox.parentElement,
-            anchor: searchBox.nextSibling
-        };
-    }
-
-    return null;
 }
 
 /**
@@ -459,10 +294,31 @@ function ensureActionMenu() {
     actionMenuSaveButton.appendChild(text);
     actionMenu.appendChild(actionMenuSaveButton);
 
+    actionMenuRemoveButton = document.createElement('button');
+    actionMenuRemoveButton.type = 'button';
+    actionMenuRemoveButton.className = 'yt-commander-playlist-action-menu__item';
+    actionMenuRemoveButton.setAttribute('role', 'menuitem');
+    actionMenuRemoveButton.setAttribute('data-action', ACTIONS.REMOVE_FROM_PLAYLIST);
+
+    const removeIconWrap = document.createElement('span');
+    removeIconWrap.className = 'yt-commander-playlist-action-menu__item-icon';
+    removeIconWrap.appendChild(createRemoveIcon());
+
+    const removeText = document.createElement('span');
+    removeText.className = 'yt-commander-playlist-action-menu__item-text';
+    removeText.textContent = getRemoveActionLabel();
+
+    actionMenuRemoveButton.appendChild(removeIconWrap);
+    actionMenuRemoveButton.appendChild(removeText);
+    actionMenu.appendChild(actionMenuRemoveButton);
+
     document.body.appendChild(actionMenu);
 
     actionMenuSaveButton.addEventListener('click', handleActionMenuSaveClick);
+    actionMenuRemoveButton.addEventListener('click', handleActionMenuRemoveClick);
     cleanupCallbacks.push(() => actionMenuSaveButton?.removeEventListener('click', handleActionMenuSaveClick));
+    cleanupCallbacks.push(() => actionMenuRemoveButton?.removeEventListener('click', handleActionMenuRemoveClick));
+    syncRemoveActionMenuItem();
 }
 
 /**
@@ -882,6 +738,23 @@ function clearStatusMessage() {
 }
 
 /**
+ * Sync remove-action visibility/label based on current route.
+ */
+function syncRemoveActionMenuItem() {
+    if (!actionMenuRemoveButton) {
+        return;
+    }
+
+    const canRemove = isPlaylistCollectionPage();
+    actionMenuRemoveButton.hidden = !canRemove;
+
+    const labelNode = actionMenuRemoveButton.querySelector('.yt-commander-playlist-action-menu__item-text');
+    if (labelNode) {
+        labelNode.textContent = getRemoveActionLabel();
+    }
+}
+
+/**
  * Update action controls based on selection and loading/submitting states.
  */
 function updateActionUiState() {
@@ -901,6 +774,11 @@ function updateActionUiState() {
 
     if (actionMenuSaveButton) {
         actionMenuSaveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+    }
+
+    syncRemoveActionMenuItem();
+    if (actionMenuRemoveButton) {
+        actionMenuRemoveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
 
     if (playlistPanelCloseButton) {
@@ -932,6 +810,7 @@ function openActionMenu() {
     }
 
     ensureActionUi();
+    syncRemoveActionMenuItem();
     closePlaylistPanel();
 
     if (!actionMenu || !actionMenuButton) {
@@ -1190,6 +1069,113 @@ async function saveSelectionToPlaylist(playlistId) {
     } catch (error) {
         logger.warn('Failed to save selected videos', error);
         setStatusMessage(error instanceof Error ? error.message : 'Failed to save videos.', STATUS_KIND.ERROR);
+    } finally {
+        submitting = false;
+        updateActionUiState();
+    }
+}
+
+/**
+ * Remove selected card renderers from the DOM.
+ * @param {string[]} videoIds
+ * @returns {number}
+ */
+function removeSelectedCardsFromDom(videoIds) {
+    if (!Array.isArray(videoIds) || videoIds.length === 0) {
+        return 0;
+    }
+
+    const nodesToRemove = new Set();
+    videoIds.forEach((videoId) => {
+        if (!VIDEO_ID_PATTERN.test(videoId)) {
+            return;
+        }
+
+        selectedVideoIds.delete(videoId);
+        document
+            .querySelectorAll(`.${HOST_CLASS}[data-yt-commander-video-id="${videoId}"]`)
+            .forEach((host) => {
+                if (!(host instanceof Element)) {
+                    return;
+                }
+
+                const renderer = host.closest(FEED_RENDERER_SELECTOR) || host;
+                nodesToRemove.add(renderer);
+            });
+    });
+
+    let removedCount = 0;
+    nodesToRemove.forEach((node) => {
+        if (node instanceof Element && node.isConnected) {
+            node.remove();
+            removedCount += 1;
+        }
+    });
+
+    updateActionUiState();
+    return removedCount;
+}
+
+/**
+ * Remove selected videos from the currently opened playlist page.
+ */
+async function removeSelectionFromCurrentPlaylist() {
+    if (submitting || createSubmitting) {
+        return;
+    }
+
+    if (!isPlaylistCollectionPage()) {
+        setStatusMessage('Open a playlist page to remove selected videos.', STATUS_KIND.ERROR);
+        return;
+    }
+
+    const playlistId = getCurrentPlaylistId();
+    if (!playlistId) {
+        setStatusMessage('Could not detect current playlist.', STATUS_KIND.ERROR);
+        return;
+    }
+
+    const videoIds = Array.from(selectedVideoIds);
+    if (videoIds.length === 0) {
+        setStatusMessage('Select at least one video.', STATUS_KIND.ERROR);
+        return;
+    }
+
+    submitting = true;
+    updateActionUiState();
+    closeActionMenu();
+
+    const playlistLabel = playlistId === 'WL' ? 'Watch later' : 'playlist';
+    setStatusMessage(`Removing ${videoIds.length} video(s) from ${playlistLabel}...`, STATUS_KIND.INFO);
+
+    try {
+        const response = await sendBridgeRequest(ACTIONS.REMOVE_FROM_PLAYLIST, {
+            playlistId,
+            videoIds
+        });
+
+        const removedVideoIds = Array.isArray(response?.removedVideoIds)
+            ? response.removedVideoIds.filter((videoId) => VIDEO_ID_PATTERN.test(videoId))
+            : [];
+        const removedCount = Number(response?.removedCount) || removedVideoIds.length;
+
+        if (removedCount <= 0) {
+            setStatusMessage('No videos were removed.', STATUS_KIND.ERROR);
+            return;
+        }
+
+        const idsForDomRemoval = removedVideoIds.length > 0 ? removedVideoIds : videoIds;
+        removeSelectedCardsFromDom(idsForDomRemoval);
+        closePlaylistPanel();
+        closeCreateModal();
+
+        setStatusMessage(
+            `Removed ${removedCount} video(s) from ${playlistLabel}.`,
+            STATUS_KIND.SUCCESS
+        );
+    } catch (error) {
+        logger.warn('Failed to remove selected videos from playlist', error);
+        setStatusMessage(error instanceof Error ? error.message : 'Failed to remove videos.', STATUS_KIND.ERROR);
     } finally {
         submitting = false;
         updateActionUiState();
@@ -1593,24 +1579,7 @@ function processPendingContainers() {
  * @returns {Promise<any>}
  */
 function sendBridgeRequest(action, payload) {
-    const requestId = `ytc-playlist-${Date.now()}-${++bridgeRequestCounter}`;
-
-    return new Promise((resolve, reject) => {
-        const timeoutId = window.setTimeout(() => {
-            pendingBridgeRequests.delete(requestId);
-            reject(new Error('Playlist request timed out.'));
-        }, REQUEST_TIMEOUT_MS);
-
-        pendingBridgeRequests.set(requestId, { resolve, reject, timeoutId });
-
-        window.postMessage({
-            source: BRIDGE_SOURCE,
-            type: REQUEST_TYPE,
-            requestId,
-            action,
-            payload
-        }, '*');
-    });
+    return bridgeClient.sendRequest(action, payload);
 }
 
 /**
@@ -1618,28 +1587,7 @@ function sendBridgeRequest(action, payload) {
  * @param {MessageEvent} event
  */
 function handleBridgeResponse(event) {
-    if (event.source !== window || !event.data || typeof event.data !== 'object') {
-        return;
-    }
-
-    const message = event.data;
-    if (message.source !== BRIDGE_SOURCE || message.type !== RESPONSE_TYPE || !message.requestId) {
-        return;
-    }
-
-    const pending = pendingBridgeRequests.get(message.requestId);
-    if (!pending) {
-        return;
-    }
-
-    pendingBridgeRequests.delete(message.requestId);
-    clearTimeout(pending.timeoutId);
-
-    if (message.success) {
-        pending.resolve(message.data || {});
-    } else {
-        pending.reject(new Error(message.error || 'Playlist action failed.'));
-    }
+    bridgeClient.handleResponse(event);
 }
 
 /**
@@ -1647,11 +1595,7 @@ function handleBridgeResponse(event) {
  * @param {string} message
  */
 function rejectPendingRequests(message) {
-    pendingBridgeRequests.forEach((pending) => {
-        clearTimeout(pending.timeoutId);
-        pending.reject(new Error(message));
-    });
-    pendingBridgeRequests.clear();
+    bridgeClient.rejectAll(message);
 }
 
 /**
@@ -1738,6 +1682,18 @@ function handleActionMenuSaveClick(event) {
     event.stopPropagation();
     openPlaylistPanel().catch((error) => {
         logger.warn('Failed to open playlist panel', error);
+    });
+}
+
+/**
+ * Handle "remove from playlist" menu click.
+ * @param {MouseEvent} event
+ */
+function handleActionMenuRemoveClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    removeSelectionFromCurrentPlaylist().catch((error) => {
+        logger.warn('Failed to remove selected playlist videos', error);
     });
 }
 
@@ -2008,6 +1964,7 @@ function handleRouteChange() {
     setSelectionMode(false);
     updateMastheadVisibility();
     syncActionBarVisibility();
+    syncRemoveActionMenuItem();
 }
 
 /**
@@ -2178,6 +2135,7 @@ function cleanup() {
 
     actionMenu = null;
     actionMenuSaveButton = null;
+    actionMenuRemoveButton = null;
 
     playlistPanel = null;
     playlistPanelCount = null;
