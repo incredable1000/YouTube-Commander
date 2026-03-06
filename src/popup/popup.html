@@ -346,7 +346,7 @@
             <div class="feature-header expanded" data-feature="seek">
                 <div class="feature-title">
                     <div class="feature-name">Seek Controls</div>
-                    <div class="feature-description">Custom video seeking with keyboard shortcuts</div>
+                    <div class="feature-description">Player seek buttons, shortcuts, and seek burst animation</div>
                 </div>
             </div>
             <div class="feature-content expanded" id="seekContent">
@@ -365,7 +365,7 @@
                     <input type="number" id="longSeek" class="setting-input" min="1" max="300" value="30">
                     <span class="unit">sec</span>
                 </div>
-                <div class="note">Use ←/→ for short seek, Shift+←/→ for medium seek, and Ctrl+Shift+←/→ for long seek</div>
+                <div class="note">Use Left/Right for short seek, Shift+Left/Right for medium seek, and Ctrl+Shift+Left/Right for long seek</div>
             </div>
         </div>
 
@@ -404,6 +404,12 @@
                 </div>
             </div>
             <div class="feature-content expanded" id="audioContent">
+                <div class="setting-row">
+                    <div class="setting-label" style="font-size: 13px;">Auto switch to original</div>
+                    <div class="toggle-switch small-toggle active" id="autoSwitchToOriginalToggle">
+                        <div class="toggle-slider"></div>
+                    </div>
+                </div>
                 <div class="note">Automatically switches to original audio track when videos start playing, avoiding dubbed versions. Works on both regular videos and YouTube Shorts.</div>
             </div>
         </div>
@@ -466,11 +472,24 @@
             <div class="feature-header expanded" data-feature="shorts">
                 <div class="feature-title">
                     <div class="feature-name">Shorts Counter</div>
-                    <div class="feature-description">Track YouTube Shorts viewing time</div>
+                    <div class="feature-description">Session counter with auto-scroll on Shorts end</div>
                 </div>
             </div>
             <div class="feature-content expanded" id="shortsContent">
-                <div class="note">Displays a counter showing how much time you've spent watching YouTube Shorts</div>
+                <div class="note">Displays a per-tab Shorts watch count and auto-advances to the next Short when current one ends.</div>
+            </div>
+        </div>
+
+        <!-- Shorts Upload Age Feature -->
+        <div class="feature-card">
+            <div class="feature-header expanded" data-feature="shortsUploadAge">
+                <div class="feature-title">
+                    <div class="feature-name">Shorts Upload Age</div>
+                    <div class="feature-description">Show relative upload age on Shorts thumbnails</div>
+                </div>
+            </div>
+            <div class="feature-content expanded" id="shortsUploadAgeContent">
+                <div class="note">Adds an "x ago" label for Shorts cards across Home, Subscriptions, channels, and feeds.</div>
             </div>
         </div>
 
@@ -487,16 +506,29 @@
             </div>
         </div>
 
+        <!-- Windowed Fullscreen Feature -->
+        <div class="feature-card">
+            <div class="feature-header expanded" data-feature="windowedFullscreen">
+                <div class="feature-title">
+                    <div class="feature-name">Windowed Fullscreen</div>
+                    <div class="feature-description">Expand player to browser window without native fullscreen</div>
+                </div>
+            </div>
+            <div class="feature-content expanded" id="windowedFullscreenContent">
+                <div class="note">Adds a player-bar button and Enter shortcut to toggle windowed fullscreen mode.</div>
+            </div>
+        </div>
+
         <!-- Playlist Controls Feature -->
         <div class="feature-card">
             <div class="feature-header expanded" data-feature="playlist">
                 <div class="feature-title">
-                    <div class="feature-name">Playlist Controls</div>
-                    <div class="feature-description">Enhanced playlist management</div>
+                    <div class="feature-name">Playlist Tools</div>
+                    <div class="feature-description">Multi-select cards and save/remove in playlists</div>
                 </div>
             </div>
             <div class="feature-content expanded" id="playlistContent">
-                <div class="note">Advanced playlist controls including background tab playback management</div>
+                <div class="note">Select videos/Shorts in feeds, Shift+click range select, save to playlists, create playlists, and remove from playlist pages.</div>
             </div>
         </div>
 

@@ -189,46 +189,19 @@ async function loadSettings() {
     }
 }
 
-// Apply settings to enable/disable features
+// Apply runtime settings
 function applySettings() {
-    const featureMap = {
-        seekEnabled: ['seekControls'],
-        qualityEnabled: ['qualityControlsWrapper'],
-        audioEnabled: ['audioTrackControls'],
-        historyEnabled: ['watchedHistory'],
-        scrollEnabled: ['scrollToTop'],
-        shortsEnabled: ['shortsCounter', 'shortsUploadAge'],
-        rotationEnabled: ['videoRotation', 'windowedFullscreen'],
-        playlistEnabled: ['playlistControls', 'playlistMultiSelect']
-    };
-    
-    // Update settings for modules that support it
+    // Feature flags were removed from popup UX; modules stay enabled.
     updateModuleSettings();
 
-    // Main world audio controls do not exist in isolated world moduleInstances.
-    // Forward the current audio toggle explicitly so auto-switch stays in sync.
+    // Main-world audio controls do not exist in isolated world moduleInstances.
+    // Forward the current auto-switch preference explicitly.
     sendAudioSettingsToMainWorld();
-    
-    Object.entries(featureMap).forEach(([settingKey, moduleNames]) => {
-        const isEnabled = currentSettings[settingKey] !== false; // Default to enabled
-        moduleNames.forEach((moduleName) => {
-            const moduleInstance = moduleInstances[moduleName];
-            if (!moduleInstance) {
-                return;
-            }
-
-            if (isEnabled) {
-                enableFeature(moduleName, moduleInstance);
-            } else {
-                disableFeature(moduleName, moduleInstance);
-            }
-        });
-    });
 }
 
 // Forward audio settings to the main-world audio controls script
 function sendAudioSettingsToMainWorld() {
-    const enabled = currentSettings.audioEnabled !== false;
+    const enabled = currentSettings.autoSwitchToOriginal !== false;
     window.postMessage({
         type: 'YT_COMMANDER_AUDIO_SETTINGS',
         enabled
@@ -251,36 +224,6 @@ function updateModuleSettings() {
     
     // Add other modules here as needed
     logger.debug('Module settings updated');
-}
-
-// Enable a feature
-function enableFeature(moduleName, moduleInstance) {
-    logger.info(`Enabling feature: ${moduleName}`);
-    
-    // Call enable method if it exists
-    if (moduleInstance.enable && typeof moduleInstance.enable === 'function') {
-        moduleInstance.enable();
-    }
-    
-    // Re-initialize if needed
-    if (moduleInstance.init && typeof moduleInstance.init === 'function') {
-        moduleInstance.init();
-    }
-}
-
-// Disable a feature
-function disableFeature(moduleName, moduleInstance) {
-    logger.info(`Disabling feature: ${moduleName}`);
-    
-    // Call disable method if it exists
-    if (moduleInstance.disable && typeof moduleInstance.disable === 'function') {
-        moduleInstance.disable();
-    }
-    
-    // Call cleanup method if it exists
-    if (moduleInstance.cleanup && typeof moduleInstance.cleanup === 'function') {
-        moduleInstance.cleanup();
-    }
 }
 
 // Handle messages from popup

@@ -1,18 +1,8 @@
 // Modern YouTube Commander Popup Script
-// Default settings with feature toggles
 const defaultSettings = {
-    // Feature toggles
-    seekEnabled: true,
-    qualityEnabled: true,
-    audioEnabled: true,
-    historyEnabled: true,
-    scrollEnabled: true,
-    shortsEnabled: true,
-    rotationEnabled: true,
-    windowedFullscreenEnabled: true,
-    playlistEnabled: true,
-    backupEnabled: true,
+    // Popup-managed settings
     deleteVideosEnabled: false,
+    autoSwitchToOriginal: true,
     
     // Seek settings
     shortSeek: 3,
@@ -28,6 +18,19 @@ const defaultSettings = {
     // Legacy settings
     fullWindowShortcut: 'f'
 };
+
+const LEGACY_FEATURE_KEYS = [
+    'seekEnabled',
+    'qualityEnabled',
+    'audioEnabled',
+    'historyEnabled',
+    'scrollEnabled',
+    'shortsEnabled',
+    'shortsUploadAgeEnabled',
+    'rotationEnabled',
+    'windowedFullscreenEnabled',
+    'playlistEnabled'
+];
 
 // Current settings
 let currentSettings = {};
@@ -52,38 +55,20 @@ function setupDeleteVideosToggle() {
     if (deleteVideosToggle) {
         deleteVideosToggle.addEventListener('click', (e) => {
             e.stopPropagation();
-            
-            const isEnabled = deleteVideosToggle.classList.contains('active');
-            
-            if (isEnabled) {
-                deleteVideosToggle.classList.remove('active');
-                currentSettings.deleteVideosEnabled = false;
-                showStatus('Delete videos disabled - showing markers', 'success');
-            } else {
-                deleteVideosToggle.classList.add('active');
-                currentSettings.deleteVideosEnabled = true;
-                showStatus('Delete videos enabled - removing from page', 'success');
-            }
-            
-            // Save the setting
-            chrome.storage.sync.set({ deleteVideosEnabled: currentSettings.deleteVideosEnabled });
-            
-            // Notify content scripts of settings change
-            chrome.tabs.query({ url: '*://*.youtube.com/*' }, (tabs) => {
-                tabs.forEach(tab => {
-                    chrome.tabs.sendMessage(tab.id, { 
-                        type: 'SETTINGS_UPDATED', 
-                        settings: currentSettings 
-                    }).catch(() => {
-                        // Ignore errors for tabs that don't have content scripts
-                    });
-                });
-            });
+
+            const enabled = !deleteVideosToggle.classList.contains('active');
+            setToggleState(deleteVideosToggle, enabled);
+            currentSettings.deleteVideosEnabled = enabled;
+            showStatus(
+                enabled ? 'Delete videos enabled - removing watched cards' : 'Delete videos disabled - showing markers',
+                'success'
+            );
+            saveSyncSettings();
         });
     }
 }
 
-// Backup toggle (only remaining toggle)
+// Backup reminder toggle
 function setupBackupToggle() {
     const backupToggle = document.getElementById('backupToggle');
     if (backupToggle) {
@@ -116,72 +101,101 @@ function setupBackupToggle() {
     }
 }
 
-// Format shortcut for display
-function formatShortcut(shortcut) {
-    if (!shortcut) return '';
-    const parts = [];
-    
-    // Add modifiers in standard order
-    if (shortcut.ctrl) parts.push('Ctrl');
-    if (shortcut.alt) parts.push('Alt');
-    if (shortcut.shift) parts.push('Shift');
-    
-    // Format the main key
-    if (shortcut.key === 'ArrowRight') {
-        parts.push('→');
-    } else if (shortcut.key === 'ArrowLeft') {
-        parts.push('←');
-    } else if (shortcut.key === 'ArrowUp') {
-        parts.push('↑');
-    } else if (shortcut.key === 'ArrowDown') {
-        parts.push('↓');
-    } else if (shortcut.key === ' ') {
-        parts.push('Space');
-    } else {
-        parts.push(shortcut.key);
+/**
+ * Setup audio behavior toggle.
+ */
+function setupAudioSettingToggle() {
+    const toggle = document.getElementById('autoSwitchToOriginalToggle');
+    if (!toggle) {
+        return;
     }
-    
-    return parts.join(' + ');
+
+    toggle.addEventListener('click', (event) => {
+        event.stopPropagation();
+
+        const enabled = !toggle.classList.contains('active');
+        setToggleState(toggle, enabled);
+        currentSettings.autoSwitchToOriginal = enabled;
+        saveSyncSettings();
+        showStatus(
+            enabled ? 'Auto switch to original audio enabled' : 'Auto switch to original audio disabled',
+            'success'
+        );
+    });
+}
+
+/**
+ * Update toggle visual state.
+ * @param {HTMLElement|null} toggle
+ * @param {boolean} enabled
+ */
+function setToggleState(toggle, enabled) {
+    if (!toggle) {
+        return;
+    }
+    toggle.classList.toggle('active', Boolean(enabled));
+}
+
+/**
+ * Parse a numeric input safely.
+ * @param {string} id
+ * @param {number} fallback
+ * @returns {number}
+ */
+function parseNumberInput(id, fallback) {
+    const input = document.getElementById(id);
+    const parsed = Number.parseInt(input?.value || '', 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 // Load saved settings
 function loadSettings() {
     chrome.storage.sync.get(defaultSettings, (settings) => {
-        currentSettings = settings;
-        
-        // Load basic settings
+        currentSettings = sanitizeSettings(settings);
+
         document.getElementById('shortSeek').value = settings.shortSeek;
         document.getElementById('mediumSeek').value = settings.mediumSeek;
         document.getElementById('longSeek').value = settings.longSeek;
         document.getElementById('maxQuality').value = settings.maxQuality;
-        
-        // Fixed shortcuts are now hardcoded in defaultSettings
-        
-        // Load delete videos toggle
-        const deleteVideosToggle = document.getElementById('deleteVideosToggle');
-        if (deleteVideosToggle) {
-            if (settings.deleteVideosEnabled) {
-                deleteVideosToggle.classList.add('active');
-            } else {
-                deleteVideosToggle.classList.remove('active');
-            }
-        }
-        
-        // Load backup toggle (uses different storage)
+
+        setToggleState(document.getElementById('deleteVideosToggle'), settings.deleteVideosEnabled === true);
+        setToggleState(
+            document.getElementById('autoSwitchToOriginalToggle'),
+            settings.autoSwitchToOriginal !== false
+        );
+
         chrome.storage.local.get(['backupRemindersEnabled'], (result) => {
             const backupToggle = document.getElementById('backupToggle');
-            if (backupToggle) {
-                if (result.backupRemindersEnabled !== false) {
-                    backupToggle.classList.add('active');
-                } else {
-                    backupToggle.classList.remove('active');
-                }
-            }
+            setToggleState(backupToggle, result.backupRemindersEnabled !== false);
         });
-        
-        // Load watched history stats
+
         loadWatchedHistoryStats();
+        cleanupLegacyFeatureFlags();
     });
+}
+
+/**
+ * Remove deprecated feature-flag settings from storage.
+ */
+function cleanupLegacyFeatureFlags() {
+    chrome.storage.sync.remove(LEGACY_FEATURE_KEYS, () => {
+        if (chrome.runtime.lastError) {
+            console.warn('Failed to cleanup legacy feature keys:', chrome.runtime.lastError.message);
+        }
+    });
+}
+
+/**
+ * Drop legacy keys from settings object.
+ * @param {object} settings
+ * @returns {object}
+ */
+function sanitizeSettings(settings) {
+    const sanitized = { ...settings };
+    LEGACY_FEATURE_KEYS.forEach((key) => {
+        delete sanitized[key];
+    });
+    return sanitized;
 }
 
 // Load watched history statistics (using content script approach)
@@ -274,35 +288,41 @@ async function loadWatchedHistoryStats() {
     }
 }
 
-// Save settings (auto-save)
-function saveSettings(showMessage = false) {
-    const settings = {
+// Save sync settings and notify all YouTube tabs.
+function saveSyncSettings(showMessage = false) {
+    const settings = sanitizeSettings({
         ...currentSettings,
-        shortSeek: parseInt(document.getElementById('shortSeek').value),
-        mediumSeek: parseInt(document.getElementById('mediumSeek').value),
-        longSeek: parseInt(document.getElementById('longSeek').value),
-        maxQuality: document.getElementById('maxQuality').value
-    };
-    
-    // Use fixed shortcuts from defaultSettings
-    settings.shortSeekKey = defaultSettings.shortSeekKey;
-    settings.mediumSeekKey = defaultSettings.mediumSeekKey;
-    settings.longSeekKey = defaultSettings.longSeekKey;
-    
+        shortSeek: parseNumberInput('shortSeek', defaultSettings.shortSeek),
+        mediumSeek: parseNumberInput('mediumSeek', defaultSettings.mediumSeek),
+        longSeek: parseNumberInput('longSeek', defaultSettings.longSeek),
+        maxQuality: document.getElementById('maxQuality')?.value || defaultSettings.maxQuality,
+        shortSeekKey: defaultSettings.shortSeekKey,
+        mediumSeekKey: defaultSettings.mediumSeekKey,
+        longSeekKey: defaultSettings.longSeekKey
+    });
+
+    currentSettings = settings;
+
     chrome.storage.sync.set(settings, () => {
         if (showMessage) {
-            showStatus('Settings saved!', 'success');
+            showStatus('Settings saved', 'success');
         }
-        
-        // Notify content scripts of settings change
-        chrome.tabs.query({ url: '*://*.youtube.com/*' }, (tabs) => {
-            tabs.forEach(tab => {
-                chrome.tabs.sendMessage(tab.id, { 
-                    type: 'SETTINGS_UPDATED', 
-                    settings: settings 
-                }).catch(() => {
-                    // Ignore errors for tabs that don't have content scripts
-                });
+        broadcastSettings(settings);
+    });
+}
+
+/**
+ * Broadcast fresh settings to all YouTube tabs.
+ * @param {object} settings
+ */
+function broadcastSettings(settings) {
+    chrome.tabs.query({ url: '*://*.youtube.com/*' }, (tabs) => {
+        tabs.forEach((tab) => {
+            chrome.tabs.sendMessage(tab.id, {
+                type: 'SETTINGS_UPDATED',
+                settings
+            }).catch(() => {
+                // Ignore tabs without active content scripts.
             });
         });
     });
@@ -315,7 +335,7 @@ function setupAutoSave() {
         const input = document.getElementById(id);
         if (input) {
             input.addEventListener('input', () => {
-                saveSettings();
+                saveSyncSettings();
             });
         }
     });
@@ -324,7 +344,7 @@ function setupAutoSave() {
     const qualitySelect = document.getElementById('maxQuality');
     if (qualitySelect) {
         qualitySelect.addEventListener('change', () => {
-            saveSettings();
+            saveSyncSettings();
         });
     }
 }
@@ -464,7 +484,7 @@ async function handleFileImport(event) {
                 let batchImported = 0;
                 
                 // Use content script message approach since script injection is blocked
-                console.log(`⚡ Processing batch ${Math.floor(currentIndex/batchSize) + 1} with ${batch.length} IDs via content script`);
+                console.log(`[Import] Processing batch ${Math.floor(currentIndex / batchSize) + 1} with ${batch.length} IDs via content script`);
                 
                 try {
                     // Try content script first
@@ -475,7 +495,7 @@ async function handleFileImport(event) {
                     
                     if (response && response.success) {
                         batchImported = response.count || 0;
-                        console.log(`⚡ Batch ${Math.floor(currentIndex/batchSize) + 1} imported ${batchImported} videos via content script`);
+                        console.log(`[Import] Batch ${Math.floor(currentIndex / batchSize) + 1} imported ${batchImported} videos via content script`);
                     } else {
                         throw new Error(response?.error || 'Content script import failed');
                     }
@@ -499,9 +519,9 @@ async function handleFileImport(event) {
                     });
                     
                     batchImported = bgResponse?.count || 0;
-                    console.log(`⚡ Batch ${Math.floor(currentIndex/batchSize) + 1} imported ${batchImported} videos via background script`);
+                    console.log(`[Import] Batch ${Math.floor(currentIndex / batchSize) + 1} imported ${batchImported} videos via background script`);
                 }
-                    console.log(`⚡ Batch ${Math.floor(currentIndex/batchSize) + 1} imported ${batchImported} videos`);
+                console.log(`[Import] Batch ${Math.floor(currentIndex / batchSize) + 1} imported ${batchImported} videos`);
                 
                 totalImported += batchImported;
                 currentIndex += batchSize;
@@ -528,22 +548,15 @@ async function handleFileImport(event) {
 
 // Setup feature header click handlers
 function setupFeatureHeaders() {
-    // Use event delegation for feature headers
     document.addEventListener('click', (e) => {
-        console.log('Click detected on:', e.target); // Debug log
-        
-        // Check if it's a toggle switch
         const toggleSwitch = e.target.closest('.toggle-switch');
         if (toggleSwitch) {
-            console.log('Toggle switch clicked:', toggleSwitch.id); // Debug log
-            return; // Let the toggle switch handler deal with it
+            return;
         }
-        
-        // Check if it's a feature header
+
         const header = e.target.closest('.feature-header');
         if (header && header.dataset.feature) {
             const featureName = header.dataset.feature;
-            console.log(`Feature header clicked: ${featureName}`); // Debug log
             toggleFeature(featureName);
         }
     });
@@ -551,45 +564,21 @@ function setupFeatureHeaders() {
 
 // Initialize popup
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM loaded, initializing popup...'); // Debug log
-    
     loadSettings();
-    
-    // Add a small delay to ensure DOM is fully ready
-    setTimeout(() => {
-        console.log('Setting up toggles...'); // Debug log
-        setupDeleteVideosToggle();
-        setupBackupToggle();
-        setupAutoSave();
-        setupFeatureHeaders();
-    }, 100);
-    
-    // Event listeners
+
+    setupAudioSettingToggle();
+    setupDeleteVideosToggle();
+    setupBackupToggle();
+    setupAutoSave();
+    setupFeatureHeaders();
+
     document.getElementById('exportHistory').addEventListener('click', exportHistory);
     document.getElementById('importHistory').addEventListener('click', importHistory);
     document.getElementById('historyFileInput').addEventListener('change', handleFileImport);
-    
-    
-    // Auto-refresh stats every 5 seconds
+
     setInterval(loadWatchedHistoryStats, 5000);
 });
 
-// Test function to manually check toggles
-window.testToggles = function() {
-    console.log('=== TOGGLE TEST ===');
-    const toggles = ['seekToggle', 'qualityToggle', 'audioToggle', 'historyToggle'];
-    
-    toggles.forEach(toggleId => {
-        const toggle = document.getElementById(toggleId);
-        console.log(`${toggleId}:`, toggle);
-        if (toggle) {
-            console.log(`  - Classes: ${toggle.className}`);
-            console.log(`  - Active: ${toggle.classList.contains('active')}`);
-            console.log(`  - Event listeners: ${toggle.onclick ? 'onclick' : 'addEventListener'}`);
-        }
-    });
-    console.log('=== END TEST ===');
-};
-
 // Make functions globally available
 window.toggleFeature = toggleFeature;
+
