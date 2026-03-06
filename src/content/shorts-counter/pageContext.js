@@ -135,6 +135,19 @@ function isInteractableElement(element) {
  * @returns {boolean}
  */
 function advanceToNextShort() {
+    const activeRenderer = getActiveShortsRenderer();
+    if (activeRenderer) {
+        const renderers = Array.from(document.querySelectorAll('ytd-shorts ytd-reel-video-renderer'));
+        const activeIndex = renderers.indexOf(activeRenderer);
+        if (activeIndex >= 0 && activeIndex < renderers.length - 1) {
+            const nextRenderer = renderers[activeIndex + 1];
+            if (nextRenderer) {
+                nextRenderer.scrollIntoView({ behavior: 'auto', block: 'center' });
+                return true;
+            }
+        }
+    }
+
     const nextButtonSelectors = [
         'ytd-shorts ytd-reel-player-overlay-renderer #navigation-button-down button',
         'ytd-shorts ytd-reel-player-overlay-renderer #navigation-button-down',
@@ -156,19 +169,6 @@ function advanceToNextShort() {
 
         button.click();
         return true;
-    }
-
-    const activeRenderer = getActiveShortsRenderer();
-    if (activeRenderer) {
-        const renderers = Array.from(document.querySelectorAll('ytd-shorts ytd-reel-video-renderer'));
-        const activeIndex = renderers.indexOf(activeRenderer);
-        if (activeIndex >= 0 && activeIndex < renderers.length - 1) {
-            const nextRenderer = renderers[activeIndex + 1];
-            if (nextRenderer) {
-                nextRenderer.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                return true;
-            }
-        }
     }
 
     try {

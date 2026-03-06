@@ -11,8 +11,9 @@ import {
     SAVE_DEBOUNCE_MS,
     OBSERVER_THROTTLE_MS,
     END_BIND_DELAY_MS,
-    AUTO_SCROLL_COOLDOWN_MS,
-    AUTO_SCROLL_END_THRESHOLD_S
+    AUTO_SCROLL_END_THRESHOLD_S,
+    AUTO_SCROLL_LOOP_RESTART_THRESHOLD_S,
+    AUTO_SCROLL_LOCK_RELEASE_MS
 } from './shorts-counter/constants.js';
 import {
     isShortsWatchPage,
@@ -36,11 +37,11 @@ let endBindTimer = null;
 let contextCheckScheduled = false;
 
 let lastShortId = null;
-let lastAutoScrollAt = 0;
-let lastAutoScrollShortId = null;
 let initialized = false;
 let enabled = true;
-const endedVideoBindings = new Map();
+let autoAdvanceBinding = null;
+let autoAdvanceLockShortId = null;
+let autoAdvanceLockReleaseTimer = null;
 
 const counterUi = createShortsCounterUi({
     labelId: LABEL_ID,
@@ -137,96 +138,173 @@ function updateCounterDisplay({ animate = false, delta = 1 } = {}) {
 }
 
 /**
- * Remove all bound ended handlers from Shorts video elements.
+ * Remove currently bound auto-advance listeners.
  */
-function clearEndedVideoBindings() {
-    for (const [video, binding] of endedVideoBindings.entries()) {
-        video.removeEventListener('ended', binding.onEnded);
-        video.removeEventListener('timeupdate', binding.onTimeUpdate);
-    }
-    endedVideoBindings.clear();
-}
-
-/**
- * Remove ended handlers for detached video elements.
- */
-function pruneEndedVideoBindings() {
-    for (const [video, binding] of endedVideoBindings.entries()) {
-        if (video.isConnected) {
-            continue;
-        }
-
-        video.removeEventListener('ended', binding.onEnded);
-        video.removeEventListener('timeupdate', binding.onTimeUpdate);
-        endedVideoBindings.delete(video);
-    }
-}
-
-/**
- * Attach an ended handler to auto-advance Shorts.
- * @param {HTMLVideoElement} video
- */
-function bindAutoAdvanceHandler(video) {
-    if (!(video instanceof HTMLVideoElement) || endedVideoBindings.has(video)) {
+function clearAutoAdvanceBinding() {
+    if (!autoAdvanceBinding) {
         return;
     }
 
-    const triggerAutoAdvance = (reason) => {
-        if (!enabled || !isShortsWatchPage()) {
+    autoAdvanceBinding.video.removeEventListener('ended', autoAdvanceBinding.onEnded);
+    autoAdvanceBinding.video.removeEventListener('timeupdate', autoAdvanceBinding.onTimeUpdate);
+    autoAdvanceBinding = null;
+}
+
+/**
+ * Clear the lock-release timer for auto-advance.
+ */
+function clearAutoAdvanceLockReleaseTimer() {
+    if (!autoAdvanceLockReleaseTimer) {
+        return;
+    }
+
+    window.clearTimeout(autoAdvanceLockReleaseTimer);
+    autoAdvanceLockReleaseTimer = null;
+}
+
+/**
+ * Release per-short auto-advance lock if transition never completed.
+ * @param {string} shortId
+ */
+function scheduleAutoAdvanceLockRelease(shortId) {
+    clearAutoAdvanceLockReleaseTimer();
+
+    autoAdvanceLockReleaseTimer = window.setTimeout(() => {
+        autoAdvanceLockReleaseTimer = null;
+
+        if (!enabled || autoAdvanceLockShortId !== shortId) {
             return;
         }
 
-        const shortId = getCurrentShortsId();
-        if (!shortId) {
-            return;
+        if (getCurrentShortsId() === shortId) {
+            autoAdvanceLockShortId = null;
         }
+    }, AUTO_SCROLL_LOCK_RELEASE_MS);
+}
 
-        const now = Date.now();
-        if (
-            shortId === lastAutoScrollShortId
-            && now - lastAutoScrollAt < AUTO_SCROLL_COOLDOWN_MS
-        ) {
-            return;
+/**
+ * Try to auto-advance to the next short.
+ * @param {string} reason
+ * @param {{expectedShortId?: string|null, sourceVideo?: HTMLVideoElement|null}} [options]
+ * @returns {boolean}
+ */
+function triggerAutoAdvance(reason, options = {}) {
+    if (!enabled || !isShortsWatchPage()) {
+        return false;
+    }
+
+    const currentShortId = getCurrentShortsId();
+    if (!currentShortId) {
+        return false;
+    }
+
+    const expectedShortId = options.expectedShortId || currentShortId;
+    if (expectedShortId !== currentShortId) {
+        return false;
+    }
+
+    if (autoAdvanceLockShortId === currentShortId) {
+        return false;
+    }
+
+    if (options.sourceVideo instanceof HTMLVideoElement) {
+        const activeVideo = getActiveShortsVideoElement();
+        if (activeVideo && activeVideo !== options.sourceVideo) {
+            return false;
         }
+    }
 
-        lastAutoScrollShortId = shortId;
-        lastAutoScrollAt = now;
+    const advanced = advanceToNextShort();
+    if (!advanced) {
+        return false;
+    }
 
-        const advanced = advanceToNextShort();
-        if (advanced) {
-            logger.debug('Auto-advanced to next short', { shortId, reason });
-            scheduleContextCheck();
-        }
-    };
+    autoAdvanceLockShortId = currentShortId;
+    scheduleAutoAdvanceLockRelease(currentShortId);
+    logger.debug('Auto-advanced to next short', { shortId: currentShortId, reason });
+    scheduleContextCheck();
+
+    return true;
+}
+
+/**
+ * Attach end/loop handlers to the active Shorts video only.
+ * @param {HTMLVideoElement} video
+ * @param {string} shortId
+ */
+function bindAutoAdvanceHandler(video, shortId) {
+    if (!(video instanceof HTMLVideoElement) || !shortId) {
+        return;
+    }
+
+    if (
+        autoAdvanceBinding
+        && autoAdvanceBinding.video === video
+        && autoAdvanceBinding.shortId === shortId
+    ) {
+        return;
+    }
+
+    clearAutoAdvanceBinding();
+    let lastPlaybackTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
 
     const onEnded = () => {
-        triggerAutoAdvance('ended');
+        triggerAutoAdvance('ended', { expectedShortId: shortId, sourceVideo: video });
     };
 
     const onTimeUpdate = () => {
-        if (video.paused) {
+        const currentTime = video.currentTime;
+
+        if (!enabled || !isShortsWatchPage()) {
+            lastPlaybackTime = currentTime;
+            return;
+        }
+
+        const activeVideo = getActiveShortsVideoElement();
+        if (activeVideo && activeVideo !== video) {
+            lastPlaybackTime = currentTime;
             return;
         }
 
         if (!Number.isFinite(video.duration) || video.duration <= 0) {
+            lastPlaybackTime = currentTime;
             return;
         }
 
-        const remaining = video.duration - video.currentTime;
-        if (remaining > AUTO_SCROLL_END_THRESHOLD_S) {
+        if (video.seeking) {
+            lastPlaybackTime = currentTime;
             return;
         }
 
-        triggerAutoAdvance('timeupdate');
+        const remaining = video.duration - currentTime;
+        const isNearEnd = !video.paused && remaining <= AUTO_SCROLL_END_THRESHOLD_S;
+        const loopRestarted = (
+            lastPlaybackTime >= (video.duration - AUTO_SCROLL_END_THRESHOLD_S)
+            && currentTime <= AUTO_SCROLL_LOOP_RESTART_THRESHOLD_S
+        );
+
+        if (isNearEnd || loopRestarted) {
+            triggerAutoAdvance(isNearEnd ? 'near-end' : 'loop-restart', {
+                expectedShortId: shortId,
+                sourceVideo: video
+            });
+        }
+
+        lastPlaybackTime = currentTime;
     };
 
     video.addEventListener('ended', onEnded);
     video.addEventListener('timeupdate', onTimeUpdate);
-    endedVideoBindings.set(video, { onEnded, onTimeUpdate });
+    autoAdvanceBinding = {
+        video,
+        shortId,
+        onEnded,
+        onTimeUpdate
+    };
 }
 
 /**
- * Debounced ended-listener binding for currently active Shorts video.
+ * Debounced binding for the active Shorts video.
  */
 function scheduleEndedBinding() {
     if (!enabled) {
@@ -241,15 +319,18 @@ function scheduleEndedBinding() {
         endBindTimer = null;
 
         if (!enabled || !isShortsWatchPage()) {
+            clearAutoAdvanceBinding();
             return;
         }
 
-        pruneEndedVideoBindings();
-
+        const shortId = getCurrentShortsId();
         const activeVideo = getActiveShortsVideoElement();
-        if (activeVideo) {
-            bindAutoAdvanceHandler(activeVideo);
+        if (!shortId || !(activeVideo instanceof HTMLVideoElement)) {
+            clearAutoAdvanceBinding();
+            return;
         }
+
+        bindAutoAdvanceHandler(activeVideo, shortId);
     }, END_BIND_DELAY_MS);
 }
 
@@ -263,8 +344,10 @@ async function syncCounterWithCurrentShort() {
 
     if (!isShortsWatchPage()) {
         lastShortId = null;
+        autoAdvanceLockShortId = null;
+        clearAutoAdvanceLockReleaseTimer();
         removeCounterLabel();
-        clearEndedVideoBindings();
+        clearAutoAdvanceBinding();
         return;
     }
 
@@ -277,7 +360,16 @@ async function syncCounterWithCurrentShort() {
     scheduleEndedBinding();
 
     const shortId = getCurrentShortsId();
-    if (!shortId || shortId === lastShortId) {
+    if (!shortId) {
+        return;
+    }
+
+    if (shortId !== lastShortId) {
+        autoAdvanceLockShortId = null;
+        clearAutoAdvanceLockReleaseTimer();
+    }
+
+    if (shortId === lastShortId) {
         return;
     }
 
@@ -407,7 +499,9 @@ function stopRuntime() {
         endBindTimer = null;
     }
 
-    clearEndedVideoBindings();
+    clearAutoAdvanceLockReleaseTimer();
+    clearAutoAdvanceBinding();
+    autoAdvanceLockShortId = null;
 }
 
 /**
@@ -473,8 +567,7 @@ function enable() {
 function disable() {
     enabled = false;
     stopRuntime();
-    lastAutoScrollShortId = null;
-    lastAutoScrollAt = 0;
+    autoAdvanceLockShortId = null;
     removeCounterLabel();
     logger.info('Shorts counter disabled');
 }
@@ -493,8 +586,7 @@ function cleanup() {
 
     contextCheckScheduled = false;
     lastShortId = null;
-    lastAutoScrollShortId = null;
-    lastAutoScrollAt = 0;
+    autoAdvanceLockShortId = null;
     initialized = false;
     logger.info('Shorts counter cleaned up');
 }
