@@ -564,15 +564,23 @@ function buildGetAddToPlaylistPayload(context, videoId = '') {
  * Normalize remove action shape for playlist/edit requests.
  * @param {any} rawAction
  * @param {string} videoIdFallback
- * @returns {{action: 'ACTION_REMOVE_VIDEO', setVideoId?: string, removedVideoId?: string}|null}
+ * @returns {{action: 'ACTION_REMOVE_VIDEO'|'ACTION_REMOVE_VIDEO_BY_VIDEO_ID', setVideoId?: string, removedVideoId?: string}|null}
  */
 function normalizeRemoveAction(rawAction, videoIdFallback) {
     if (!rawAction || typeof rawAction !== 'object') {
         return null;
     }
 
-    const actionType = typeof rawAction.action === 'string' ? rawAction.action : 'ACTION_REMOVE_VIDEO';
-    if (actionType !== 'ACTION_REMOVE_VIDEO') {
+    const actionType = typeof rawAction.action === 'string'
+        ? rawAction.action
+        : 'ACTION_REMOVE_VIDEO';
+    const supportedActionTypes = new Set([
+        'ACTION_REMOVE_VIDEO',
+        'ACTION_REMOVE_VIDEO_BY_VIDEO_ID',
+        'ACTION_REMOVE_VIDEO_BY_SET_VIDEO_ID'
+    ]);
+
+    if (!supportedActionTypes.has(actionType)) {
         return null;
     }
 
@@ -589,19 +597,74 @@ function normalizeRemoveAction(rawAction, videoIdFallback) {
         : '';
     if (VIDEO_ID_PATTERN.test(removedVideoId)) {
         return {
-            action: 'ACTION_REMOVE_VIDEO',
+            action: 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID',
             removedVideoId
         };
     }
 
     if (VIDEO_ID_PATTERN.test(videoIdFallback)) {
         return {
-            action: 'ACTION_REMOVE_VIDEO',
+            action: 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID',
             removedVideoId: videoIdFallback
         };
     }
 
     return null;
+}
+
+/**
+ * Expand one remove action into retry candidates for endpoint compatibility.
+ * @param {{action: string, setVideoId?: string, removedVideoId?: string}|null} action
+ * @returns {Array<{action: string, setVideoId?: string, removedVideoId?: string}>}
+ */
+function buildRemoveActionCandidates(action) {
+    if (!action || typeof action !== 'object') {
+        return [];
+    }
+
+    const candidates = [];
+    const seen = new Set();
+
+    const pushCandidate = (candidate) => {
+        if (!candidate || typeof candidate !== 'object') {
+            return;
+        }
+
+        const key = [
+            candidate.action || '',
+            candidate.setVideoId || '',
+            candidate.removedVideoId || ''
+        ].join('|');
+        if (seen.has(key)) {
+            return;
+        }
+
+        seen.add(key);
+        candidates.push(candidate);
+    };
+
+    const setVideoId = typeof action.setVideoId === 'string' ? action.setVideoId.trim() : '';
+    const removedVideoId = typeof action.removedVideoId === 'string' ? action.removedVideoId.trim() : '';
+
+    if (setVideoId) {
+        pushCandidate({
+            action: 'ACTION_REMOVE_VIDEO',
+            setVideoId
+        });
+    }
+
+    if (VIDEO_ID_PATTERN.test(removedVideoId)) {
+        pushCandidate({
+            action: 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID',
+            removedVideoId
+        });
+        pushCandidate({
+            action: 'ACTION_REMOVE_VIDEO',
+            removedVideoId
+        });
+    }
+
+    return candidates;
 }
 
 /**
@@ -809,7 +872,7 @@ async function addToPlaylists(payload) {
  * @param {string} playlistId
  * @param {string} videoId
  * @param {{apiKey: string, context: object, headers: Record<string, string>}} config
- * @returns {Promise<{action: 'ACTION_REMOVE_VIDEO', setVideoId?: string, removedVideoId?: string}|null>}
+ * @returns {Promise<{action: 'ACTION_REMOVE_VIDEO'|'ACTION_REMOVE_VIDEO_BY_VIDEO_ID', setVideoId?: string, removedVideoId?: string}|null>}
  */
 async function resolveRemoveActionForVideo(playlistId, videoId, config) {
     const payload = buildGetAddToPlaylistPayload(config.context, videoId);
@@ -891,10 +954,19 @@ async function removeFromPlaylist(payload) {
         }
 
         actionKeys.add(key);
+        const actionCandidates = buildRemoveActionCandidates(result.action);
+        if (actionCandidates.length === 0) {
+            failures.push({
+                videoId: result.videoId,
+                error: 'Video is not removable from this playlist.'
+            });
+            return;
+        }
+
         actionEntries.push({
             key,
             videoId: result.videoId,
-            action: result.action
+            actions: actionCandidates
         });
     });
 
@@ -903,41 +975,35 @@ async function removeFromPlaylist(payload) {
     }
 
     const appliedVideoIds = new Set();
-    const actionBatches = chunk(actionEntries, MAX_BATCH_SIZE);
 
-    for (const batchEntries of actionBatches) {
-        const batchPayload = {
-            context: config.context,
-            playlistId,
-            actions: batchEntries.map((entry) => entry.action)
-        };
+    for (const entry of actionEntries) {
+        let removed = false;
+        let lastError = null;
 
-        try {
-            await postInnertube(['playlist/edit_playlist', 'browse/edit_playlist'], batchPayload, config);
-            batchEntries.forEach((entry) => {
+        for (const action of entry.actions) {
+            try {
+                await postInnertube(
+                    ['playlist/edit_playlist', 'browse/edit_playlist'],
+                    {
+                        context: config.context,
+                        playlistId,
+                        actions: [action]
+                    },
+                    config
+                );
                 appliedVideoIds.add(entry.videoId);
-            });
-        } catch (batchError) {
-            logger.warn('Batch remove failed, retrying items individually', batchError);
-            for (const entry of batchEntries) {
-                try {
-                    await postInnertube(
-                        ['playlist/edit_playlist', 'browse/edit_playlist'],
-                        {
-                            context: config.context,
-                            playlistId,
-                            actions: [entry.action]
-                        },
-                        config
-                    );
-                    appliedVideoIds.add(entry.videoId);
-                } catch (singleError) {
-                    failures.push({
-                        videoId: entry.videoId,
-                        error: singleError instanceof Error ? singleError.message : 'Failed to remove video.'
-                    });
-                }
+                removed = true;
+                break;
+            } catch (error) {
+                lastError = error;
             }
+        }
+
+        if (!removed) {
+            failures.push({
+                videoId: entry.videoId,
+                error: lastError instanceof Error ? lastError.message : 'Failed to remove video.'
+            });
         }
     }
 
