@@ -174,6 +174,31 @@ function resolveShortCardData(container) {
 }
 
 /**
+ * Inline-metadata Shorts cards render the views row over the thumbnail.
+ * Use that row directly when outside metadata does not exist.
+ * @param {Element} container
+ * @returns {Element|null}
+ */
+function findInlineOverlayViewsHost(container) {
+    const hostCandidates = container.querySelectorAll(
+        '.shortsLockupViewModelHostInlineMetadata .shortsLockupViewModelHostMetadataSubhead, .shortsLockupViewModelHostInlineMetadata [class*="MetadataSubhead"]'
+    );
+
+    for (const host of hostCandidates) {
+        if (!(host instanceof Element)) {
+            continue;
+        }
+
+        const text = (host.textContent || '').replace(/\s+/g, ' ').trim();
+        if (/\bview(s)?\b/i.test(text)) {
+            return host;
+        }
+    }
+
+    return null;
+}
+
+/**
  * True when the candidate element belongs to the thumbnail/image layer.
  * @param {Element|null} element
  * @returns {boolean}
@@ -196,6 +221,11 @@ function isThumbnailLayerElement(element) {
  * @returns {{host: Element, mode: 'inline'|'block'}|null}
  */
 function findViewsRowHost(container) {
+    const inlineOverlayHost = findInlineOverlayViewsHost(container);
+    if (inlineOverlayHost) {
+        return { host: inlineOverlayHost, mode: 'inline' };
+    }
+
     const thumbnailBottom = getThumbnailBottom(container);
     const candidates = container.querySelectorAll('span, yt-formatted-string, div');
     for (const node of candidates) {
