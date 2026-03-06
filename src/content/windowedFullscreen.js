@@ -18,7 +18,7 @@ const OVERLAY_CLASS = 'yt-commander-windowed-overlay';
 const ROOT_LOCK_CLASS = 'yt-commander-windowed-lock';
 const OBSERVER_THROTTLE_MS = 650;
 const BUTTON_ENSURE_INTERVAL_MS = 1200;
-const WINDOWED_ICON_PATH = 'M4 4h6v2H6v4H4V4zm10 0h6v6h-2V6h-4V4zM4 14h2v4h4v2H4v-6zm14 0h2v6h-6v-2h4v-4z';
+const WINDOWED_ICON_PATH = 'M7 14H5v5h5v-2H7v-3zm0-4h2V7h3V5H5v5zm10 7h-3v2h5v-5h-2v3zm0-12V5h-3v2h3v3h2V5z';
 const RELAYOUT_DELAYS_MS = [0, 60, 180];
 
 let isInitialized = false;
@@ -109,14 +109,18 @@ function ensureButton() {
     }
 
     const fullscreenButton = controls.querySelector('.ytp-fullscreen-button');
-    const preferredAnchor = fullscreenButton || null;
+    const rotationButton = controls.querySelector('.custom-rotation-button');
+    const preferredAnchor = rotationButton || fullscreenButton || null;
 
     if (preferredAnchor && windowedButton.parentElement !== controls) {
-        controls.insertBefore(windowedButton, preferredAnchor);
+        controls.insertBefore(windowedButton, preferredAnchor.nextSibling);
     } else if (!preferredAnchor && windowedButton.parentElement !== controls) {
         controls.appendChild(windowedButton);
-    } else if (preferredAnchor && windowedButton.nextElementSibling !== preferredAnchor) {
-        controls.insertBefore(windowedButton, preferredAnchor);
+    } else if (
+        preferredAnchor
+        && windowedButton.previousElementSibling !== preferredAnchor
+    ) {
+        controls.insertBefore(windowedButton, preferredAnchor.nextSibling);
     }
 
     if (isWindowed) {
@@ -493,6 +497,11 @@ function removeButton() {
  * @returns {Element|null}
  */
 function findControlsHost() {
+    const rotationButton = document.querySelector('.custom-rotation-button');
+    if (rotationButton instanceof Element && rotationButton.parentElement) {
+        return rotationButton.parentElement;
+    }
+
     const player = getActivePlayer();
     if (!player) {
         return null;

@@ -248,16 +248,21 @@
 /* Windowed fullscreen button */
 .yt-commander-fullwindow-button {
     position: relative;
-    width: 40px;
-    height: 40px;
+    width: 48px;
+    height: 48px;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    margin-left: 8px;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    outline: none;
     opacity: 1 !important;
     visibility: visible !important;
-    transition: color 0.2s ease;
+    transition: background-color 0.2s ease;
 }
 
 .yt-commander-fullwindow-button svg {
@@ -266,6 +271,12 @@
     fill: #fff;
     opacity: 0.9;
     transition: opacity 0.2s ease, fill 0.2s ease;
+    pointer-events: none;
+}
+
+.yt-commander-fullwindow-button:hover,
+.yt-commander-fullwindow-button:focus {
+    background: rgba(255, 255, 255, 0.1);
 }
 
 .yt-commander-fullwindow-button:hover svg {
