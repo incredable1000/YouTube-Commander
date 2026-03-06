@@ -39,6 +39,7 @@ const BUTTON_WAIT_TIMEOUT_MS = 1200;
 const BUTTON_UPDATE_THROTTLE_MS = 650;
 const INDICATOR_HIDE_DELAY_MS = 920;
 const INDICATOR_REMOVE_DELAY_MS = 260;
+const CONTROL_VISIBILITY_HOLD_MS = 1250;
 
 let settings = normalizeSettings(DEFAULT_SETTINGS);
 let isInitialized = false;
@@ -58,6 +59,9 @@ let storageChangeListener = null;
 let buttonUpdateInProgress = false;
 let buttonUpdateRequested = false;
 let buttonEnsureTimer = null;
+let controlsVisibilityTimer = null;
+let controlsVisibilityPlayer = null;
+let controlsVisibilityRestoreAutohide = false;
 
 const indicatorStates = {
     forward: createIndicatorState(),
@@ -266,10 +270,44 @@ function showPlayerSeekFeedback(player) {
     }
 
     const moviePlayer = document.getElementById('movie_player');
+    const controlsRoot = moviePlayer instanceof HTMLElement ? moviePlayer : player;
+    const hadAutohide = controlsRoot.classList.contains('ytp-autohide');
+
+    if (controlsVisibilityPlayer !== controlsRoot) {
+        controlsVisibilityRestoreAutohide = hadAutohide;
+    } else {
+        controlsVisibilityRestoreAutohide = controlsVisibilityRestoreAutohide || hadAutohide;
+    }
+
+    controlsVisibilityPlayer = controlsRoot;
+    controlsRoot.classList.remove('ytp-autohide');
+
+    if (controlsVisibilityTimer) {
+        clearTimeout(controlsVisibilityTimer);
+        controlsVisibilityTimer = null;
+    }
+
+    controlsVisibilityTimer = setTimeout(() => {
+        const root = controlsVisibilityPlayer;
+        if (root instanceof HTMLElement) {
+            const video = getActiveVideo();
+            const keepVisible = root.matches(':hover')
+                || (video instanceof HTMLVideoElement && (video.paused || video.ended));
+
+            if (controlsVisibilityRestoreAutohide && !keepVisible) {
+                root.classList.add('ytp-autohide');
+            }
+        }
+
+        controlsVisibilityPlayer = null;
+        controlsVisibilityRestoreAutohide = false;
+        controlsVisibilityTimer = null;
+    }, CONTROL_VISIBILITY_HOLD_MS);
+
     const targets = [
-        player,
-        player.querySelector('.ytp-chrome-bottom'),
-        player.querySelector('.ytp-progress-bar-container')
+        controlsRoot,
+        controlsRoot.querySelector('.ytp-chrome-bottom'),
+        controlsRoot.querySelector('.ytp-progress-bar-container')
     ].filter((node) => node instanceof HTMLElement);
 
     const playerRect = player.getBoundingClientRect();
@@ -508,6 +546,14 @@ function clearSeekIndicators() {
         state.player = null;
         state.totalSeconds = 0;
     });
+
+    if (controlsVisibilityTimer) {
+        clearTimeout(controlsVisibilityTimer);
+        controlsVisibilityTimer = null;
+    }
+
+    controlsVisibilityPlayer = null;
+    controlsVisibilityRestoreAutohide = false;
 }
 
 /**
