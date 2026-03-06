@@ -99,6 +99,7 @@ async function initializeModules() {
             import('./seekControls.js').catch(e => { logger.warn('Failed to import seekControls:', e); throw e; }),
             import('./scrollToTop.js').catch(e => { logger.warn('Failed to import scrollToTop:', e); throw e; }),
             import('./shortsCounter.js').catch(e => { logger.warn('Failed to import shortsCounter:', e); throw e; }),
+            import('./shortsUploadAge.js').catch(e => { logger.warn('Failed to import shortsUploadAge:', e); throw e; }),
             import('./videoRotation.js').catch(e => { logger.warn('Failed to import videoRotation:', e); throw e; }),
             import('./playlistControls.js').catch(e => { logger.warn('Failed to import playlistControls:', e); throw e; }),
             import('./playlistMultiSelect.js').catch(e => { logger.warn('Failed to import playlistMultiSelect:', e); throw e; }),
@@ -115,6 +116,7 @@ async function initializeModules() {
                     'seekControls', 
                     'scrollToTop', 
                     'shortsCounter',
+                    'shortsUploadAge',
                     'videoRotation',
                     'playlistControls',
                     'playlistMultiSelect',
@@ -134,6 +136,7 @@ async function initializeModules() {
                 if (module.initSeekControls) initPromises.push(module.initSeekControls());
                 if (module.initScrollToTop) initPromises.push(module.initScrollToTop());
                 if (module.initShortsCounter) initPromises.push(module.initShortsCounter());
+                if (module.initShortsUploadAge) initPromises.push(module.initShortsUploadAge());
                 if (module.initVideoRotation) initPromises.push(module.initVideoRotation());
                 if (module.initPlaylistControls) initPromises.push(module.initPlaylistControls());
                 if (module.initPlaylistMultiSelect) initPromises.push(module.initPlaylistMultiSelect());
@@ -191,7 +194,7 @@ function applySettings() {
         audioEnabled: ['audioTrackControls'],
         historyEnabled: ['watchedHistory'],
         scrollEnabled: ['scrollToTop'],
-        shortsEnabled: ['shortsCounter'],
+        shortsEnabled: ['shortsCounter', 'shortsUploadAge'],
         rotationEnabled: ['videoRotation'],
         playlistEnabled: ['playlistControls', 'playlistMultiSelect']
     };

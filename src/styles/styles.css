@@ -765,6 +765,52 @@
     }
 }
 
+/* Shorts Upload Age Labels */
+.yt-commander-short-upload-age {
+    color: var(--yt-spec-text-secondary, rgba(170, 170, 170, 0.95));
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0.1px;
+    line-height: 1.3;
+    pointer-events: none;
+    user-select: none;
+}
+
+.yt-commander-short-upload-age-inline-host {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 0;
+    row-gap: 2px;
+}
+
+.yt-commander-short-upload-age[data-layout='inline'] {
+    display: inline-block;
+    margin-left: 4px;
+    color: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+    white-space: nowrap;
+}
+
+.yt-commander-short-upload-age[data-layout='inline']::before {
+    content: '\2022';
+    color: inherit;
+    opacity: 0.62;
+    margin-right: 4px;
+}
+
+.yt-commander-short-upload-age[data-layout='block'] {
+    display: block;
+    margin-top: 2px;
+}
+
+.yt-commander-short-upload-age.is-loading {
+    opacity: 0.55;
+}
+
 /* Playlist Multi-Select */
 .yt-commander-playlist-masthead-slot {
     display: flex;
