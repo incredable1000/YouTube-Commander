@@ -50,6 +50,7 @@ import {
     getRemoveActionLabel
 } from './playlist-multi-select/pageContext.js';
 import { createBridgeClient } from './playlist-multi-select/bridge.js';
+import { createSelectionRangeController } from './playlist-multi-select/selectionRange.js';
 
 const logger = createLogger('PlaylistMultiSelect');
 const bridgeClient = createBridgeClient({
@@ -115,6 +116,7 @@ const selectedVideoIds = new Set();
 const selectedPlaylistIds = new Set();
 const cleanupCallbacks = [];
 const playlistMap = new Map();
+const selectionRangeController = createSelectionRangeController();
 
 let playlistOptions = [];
 
@@ -1376,6 +1378,25 @@ function syncVideoSelectedState(videoId) {
 }
 
 /**
+ * Apply visual + UI updates after selection set changes.
+ * @param {string[]} changedVideoIds
+ */
+function commitSelectionMutation(changedVideoIds) {
+    if (!Array.isArray(changedVideoIds) || changedVideoIds.length === 0) {
+        return;
+    }
+
+    changedVideoIds.forEach((videoId) => syncVideoSelectedState(videoId));
+    updateActionUiState();
+
+    if (playlistPanelVisible) {
+        loadPlaylistsForPanel().catch((error) => {
+            logger.warn('Failed to refresh playlists', error);
+        });
+    }
+}
+
+/**
  * Toggle selected state for one video id.
  * @param {string} videoId
  */
@@ -1390,14 +1411,66 @@ function toggleVideoSelection(videoId) {
         selectedVideoIds.add(videoId);
     }
 
-    syncVideoSelectedState(videoId);
-    updateActionUiState();
+    commitSelectionMutation([videoId]);
+}
 
-    if (playlistPanelVisible) {
-        loadPlaylistsForPanel().catch((error) => {
-            logger.warn('Failed to refresh playlists', error);
-        });
+/**
+ * Ensure a batch of ids is selected.
+ * @param {string[]} videoIds
+ */
+function selectVideoIds(videoIds) {
+    if (!Array.isArray(videoIds) || videoIds.length === 0) {
+        return;
     }
+
+    const changed = [];
+    const seen = new Set();
+
+    videoIds.forEach((videoId) => {
+        if (!VIDEO_ID_PATTERN.test(videoId) || seen.has(videoId)) {
+            return;
+        }
+
+        seen.add(videoId);
+        if (!selectedVideoIds.has(videoId)) {
+            selectedVideoIds.add(videoId);
+            changed.push(videoId);
+        }
+    });
+
+    commitSelectionMutation(changed);
+}
+
+/**
+ * Handle one card selection interaction.
+ * Supports Windows-style Shift+click range selection.
+ * @param {{
+ *   videoId: string,
+ *   host?: Element|null,
+ *   shiftKey?: boolean
+ * }} options
+ */
+function handleVideoSelectionInteraction(options) {
+    const videoId = options?.videoId || '';
+    if (!VIDEO_ID_PATTERN.test(videoId)) {
+        return;
+    }
+
+    const host = options?.host instanceof Element ? options.host : null;
+    const shiftKey = Boolean(options?.shiftKey);
+
+    if (shiftKey) {
+        const rangeIds = selectionRangeController.resolveRange(videoId, host);
+        if (rangeIds.length > 0) {
+            selectVideoIds(rangeIds);
+        } else {
+            selectVideoIds([videoId]);
+        }
+    } else {
+        toggleVideoSelection(videoId);
+    }
+
+    selectionRangeController.setAnchor(videoId, host);
 }
 
 /**
@@ -1406,6 +1479,7 @@ function toggleVideoSelection(videoId) {
 function clearSelectedVideos() {
     selectedVideoIds.clear();
     selectedPlaylistIds.clear();
+    selectionRangeController.reset();
 
     document.querySelectorAll(`.${HOST_CLASS}`).forEach((host) => {
         const videoId = host.getAttribute('data-yt-commander-video-id') || '';
@@ -1472,7 +1546,11 @@ function decorateContainer(container) {
             event.stopPropagation();
             const id = overlay?.getAttribute('data-yt-commander-video-id');
             if (id) {
-                toggleVideoSelection(id);
+                handleVideoSelectionInteraction({
+                    videoId: id,
+                    host,
+                    shiftKey: event.shiftKey
+                });
             }
         });
 
@@ -1916,7 +1994,11 @@ function handleSelectionClickCapture(event) {
         event.stopImmediatePropagation();
     }
 
-    toggleVideoSelection(videoId);
+    handleVideoSelectionInteraction({
+        videoId,
+        host,
+        shiftKey: event.shiftKey
+    });
 }
 
 /**
