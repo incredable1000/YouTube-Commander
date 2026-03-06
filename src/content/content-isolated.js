@@ -221,6 +221,18 @@ function updateModuleSettings() {
     if (qualityModule && qualityModule.updateSettings) {
         qualityModule.updateSettings(currentSettings);
     }
+
+    // Update rotation settings
+    const rotationModule = moduleInstances['videoRotation'];
+    if (rotationModule && rotationModule.updateSettings) {
+        rotationModule.updateSettings(currentSettings);
+    }
+
+    // Update windowed fullscreen settings
+    const windowedModule = moduleInstances['windowedFullscreen'];
+    if (windowedModule && windowedModule.updateSettings) {
+        windowedModule.updateSettings(currentSettings);
+    }
     
     // Add other modules here as needed
     logger.debug('Module settings updated');

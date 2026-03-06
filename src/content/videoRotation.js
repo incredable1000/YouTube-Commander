@@ -22,10 +22,12 @@ const ROTATION_ANGLES = [0, 90, 180, 270];
 const STORAGE_KEY = 'ytCommanderVideoRotations';
 const STORAGE_WRITE_DEBOUNCE_MS = 280;
 const OBSERVER_THROTTLE_MS = 650;
+const DEFAULT_ROTATION_SHORTCUT = 'r';
 
 let isInitialized = false;
 let initPromise = null;
 let isEnabled = true;
+let rotationShortcut = DEFAULT_ROTATION_SHORTCUT;
 
 let rotationButton = null;
 let keyboardShortcuts = [];
@@ -395,19 +397,27 @@ function setupKeyboardShortcuts() {
     keyboardShortcuts.forEach((teardown) => teardown());
     keyboardShortcuts = [];
 
+    const rotateKey = normalizeShortcutKey(rotationShortcut, DEFAULT_ROTATION_SHORTCUT);
+    const resetKey = rotateKey.length === 1 ? rotateKey.toUpperCase() : rotateKey;
+
     keyboardShortcuts.push(
         createKeyboardShortcut(
-            { key: 'r', ctrl: false, shift: false, alt: false },
+            { key: rotateKey, ctrl: false, shift: false, alt: false },
             () => rotateVideo()
         )
     );
 
     keyboardShortcuts.push(
         createKeyboardShortcut(
-            { key: 'R', shift: true },
+            { key: resetKey, ctrl: false, shift: true, alt: false },
             () => resetRotation()
         )
     );
+
+    logger.debug('Rotation shortcuts updated', {
+        rotateKey,
+        resetKey
+    });
 }
 
 /**
@@ -538,6 +548,31 @@ function cleanup() {
 }
 
 /**
+ * Update rotation settings from popup.
+ * @param {object} newSettings
+ */
+function updateSettings(newSettings) {
+    if (!isPlainObject(newSettings)) {
+        return;
+    }
+
+    const nextShortcut = normalizeShortcutKey(
+        newSettings.rotationShortcut,
+        rotationShortcut || DEFAULT_ROTATION_SHORTCUT
+    );
+
+    if (nextShortcut === rotationShortcut) {
+        return;
+    }
+
+    rotationShortcut = nextShortcut;
+
+    if (isEnabled) {
+        setupKeyboardShortcuts();
+    }
+}
+
+/**
  * Get valid current video id for watch/shorts pages.
  * @returns {string|null}
  */
@@ -575,6 +610,67 @@ function isValidVideoId(value) {
     return typeof value === 'string' && /^[A-Za-z0-9_-]{10,15}$/.test(value);
 }
 
+/**
+ * Normalize a shortcut key value.
+ * @param {any} value
+ * @param {string} fallback
+ * @returns {string}
+ */
+function normalizeShortcutKey(value, fallback) {
+    if (typeof value !== 'string') {
+        return fallback;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+        return fallback;
+    }
+
+    const lower = trimmed.toLowerCase();
+
+    if (trimmed.length === 1) {
+        return trimmed.toLowerCase();
+    }
+    if (lower === 'enter') {
+        return 'Enter';
+    }
+    if (lower === 'space' || lower === 'spacebar') {
+        return ' ';
+    }
+    if (lower === 'escape' || lower === 'esc') {
+        return 'Escape';
+    }
+    if (lower === 'tab') {
+        return 'Tab';
+    }
+    if (lower === 'backspace') {
+        return 'Backspace';
+    }
+    if (lower === 'arrowleft') {
+        return 'ArrowLeft';
+    }
+    if (lower === 'arrowright') {
+        return 'ArrowRight';
+    }
+    if (lower === 'arrowup') {
+        return 'ArrowUp';
+    }
+    if (lower === 'arrowdown') {
+        return 'ArrowDown';
+    }
+
+    return trimmed;
+}
+
+/**
+ * Check plain object.
+ * @param {any} value
+ * @returns {boolean}
+ */
+function isPlainObject(value) {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
         initVideoRotation().catch((error) => {
@@ -591,6 +687,7 @@ export {
     initVideoRotation,
     rotateVideo,
     resetRotation,
+    updateSettings,
     enable,
     disable,
     cleanup

@@ -3,6 +3,9 @@ const defaultSettings = {
     // Popup-managed settings
     deleteVideosEnabled: false,
     autoSwitchToOriginal: true,
+    rotationShortcut: 'r',
+    windowedFullscreenShortcut: 'Enter',
+    windowedFullscreenAuto: false,
     
     // Seek settings
     shortSeek: 3,
@@ -88,8 +91,10 @@ function setupBackupToggle() {
                 chrome.runtime.sendMessage({
                     type: 'TOGGLE_BACKUP_REMINDERS',
                     enabled
-                }).catch((error) => {
-                    console.warn('Failed to notify background for backup reminders:', error);
+                }, () => {
+                    if (chrome.runtime.lastError) {
+                        console.warn('Failed to notify background for backup reminders:', chrome.runtime.lastError.message);
+                    }
                 });
 
                 showStatus(
@@ -125,6 +130,29 @@ function setupAudioSettingToggle() {
 }
 
 /**
+ * Setup windowed fullscreen auto-mode toggle.
+ */
+function setupWindowedAutoToggle() {
+    const toggle = document.getElementById('windowedFullscreenAutoToggle');
+    if (!toggle) {
+        return;
+    }
+
+    toggle.addEventListener('click', (event) => {
+        event.stopPropagation();
+
+        const enabled = !toggle.classList.contains('active');
+        setToggleState(toggle, enabled);
+        currentSettings.windowedFullscreenAuto = enabled;
+        saveSyncSettings();
+        showStatus(
+            enabled ? 'Auto windowed mode enabled' : 'Auto windowed mode disabled',
+            'success'
+        );
+    });
+}
+
+/**
  * Update toggle visual state.
  * @param {HTMLElement|null} toggle
  * @param {boolean} enabled
@@ -148,6 +176,57 @@ function parseNumberInput(id, fallback) {
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/**
+ * Parse shortcut input from popup text field.
+ * @param {string} id
+ * @param {string} fallback
+ * @returns {string}
+ */
+function parseShortcutInput(id, fallback) {
+    const input = document.getElementById(id);
+    const rawValue = typeof input?.value === 'string' ? input.value.trim() : '';
+
+    if (!rawValue) {
+        return fallback;
+    }
+
+    const lower = rawValue.toLowerCase();
+
+    if (rawValue.length === 1) {
+        return rawValue.toLowerCase();
+    }
+
+    if (lower === 'enter') {
+        return 'Enter';
+    }
+    if (lower === 'space' || lower === 'spacebar') {
+        return ' ';
+    }
+    if (lower === 'escape' || lower === 'esc') {
+        return 'Escape';
+    }
+    if (lower === 'tab') {
+        return 'Tab';
+    }
+    if (lower === 'backspace') {
+        return 'Backspace';
+    }
+    if (lower === 'arrowleft') {
+        return 'ArrowLeft';
+    }
+    if (lower === 'arrowright') {
+        return 'ArrowRight';
+    }
+    if (lower === 'arrowup') {
+        return 'ArrowUp';
+    }
+    if (lower === 'arrowdown') {
+        return 'ArrowDown';
+    }
+
+    return rawValue;
+}
+
 // Load saved settings
 function loadSettings() {
     chrome.storage.sync.get(defaultSettings, (settings) => {
@@ -157,11 +236,17 @@ function loadSettings() {
         document.getElementById('mediumSeek').value = settings.mediumSeek;
         document.getElementById('longSeek').value = settings.longSeek;
         document.getElementById('maxQuality').value = settings.maxQuality;
+        document.getElementById('rotationShortcut').value = settings.rotationShortcut || defaultSettings.rotationShortcut;
+        document.getElementById('windowedFullscreenShortcut').value = settings.windowedFullscreenShortcut || defaultSettings.windowedFullscreenShortcut;
 
         setToggleState(document.getElementById('deleteVideosToggle'), settings.deleteVideosEnabled === true);
         setToggleState(
             document.getElementById('autoSwitchToOriginalToggle'),
             settings.autoSwitchToOriginal !== false
+        );
+        setToggleState(
+            document.getElementById('windowedFullscreenAutoToggle'),
+            settings.windowedFullscreenAuto === true
         );
 
         chrome.storage.local.get(['backupRemindersEnabled'], (result) => {
@@ -296,18 +381,25 @@ function saveSyncSettings(showMessage = false) {
         mediumSeek: parseNumberInput('mediumSeek', defaultSettings.mediumSeek),
         longSeek: parseNumberInput('longSeek', defaultSettings.longSeek),
         maxQuality: document.getElementById('maxQuality')?.value || defaultSettings.maxQuality,
+        rotationShortcut: parseShortcutInput('rotationShortcut', defaultSettings.rotationShortcut),
+        windowedFullscreenShortcut: parseShortcutInput('windowedFullscreenShortcut', defaultSettings.windowedFullscreenShortcut),
+        windowedFullscreenAuto: currentSettings.windowedFullscreenAuto === true,
         shortSeekKey: defaultSettings.shortSeekKey,
         mediumSeekKey: defaultSettings.mediumSeekKey,
         longSeekKey: defaultSettings.longSeekKey
     });
 
     currentSettings = settings;
+    broadcastSettings(settings);
 
     chrome.storage.sync.set(settings, () => {
+        if (chrome.runtime.lastError) {
+            showStatus('Failed to save settings', 'error');
+            return;
+        }
         if (showMessage) {
             showStatus('Settings saved', 'success');
         }
-        broadcastSettings(settings);
     });
 }
 
@@ -321,8 +413,11 @@ function broadcastSettings(settings) {
             chrome.tabs.sendMessage(tab.id, {
                 type: 'SETTINGS_UPDATED',
                 settings
-            }).catch(() => {
+            }, () => {
                 // Ignore tabs without active content scripts.
+                if (chrome.runtime.lastError) {
+                    return;
+                }
             });
         });
     });
@@ -331,10 +426,13 @@ function broadcastSettings(settings) {
 // Auto-save when input values change
 function setupAutoSave() {
     // Auto-save for number inputs
-    ['shortSeek', 'mediumSeek', 'longSeek'].forEach(id => {
+    ['shortSeek', 'mediumSeek', 'longSeek', 'rotationShortcut', 'windowedFullscreenShortcut'].forEach((id) => {
         const input = document.getElementById(id);
         if (input) {
             input.addEventListener('input', () => {
+                saveSyncSettings();
+            });
+            input.addEventListener('change', () => {
                 saveSyncSettings();
             });
         }
@@ -567,6 +665,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
 
     setupAudioSettingToggle();
+    setupWindowedAutoToggle();
     setupDeleteVideosToggle();
     setupBackupToggle();
     setupAutoSave();

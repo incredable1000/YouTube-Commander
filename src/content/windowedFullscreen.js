@@ -20,10 +20,14 @@ const OBSERVER_THROTTLE_MS = 650;
 const BUTTON_ENSURE_INTERVAL_MS = 1200;
 const WINDOWED_ICON_PATH = 'M7 14H5v5h5v-2H7v-3zm0-4h2V7h3V5H5v5zm10 7h-3v2h5v-5h-2v3zm0-12V5h-3v2h3v3h2V5z';
 const RELAYOUT_DELAYS_MS = [0, 60, 180];
+const DEFAULT_WINDOWED_SHORTCUT = 'Enter';
 
 let isInitialized = false;
 let initPromise = null;
 let isEnabled = true;
+let windowedShortcut = DEFAULT_WINDOWED_SHORTCUT;
+let autoWindowedEnabled = false;
+let lastAutoWindowedVideoId = null;
 
 let windowedButton = null;
 let observer = null;
@@ -306,6 +310,7 @@ function syncUiState() {
             exitWindowedMode();
         }
         removeButton();
+        lastAutoWindowedVideoId = null;
         return;
     }
 
@@ -319,6 +324,7 @@ function syncUiState() {
     }
 
     ensureButton();
+    applyAutoWindowedMode();
 }
 
 /**
@@ -332,21 +338,70 @@ function handleKeydown(event) {
         return;
     }
 
-    if (event.key !== 'Enter') {
+    if (!matchesWindowedShortcut(event)) {
         return;
     }
 
-    if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) {
-        return;
-    }
-
-    if (!shouldHandleEnterShortcut(event)) {
+    if (!shouldHandleWindowedShortcut(event)) {
         return;
     }
 
     event.preventDefault();
     event.stopPropagation();
     toggleWindowedMode();
+}
+
+/**
+ * Apply auto-windowed mode once per watch video id.
+ */
+function applyAutoWindowedMode() {
+    if (!autoWindowedEnabled || document.fullscreenElement) {
+        return;
+    }
+
+    const watchVideoId = getCurrentWatchVideoId();
+    if (!watchVideoId) {
+        return;
+    }
+
+    if (isWindowed) {
+        lastAutoWindowedVideoId = watchVideoId;
+        return;
+    }
+
+    if (watchVideoId === lastAutoWindowedVideoId) {
+        return;
+    }
+
+    enterWindowedMode();
+
+    if (isWindowed) {
+        lastAutoWindowedVideoId = watchVideoId;
+    }
+}
+
+/**
+ * Check whether the configured shortcut key is pressed.
+ * @param {KeyboardEvent} event
+ * @returns {boolean}
+ */
+function matchesWindowedShortcut(event) {
+    if (event.ctrlKey || event.altKey || event.metaKey) {
+        return false;
+    }
+
+    const expectedKey = normalizeShortcutKey(windowedShortcut, DEFAULT_WINDOWED_SHORTCUT);
+    const eventKey = typeof event.key === 'string' ? event.key : '';
+
+    if (!eventKey) {
+        return false;
+    }
+
+    if (expectedKey.length === 1) {
+        return eventKey.toLowerCase() === expectedKey.toLowerCase();
+    }
+
+    return eventKey === expectedKey;
 }
 
 /**
@@ -516,11 +571,11 @@ function findControlsHost() {
 }
 
 /**
- * Determine whether Enter shortcut should toggle windowed mode.
+ * Determine whether configured shortcut should toggle windowed mode.
  * @param {KeyboardEvent} event
  * @returns {boolean}
  */
-function shouldHandleEnterShortcut(event) {
+function shouldHandleWindowedShortcut(event) {
     if (!isEnabled || !isEligiblePage() || event.repeat) {
         return false;
     }
@@ -552,6 +607,121 @@ function shouldHandleEnterShortcut(event) {
 }
 
 /**
+ * Get current watch video id from URL.
+ * @returns {string|null}
+ */
+function getCurrentWatchVideoId() {
+    try {
+        const url = new URL(location.href);
+        const value = url.searchParams.get('v');
+        return value && value.trim() ? value.trim() : null;
+    } catch (_error) {
+        return null;
+    }
+}
+
+/**
+ * Update module settings from popup.
+ * @param {object} newSettings
+ */
+function updateSettings(newSettings) {
+    if (!isPlainObject(newSettings)) {
+        return;
+    }
+
+    const nextShortcut = normalizeShortcutKey(
+        newSettings.windowedFullscreenShortcut,
+        windowedShortcut || DEFAULT_WINDOWED_SHORTCUT
+    );
+
+    const nextAutoEnabled = newSettings.windowedFullscreenAuto === true;
+
+    const shortcutChanged = nextShortcut !== windowedShortcut;
+    const autoModeChanged = nextAutoEnabled !== autoWindowedEnabled;
+
+    if (!shortcutChanged && !autoModeChanged) {
+        return;
+    }
+
+    windowedShortcut = nextShortcut;
+    autoWindowedEnabled = nextAutoEnabled;
+
+    if (autoModeChanged) {
+        lastAutoWindowedVideoId = null;
+    }
+
+    logger.debug('Windowed fullscreen settings updated', {
+        windowedShortcut,
+        autoWindowedEnabled
+    });
+
+    if (isEnabled) {
+        syncUiState();
+    }
+}
+
+/**
+ * Normalize shortcut key value.
+ * @param {any} value
+ * @param {string} fallback
+ * @returns {string}
+ */
+function normalizeShortcutKey(value, fallback) {
+    if (typeof value !== 'string') {
+        return fallback;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+        return fallback;
+    }
+
+    const lower = trimmed.toLowerCase();
+
+    if (trimmed.length === 1) {
+        return trimmed.toLowerCase();
+    }
+    if (lower === 'enter') {
+        return 'Enter';
+    }
+    if (lower === 'space' || lower === 'spacebar') {
+        return ' ';
+    }
+    if (lower === 'escape' || lower === 'esc') {
+        return 'Escape';
+    }
+    if (lower === 'tab') {
+        return 'Tab';
+    }
+    if (lower === 'backspace') {
+        return 'Backspace';
+    }
+    if (lower === 'arrowleft') {
+        return 'ArrowLeft';
+    }
+    if (lower === 'arrowright') {
+        return 'ArrowRight';
+    }
+    if (lower === 'arrowup') {
+        return 'ArrowUp';
+    }
+    if (lower === 'arrowdown') {
+        return 'ArrowDown';
+    }
+
+    return trimmed;
+}
+
+/**
+ * Check plain object.
+ * @param {any} value
+ * @returns {boolean}
+ */
+function isPlainObject(value) {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
  * Enable module.
  */
 function enable() {
@@ -574,6 +744,7 @@ function disable() {
     stopRuntimeTracking();
     exitWindowedMode();
     removeButton();
+    lastAutoWindowedVideoId = null;
 }
 
 /**
@@ -600,6 +771,7 @@ if (document.readyState === 'loading') {
 
 export {
     initWindowedFullscreen,
+    updateSettings,
     enable,
     disable,
     cleanup

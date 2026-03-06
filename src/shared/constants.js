@@ -22,6 +22,11 @@ export const DEFAULT_SETTINGS = {
     
     // Audio track controls
     autoSwitchToOriginal: true,
+
+    // Player utility controls
+    rotationShortcut: 'r',
+    windowedFullscreenShortcut: 'Enter',
+    windowedFullscreenAuto: false,
     
     // Backup reminders
     backupRemindersEnabled: true,
