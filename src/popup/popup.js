@@ -9,6 +9,7 @@ const defaultSettings = {
     scrollEnabled: true,
     shortsEnabled: true,
     rotationEnabled: true,
+    windowedFullscreenEnabled: true,
     playlistEnabled: true,
     backupEnabled: true,
     deleteVideosEnabled: false,

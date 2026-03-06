@@ -101,6 +101,7 @@ async function initializeModules() {
             import('./shortsCounter.js').catch(e => { logger.warn('Failed to import shortsCounter:', e); throw e; }),
             import('./shortsUploadAge.js').catch(e => { logger.warn('Failed to import shortsUploadAge:', e); throw e; }),
             import('./videoRotation.js').catch(e => { logger.warn('Failed to import videoRotation:', e); throw e; }),
+            import('./windowedFullscreen.js').catch(e => { logger.warn('Failed to import windowedFullscreen:', e); throw e; }),
             import('./playlistControls.js').catch(e => { logger.warn('Failed to import playlistControls:', e); throw e; }),
             import('./playlistMultiSelect.js').catch(e => { logger.warn('Failed to import playlistMultiSelect:', e); throw e; }),
             import('./qualityControls-wrapper.js').catch(e => { logger.warn('Failed to import qualityControls-wrapper:', e); throw e; }),
@@ -118,6 +119,7 @@ async function initializeModules() {
                     'shortsCounter',
                     'shortsUploadAge',
                     'videoRotation',
+                    'windowedFullscreen',
                     'playlistControls',
                     'playlistMultiSelect',
                     'qualityControlsWrapper',
@@ -138,6 +140,7 @@ async function initializeModules() {
                 if (module.initShortsCounter) initPromises.push(module.initShortsCounter());
                 if (module.initShortsUploadAge) initPromises.push(module.initShortsUploadAge());
                 if (module.initVideoRotation) initPromises.push(module.initVideoRotation());
+                if (module.initWindowedFullscreen) initPromises.push(module.initWindowedFullscreen());
                 if (module.initPlaylistControls) initPromises.push(module.initPlaylistControls());
                 if (module.initPlaylistMultiSelect) initPromises.push(module.initPlaylistMultiSelect());
                 if (module.initQualityWrapper) initPromises.push(module.initQualityWrapper());
@@ -195,7 +198,7 @@ function applySettings() {
         historyEnabled: ['watchedHistory'],
         scrollEnabled: ['scrollToTop'],
         shortsEnabled: ['shortsCounter', 'shortsUploadAge'],
-        rotationEnabled: ['videoRotation'],
+        rotationEnabled: ['videoRotation', 'windowedFullscreen'],
         playlistEnabled: ['playlistControls', 'playlistMultiSelect']
     };
     
