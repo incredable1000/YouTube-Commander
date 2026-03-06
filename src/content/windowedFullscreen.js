@@ -7,6 +7,7 @@
 import { createLogger } from './utils/logger.js';
 import { createThrottledObserver } from './utils/events.js';
 import { getActivePlayer, isShortsPage, isVideoPage } from './utils/youtube.js';
+import { normalizeShortcutKey, shortcutKeyEquals } from '../shared/shortcutKey.js';
 
 const logger = createLogger('WindowedFullscreen');
 
@@ -397,11 +398,7 @@ function matchesWindowedShortcut(event) {
         return false;
     }
 
-    if (expectedKey.length === 1) {
-        return eventKey.toLowerCase() === expectedKey.toLowerCase();
-    }
-
-    return eventKey === expectedKey;
+    return shortcutKeyEquals(eventKey, expectedKey);
 }
 
 /**
@@ -658,58 +655,6 @@ function updateSettings(newSettings) {
     if (isEnabled) {
         syncUiState();
     }
-}
-
-/**
- * Normalize shortcut key value.
- * @param {any} value
- * @param {string} fallback
- * @returns {string}
- */
-function normalizeShortcutKey(value, fallback) {
-    if (typeof value !== 'string') {
-        return fallback;
-    }
-
-    const trimmed = value.trim();
-    if (!trimmed) {
-        return fallback;
-    }
-
-    const lower = trimmed.toLowerCase();
-
-    if (trimmed.length === 1) {
-        return trimmed.toLowerCase();
-    }
-    if (lower === 'enter') {
-        return 'Enter';
-    }
-    if (lower === 'space' || lower === 'spacebar') {
-        return ' ';
-    }
-    if (lower === 'escape' || lower === 'esc') {
-        return 'Escape';
-    }
-    if (lower === 'tab') {
-        return 'Tab';
-    }
-    if (lower === 'backspace') {
-        return 'Backspace';
-    }
-    if (lower === 'arrowleft') {
-        return 'ArrowLeft';
-    }
-    if (lower === 'arrowright') {
-        return 'ArrowRight';
-    }
-    if (lower === 'arrowup') {
-        return 'ArrowUp';
-    }
-    if (lower === 'arrowdown') {
-        return 'ArrowDown';
-    }
-
-    return trimmed;
 }
 
 /**

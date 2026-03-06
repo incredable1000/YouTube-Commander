@@ -15,6 +15,8 @@ import { createLogger } from './utils/logger.js';
 import { createKeyboardShortcut, createThrottledObserver } from './utils/events.js';
 import { createRotationIndicator, showIndicatorOnPlayer } from './utils/ui.js';
 import { ICONS } from '../shared/constants.js';
+import { normalizeShortcutKey } from '../shared/shortcutKey.js';
+import { computeRotationFitScale } from './videoRotation/fitScale.js';
 
 const logger = createLogger('VideoRotation');
 
@@ -37,6 +39,7 @@ let runtimeCleanupCallbacks = [];
 let activeVideo = null;
 let activeVideoId = null;
 let currentRotation = 0;
+let activeVideoMetricsCleanup = null;
 
 let rotationMap = new Map();
 let storageWriteTimer = null;
@@ -217,6 +220,11 @@ function syncActiveVideoContext(forceReapply = false) {
         return;
     }
 
+    if (activeVideoMetricsCleanup) {
+        activeVideoMetricsCleanup();
+        activeVideoMetricsCleanup = null;
+    }
+
     if (activeVideo && activeVideo !== nextVideo) {
         clearVideoRotation(activeVideo);
     }
@@ -230,7 +238,30 @@ function syncActiveVideoContext(forceReapply = false) {
     }
 
     currentRotation = activeVideoId ? (rotationMap.get(activeVideoId) || 0) : 0;
+    activeVideoMetricsCleanup = attachVideoMetricListeners(activeVideo);
     applyVideoRotation(activeVideo, currentRotation);
+}
+
+/**
+ * Reapply rotation when intrinsic video metrics become available or change.
+ * @param {HTMLVideoElement} video
+ * @returns {() => void}
+ */
+function attachVideoMetricListeners(video) {
+    const handleMetricChange = () => {
+        if (!isEnabled || video !== activeVideo || currentRotation === 0) {
+            return;
+        }
+        applyVideoRotation(video, currentRotation);
+    };
+
+    video.addEventListener('loadedmetadata', handleMetricChange);
+    video.addEventListener('resize', handleMetricChange);
+
+    return () => {
+        video.removeEventListener('loadedmetadata', handleMetricChange);
+        video.removeEventListener('resize', handleMetricChange);
+    };
 }
 
 /**
@@ -296,7 +327,7 @@ function applyVideoRotation(video, angle) {
         return;
     }
 
-    const scale = computeFitScale(video, normalized);
+    const scale = computeRotationFitScale(video, normalized, getActivePlayer());
 
     video.classList.add('yt-commander-rotatable');
     video.style.transformOrigin = 'center center';
@@ -315,47 +346,6 @@ function clearVideoRotation(video) {
     video.style.transform = '';
     video.style.transformOrigin = '';
     video.classList.remove('yt-commander-rotatable');
-}
-
-/**
- * Compute scale factor to keep 90°/270° rotated video inside player bounds.
- * @param {HTMLVideoElement} video
- * @param {number} angle
- * @returns {number}
- */
-function computeFitScale(video, angle) {
-    if (angle !== 90 && angle !== 270) {
-        return 1;
-    }
-
-    const width = video.clientWidth || video.videoWidth || 0;
-    const height = video.clientHeight || video.videoHeight || 0;
-
-    if (width <= 0 || height <= 0) {
-        return 1;
-    }
-
-    const player = getActivePlayer();
-    const playerRect = player ? player.getBoundingClientRect() : null;
-    const playerWidth = playerRect?.width || width;
-    const playerHeight = playerRect?.height || height;
-
-    if (playerWidth <= 0 || playerHeight <= 0) {
-        return 1;
-    }
-
-    const rotatedWidth = height;
-    const rotatedHeight = width;
-
-    const widthScale = playerWidth / rotatedWidth;
-    const heightScale = playerHeight / rotatedHeight;
-    const scale = Math.min(widthScale, heightScale);
-
-    if (!Number.isFinite(scale) || scale <= 0) {
-        return 1;
-    }
-
-    return scale;
 }
 
 /**
@@ -518,6 +508,11 @@ function disable() {
     activeVideo = null;
     activeVideoId = null;
     currentRotation = 0;
+
+    if (activeVideoMetricsCleanup) {
+        activeVideoMetricsCleanup();
+        activeVideoMetricsCleanup = null;
+    }
 }
 
 /**
@@ -608,58 +603,6 @@ function normalizeAngle(angle) {
  */
 function isValidVideoId(value) {
     return typeof value === 'string' && /^[A-Za-z0-9_-]{10,15}$/.test(value);
-}
-
-/**
- * Normalize a shortcut key value.
- * @param {any} value
- * @param {string} fallback
- * @returns {string}
- */
-function normalizeShortcutKey(value, fallback) {
-    if (typeof value !== 'string') {
-        return fallback;
-    }
-
-    const trimmed = value.trim();
-    if (!trimmed) {
-        return fallback;
-    }
-
-    const lower = trimmed.toLowerCase();
-
-    if (trimmed.length === 1) {
-        return trimmed.toLowerCase();
-    }
-    if (lower === 'enter') {
-        return 'Enter';
-    }
-    if (lower === 'space' || lower === 'spacebar') {
-        return ' ';
-    }
-    if (lower === 'escape' || lower === 'esc') {
-        return 'Escape';
-    }
-    if (lower === 'tab') {
-        return 'Tab';
-    }
-    if (lower === 'backspace') {
-        return 'Backspace';
-    }
-    if (lower === 'arrowleft') {
-        return 'ArrowLeft';
-    }
-    if (lower === 'arrowright') {
-        return 'ArrowRight';
-    }
-    if (lower === 'arrowup') {
-        return 'ArrowUp';
-    }
-    if (lower === 'arrowdown') {
-        return 'ArrowDown';
-    }
-
-    return trimmed;
 }
 
 /**

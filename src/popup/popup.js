@@ -1,3 +1,5 @@
+import { normalizeShortcutKey } from '../shared/shortcutKey.js';
+
 // Modern YouTube Commander Popup Script
 const defaultSettings = {
     // Popup-managed settings
@@ -185,46 +187,7 @@ function parseNumberInput(id, fallback) {
 function parseShortcutInput(id, fallback) {
     const input = document.getElementById(id);
     const rawValue = typeof input?.value === 'string' ? input.value.trim() : '';
-
-    if (!rawValue) {
-        return fallback;
-    }
-
-    const lower = rawValue.toLowerCase();
-
-    if (rawValue.length === 1) {
-        return rawValue.toLowerCase();
-    }
-
-    if (lower === 'enter') {
-        return 'Enter';
-    }
-    if (lower === 'space' || lower === 'spacebar') {
-        return ' ';
-    }
-    if (lower === 'escape' || lower === 'esc') {
-        return 'Escape';
-    }
-    if (lower === 'tab') {
-        return 'Tab';
-    }
-    if (lower === 'backspace') {
-        return 'Backspace';
-    }
-    if (lower === 'arrowleft') {
-        return 'ArrowLeft';
-    }
-    if (lower === 'arrowright') {
-        return 'ArrowRight';
-    }
-    if (lower === 'arrowup') {
-        return 'ArrowUp';
-    }
-    if (lower === 'arrowdown') {
-        return 'ArrowDown';
-    }
-
-    return rawValue;
+    return normalizeShortcutKey(rawValue, fallback);
 }
 
 // Load saved settings
