@@ -71,171 +71,152 @@
 .modern-seek-indicator {
     position: absolute;
     top: 50%;
-    width: 124px;
-    height: 124px;
-    z-index: 9999;
+    width: clamp(150px, 20vw, 250px);
+    height: clamp(140px, 24vh, 210px);
+    z-index: 24;
     pointer-events: none;
     opacity: 0;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
 }
 
 .modern-seek-indicator.forward {
-    right: 16%;
+    right: 0;
+    justify-content: flex-start;
 }
 
 .modern-seek-indicator.backward {
-    left: 16%;
-}
-
-.modern-seek-indicator__scrim {
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    background: radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.28), rgba(0, 0, 0, 0.72));
+    left: 0;
+    justify-content: flex-end;
 }
 
 .modern-seek-indicator__content {
-    position: absolute;
-    inset: 0;
+    position: relative;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
+    gap: 10px;
     color: #ffffff;
     font-family: 'YouTube Noto', Roboto, Arial, sans-serif;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
 }
 
-.modern-seek-indicator__chevrons {
+.modern-seek-indicator.forward .modern-seek-indicator__content {
+    margin-left: clamp(20px, 3.3vw, 40px);
+    align-items: flex-start;
+}
+
+.modern-seek-indicator.backward .modern-seek-indicator__content {
+    margin-right: clamp(20px, 3.3vw, 40px);
+    align-items: flex-end;
+}
+
+.modern-seek-indicator__value-row {
     display: flex;
-    gap: 3px;
-    margin-bottom: 7px;
+    align-items: center;
+    gap: 6px;
 }
 
-.modern-seek-indicator__chevron {
-    width: 10px;
-    height: 10px;
-    border-top: 2px solid rgba(255, 255, 255, 0.94);
-    border-right: 2px solid rgba(255, 255, 255, 0.94);
-    opacity: 0.25;
+.modern-seek-indicator.backward .modern-seek-indicator__value-row {
+    flex-direction: row-reverse;
 }
 
-.modern-seek-indicator.forward .modern-seek-indicator__chevron {
-    transform: rotate(45deg);
-}
-
-.modern-seek-indicator.backward .modern-seek-indicator__chevron {
-    transform: rotate(-135deg);
-}
-
-.modern-seek-indicator__amount {
-    font-size: 30px;
+.modern-seek-indicator__amount,
+.modern-seek-indicator__edge-arrow {
+    font-size: clamp(22px, 2.2vw, 34px);
     line-height: 1;
     font-weight: 600;
 }
 
-.modern-seek-indicator__label {
-    margin-top: 4px;
-    font-size: 12px;
-    font-weight: 500;
-    opacity: 0.92;
-    letter-spacing: 0.2px;
+.modern-seek-indicator__edge-arrow {
+    opacity: 0.96;
 }
 
 .modern-seek-indicator.forward.is-active {
-    animation: yt-seek-burst-forward 900ms cubic-bezier(0.22, 0.55, 0.18, 1) forwards;
+    animation: yt-seek-burst-forward 900ms cubic-bezier(0.2, 0.58, 0.22, 1) forwards;
 }
 
 .modern-seek-indicator.backward.is-active {
-    animation: yt-seek-burst-backward 900ms cubic-bezier(0.22, 0.55, 0.18, 1) forwards;
+    animation: yt-seek-burst-backward 860ms cubic-bezier(0.2, 0.58, 0.22, 1) forwards;
 }
 
-.modern-seek-indicator.is-active .modern-seek-indicator__chevron:nth-child(1) {
-    animation: yt-seek-chevron-forward 520ms ease-in-out 0ms;
+.modern-seek-indicator.is-active .modern-seek-indicator__value-row {
+    animation: yt-seek-value-pop 860ms ease-out forwards;
 }
 
-.modern-seek-indicator.is-active .modern-seek-indicator__chevron:nth-child(2) {
-    animation: yt-seek-chevron-forward 520ms ease-in-out 80ms;
+.modern-seek-indicator.forward.is-active .modern-seek-indicator__edge-arrow {
+    animation: yt-seek-arrow-forward 480ms ease-out 80ms;
 }
 
-.modern-seek-indicator.is-active .modern-seek-indicator__chevron:nth-child(3) {
-    animation: yt-seek-chevron-forward 520ms ease-in-out 160ms;
-}
-
-.modern-seek-indicator.backward.is-active .modern-seek-indicator__chevron:nth-child(1),
-.modern-seek-indicator.backward.is-active .modern-seek-indicator__chevron:nth-child(2),
-.modern-seek-indicator.backward.is-active .modern-seek-indicator__chevron:nth-child(3) {
-    animation-name: yt-seek-chevron-backward;
-}
-
-.modern-seek-indicator.is-boosted .modern-seek-indicator__amount {
-    transform: scale(1.06);
+.modern-seek-indicator.backward.is-active .modern-seek-indicator__edge-arrow {
+    animation: yt-seek-arrow-backward 480ms ease-out 80ms;
 }
 
 @keyframes yt-seek-burst-forward {
     0% {
         opacity: 0;
-        transform: translate(-14px, -50%) scale(0.84);
+        transform: translate3d(10px, -50%, 0);
     }
-    14% {
+    12% {
         opacity: 1;
-        transform: translate(0, -50%) scale(1);
+        transform: translate3d(0, -50%, 0);
     }
-    80% {
+    76% {
         opacity: 1;
-        transform: translate(0, -50%) scale(1);
+        transform: translate3d(0, -50%, 0);
     }
     100% {
         opacity: 0;
-        transform: translate(10px, -50%) scale(1.03);
+        transform: translate3d(8px, -50%, 0);
     }
 }
 
 @keyframes yt-seek-burst-backward {
     0% {
         opacity: 0;
-        transform: translate(14px, -50%) scale(0.84);
+        transform: translate3d(-10px, -50%, 0);
     }
-    14% {
+    12% {
         opacity: 1;
-        transform: translate(0, -50%) scale(1);
+        transform: translate3d(0, -50%, 0);
     }
-    80% {
+    76% {
         opacity: 1;
-        transform: translate(0, -50%) scale(1);
+        transform: translate3d(0, -50%, 0);
     }
     100% {
         opacity: 0;
-        transform: translate(-10px, -50%) scale(1.03);
+        transform: translate3d(-8px, -50%, 0);
     }
 }
 
-@keyframes yt-seek-chevron-forward {
+@keyframes yt-seek-arrow-forward {
     0% {
-        opacity: 0.2;
-        transform: translateX(-5px) rotate(45deg);
-    }
-    35% {
-        opacity: 1;
-        transform: translateX(0) rotate(45deg);
+        transform: translateX(0);
     }
     100% {
-        opacity: 0.2;
-        transform: translateX(5px) rotate(45deg);
+        transform: translateX(20px);
     }
 }
 
-@keyframes yt-seek-chevron-backward {
+@keyframes yt-seek-arrow-backward {
     0% {
-        opacity: 0.2;
-        transform: translateX(5px) rotate(-135deg);
-    }
-    35% {
-        opacity: 1;
-        transform: translateX(0) rotate(-135deg);
+        transform: translateX(0);
     }
     100% {
-        opacity: 0.2;
-        transform: translateX(-5px) rotate(-135deg);
+        transform: translateX(-20px);
+    }
+}
+
+@keyframes yt-seek-value-pop {
+    0% {
+        opacity: 0.72;
+    }
+    14% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0.98;
     }
 }
 

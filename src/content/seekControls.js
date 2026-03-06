@@ -37,8 +37,8 @@ const BUTTON_CLASS = 'custom-seek-button';
 
 const BUTTON_WAIT_TIMEOUT_MS = 1200;
 const BUTTON_UPDATE_THROTTLE_MS = 650;
-const INDICATOR_HIDE_DELAY_MS = 900;
-const INDICATOR_REMOVE_DELAY_MS = 220;
+const INDICATOR_HIDE_DELAY_MS = 920;
+const INDICATOR_REMOVE_DELAY_MS = 260;
 
 let settings = normalizeSettings(DEFAULT_SETTINGS);
 let isInitialized = false;
@@ -236,6 +236,76 @@ function setupKeyboardShortcuts() {
 }
 
 /**
+ * Try multiple seek paths (player API first, then video element fallback).
+ * @param {HTMLVideoElement} video
+ * @param {number} targetTime
+ */
+function applySeekTime(video, targetTime) {
+    const safeTarget = Number.isFinite(targetTime) ? Math.max(0, targetTime) : 0;
+    const moviePlayer = document.getElementById('movie_player');
+
+    if (moviePlayer && typeof moviePlayer.seekTo === 'function') {
+        try {
+            moviePlayer.seekTo(safeTarget, true);
+            return;
+        } catch (error) {
+            logger.debug('movie_player.seekTo failed, falling back to video.currentTime', error);
+        }
+    }
+
+    video.currentTime = safeTarget;
+}
+
+/**
+ * Wake native YouTube control visibility without forcing custom chrome styling.
+ * @param {HTMLElement|null} player
+ */
+function showPlayerSeekFeedback(player) {
+    if (!(player instanceof HTMLElement)) {
+        return;
+    }
+
+    const moviePlayer = document.getElementById('movie_player');
+    const targets = [
+        player,
+        player.querySelector('.ytp-chrome-bottom'),
+        player.querySelector('.ytp-progress-bar-container')
+    ].filter((node) => node instanceof HTMLElement);
+
+    const playerRect = player.getBoundingClientRect();
+    const baseEvent = {
+        bubbles: true,
+        cancelable: true,
+        clientX: playerRect.left + (playerRect.width * 0.5),
+        clientY: playerRect.top + (playerRect.height * 0.86)
+    };
+
+    targets.forEach((target) => {
+        ['mousemove', 'mouseover', 'mouseenter'].forEach((eventName) => {
+            try {
+                target.dispatchEvent(new MouseEvent(eventName, baseEvent));
+            } catch (_error) {
+                // no-op
+            }
+        });
+    });
+
+    const controlApis = [moviePlayer, player].filter((node) => Boolean(node));
+    controlApis.forEach((api) => {
+        ['showControls', 'showControlsForAWhile_', 'showControls_', 'wakeUpControls'].forEach((methodName) => {
+            const method = api[methodName];
+            if (typeof method === 'function') {
+                try {
+                    method.call(api);
+                } catch (_error) {
+                    // no-op
+                }
+            }
+        });
+    });
+}
+
+/**
  * Seek active video and trigger indicator.
  * @param {number} seconds
  * @param {'forward'|'backward'} direction
@@ -247,6 +317,7 @@ function performSeek(seconds, direction) {
 
     const seekSeconds = clampSeconds(seconds, 1);
     const video = getActiveVideo();
+    const player = getActivePlayer();
 
     if (!video) {
         logger.debug('No active video available for seek');
@@ -268,7 +339,8 @@ function performSeek(seconds, direction) {
         return;
     }
 
-    video.currentTime = targetTime;
+    applySeekTime(video, targetTime);
+    showPlayerSeekFeedback(player);
     showSeekIndicator(direction, seekSeconds);
 
     logger.debug(`Seek ${direction} ${seekSeconds}s: ${currentTime.toFixed(2)} -> ${targetTime.toFixed(2)}`);
@@ -296,7 +368,11 @@ function showSeekIndicator(direction, seconds) {
         state.removeTimer = null;
     }
 
-    if (!state.element || !state.element.isConnected || state.player !== player) {
+    const hasLegacyChevronLayout = Boolean(
+        state.element && state.element.querySelector('.modern-seek-indicator__chevrons')
+    );
+
+    if (!state.element || !state.element.isConnected || state.player !== player || hasLegacyChevronLayout) {
         if (state.element && state.element.parentNode) {
             state.element.remove();
         }
@@ -311,13 +387,9 @@ function showSeekIndicator(direction, seconds) {
     state.totalSeconds += seconds;
     updateIndicatorElement(state.element, direction, state.totalSeconds);
 
-    state.element.classList.remove('is-active', 'is-boosted');
+    state.element.classList.remove('is-active');
     void state.element.offsetWidth;
     state.element.classList.add('is-active');
-
-    if (state.totalSeconds > seconds) {
-        state.element.classList.add('is-boosted');
-    }
 
     if (state.hideTimer) {
         clearTimeout(state.hideTimer);
@@ -337,33 +409,21 @@ function createIndicatorElement(direction) {
     const root = document.createElement('div');
     root.className = `modern-seek-indicator ${direction}`;
 
-    const scrim = document.createElement('div');
-    scrim.className = 'modern-seek-indicator__scrim';
-
     const content = document.createElement('div');
     content.className = 'modern-seek-indicator__content';
-
-    const chevrons = document.createElement('div');
-    chevrons.className = 'modern-seek-indicator__chevrons';
-
-    for (let i = 0; i < 3; i += 1) {
-        const chevron = document.createElement('span');
-        chevron.className = 'modern-seek-indicator__chevron';
-        chevrons.appendChild(chevron);
-    }
 
     const amount = document.createElement('div');
     amount.className = 'modern-seek-indicator__amount';
 
-    const label = document.createElement('div');
-    label.className = 'modern-seek-indicator__label';
-    label.textContent = 'seconds';
+    const edgeArrow = document.createElement('div');
+    edgeArrow.className = 'modern-seek-indicator__edge-arrow';
 
-    content.appendChild(chevrons);
-    content.appendChild(amount);
-    content.appendChild(label);
+    const valueRow = document.createElement('div');
+    valueRow.className = 'modern-seek-indicator__value-row';
 
-    root.appendChild(scrim);
+    valueRow.appendChild(amount);
+    valueRow.appendChild(edgeArrow);
+    content.appendChild(valueRow);
     root.appendChild(content);
 
     updateIndicatorElement(root, direction, 0);
@@ -379,12 +439,17 @@ function createIndicatorElement(direction) {
  */
 function updateIndicatorElement(element, direction, totalSeconds) {
     const amount = element.querySelector('.modern-seek-indicator__amount');
+    const edgeArrow = element.querySelector('.modern-seek-indicator__edge-arrow');
     if (!amount) {
         return;
     }
 
     const prefix = direction === 'forward' ? '+' : '-';
     amount.textContent = `${prefix}${totalSeconds}`;
+
+    if (edgeArrow) {
+        edgeArrow.textContent = direction === 'forward' ? '>' : '<';
+    }
 }
 
 /**
@@ -399,7 +464,7 @@ function hideSeekIndicator(direction) {
         return;
     }
 
-    state.element.classList.remove('is-active', 'is-boosted');
+    state.element.classList.remove('is-active');
 
     if (state.hideTimer) {
         clearTimeout(state.hideTimer);
