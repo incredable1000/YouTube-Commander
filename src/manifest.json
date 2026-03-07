@@ -17,19 +17,11 @@
     "tabs",
     "scripting",
     "activeTab",
-    "identity",
-    "alarms",
-    "notifications"
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
-  "oauth2": {
-    "client_id": "4674177287-rnna7qq3levmb0uh8uent1lv21h04vkv.apps.googleusercontent.com",
-    "scopes": [
-      "https://www.googleapis.com/auth/drive.file"
-    ]
-  },
   "background": {
     "service_worker": "background/background.js"
   },

@@ -270,6 +270,54 @@ try {
                     } else {
                         sendResponse({ success: false, error: 'Watched history module not available' });
                     }
+                } else if (message.type === 'GET_PENDING_SYNC_VIDEO_IDS') {
+                    const watchedModule = moduleInstances['watchedHistory'];
+                    if (watchedModule && watchedModule.getPendingSyncVideoIds) {
+                        watchedModule.getPendingSyncVideoIds(message.limit).then(videoIds => {
+                            sendResponse({ success: true, videoIds });
+                        }).catch(error => {
+                            logger.error('Failed to read pending sync IDs:', error);
+                            sendResponse({ success: false, error: error.message });
+                        });
+                        return true;
+                    }
+                    sendResponse({ success: false, error: 'Watched history module not available' });
+                } else if (message.type === 'ACK_SYNCED_VIDEO_IDS') {
+                    const watchedModule = moduleInstances['watchedHistory'];
+                    if (watchedModule && watchedModule.ackSyncedVideoIds) {
+                        watchedModule.ackSyncedVideoIds(message.videoIds).then(removedCount => {
+                            sendResponse({ success: true, removedCount });
+                        }).catch(error => {
+                            logger.error('Failed to ack synced IDs:', error);
+                            sendResponse({ success: false, error: error.message });
+                        });
+                        return true;
+                    }
+                    sendResponse({ success: false, error: 'Watched history module not available' });
+                } else if (message.type === 'GET_PENDING_SYNC_COUNT') {
+                    const watchedModule = moduleInstances['watchedHistory'];
+                    if (watchedModule && watchedModule.getPendingSyncCount) {
+                        watchedModule.getPendingSyncCount().then(count => {
+                            sendResponse({ success: true, count });
+                        }).catch(error => {
+                            logger.error('Failed to get pending sync count:', error);
+                            sendResponse({ success: false, error: error.message });
+                        });
+                        return true;
+                    }
+                    sendResponse({ success: false, error: 'Watched history module not available' });
+                } else if (message.type === 'SEED_SYNC_QUEUE_FROM_HISTORY') {
+                    const watchedModule = moduleInstances['watchedHistory'];
+                    if (watchedModule && watchedModule.seedSyncQueueFromHistory) {
+                        watchedModule.seedSyncQueueFromHistory().then(seededCount => {
+                            sendResponse({ success: true, seededCount });
+                        }).catch(error => {
+                            logger.error('Failed to seed sync queue:', error);
+                            sendResponse({ success: false, error: error.message });
+                        });
+                        return true;
+                    }
+                    sendResponse({ success: false, error: 'Watched history module not available' });
                 } else if (message.type === 'IMPORT_WATCHED_VIDEOS') {
                     // Handle watched videos import requests
                     console.log('🚀 Content script received IMPORT_WATCHED_VIDEOS message with', message.videoIds?.length, 'IDs');

@@ -175,6 +175,11 @@
             border-color: #ff0000;
             box-shadow: 0 0 0 2px rgba(255,0,0,0.2);
         }
+
+        .setting-input-wide {
+            width: 100%;
+            text-align: left;
+        }
         
         
         .quality-select {
@@ -224,6 +229,12 @@
         
         .btn:active {
             transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
         }
         
         .btn-secondary {
@@ -437,6 +448,36 @@
                 <div class="action-buttons">
                     <button class="btn btn-secondary" id="exportHistory">Export</button>
                     <button class="btn btn-secondary" id="importHistory">Import</button>
+                    <button class="btn btn-secondary" id="syncToCloudflare">Sync Cloudflare</button>
+                </div>
+                <div class="setting-row" style="display: block; margin-top: 12px;">
+                    <div class="setting-label" style="margin-bottom: 6px;">Cloudflare Worker URL</div>
+                    <input type="url" id="cloudflareSyncEndpoint" class="setting-input setting-input-wide" placeholder="https://your-worker.workers.dev/sync">
+                </div>
+                <div class="setting-row" style="display: block; margin-top: 8px;">
+                    <div class="setting-label" style="margin-bottom: 6px;">Cloudflare API Token (optional)</div>
+                    <input type="password" id="cloudflareSyncToken" class="setting-input setting-input-wide" placeholder="Bearer token (if your worker requires auth)" autocomplete="off">
+                </div>
+                <div class="setting-row" style="margin-top: 12px;">
+                    <div class="setting-label" style="font-size: 13px;">Auto Sync</div>
+                    <div class="toggle-switch small-toggle active" id="cloudflareAutoSyncToggle">
+                        <div class="toggle-slider"></div>
+                    </div>
+                </div>
+                <div class="setting-row" style="margin-top: 8px;">
+                    <div class="setting-label">Sync Every</div>
+                    <select id="cloudflareSyncInterval" class="setting-select">
+                        <option value="1">1 min (test)</option>
+                        <option value="15">15 min</option>
+                        <option value="30">30 min</option>
+                        <option value="60">1 hour</option>
+                        <option value="120">2 hours</option>
+                    </select>
+                </div>
+                <div class="setting-row" style="display: block; margin-top: 8px; gap: 4px;">
+                    <div class="setting-label" style="font-size: 12px;">Pending IDs: <span id="cloudflarePendingCount">0</span></div>
+                    <div class="setting-label" style="font-size: 12px;">Last Sync: <span id="cloudflareLastSyncAt">Never</span></div>
+                    <div class="setting-label" style="font-size: 12px;">Status: <span id="cloudflareLastSyncInfo">Idle</span></div>
                 </div>
                 <div class="setting-row" style="margin-top: 12px;">
                     <div class="setting-label" style="font-size: 13px;">Delete Videos</div>
@@ -444,14 +485,8 @@
                         <div class="toggle-slider"></div>
                     </div>
                 </div>
-                <div class="setting-row">
-                    <div class="setting-label" style="font-size: 13px;">Backup Reminders</div>
-                    <div class="toggle-switch active small-toggle" id="backupToggle">
-                        <div class="toggle-slider"></div>
-                    </div>
-                </div>
                 <div id="historyStatus" class="status"></div>
-                <div class="note">Visual markers appear on watched video thumbnails. Enable "Delete Videos" to remove watched videos from any YouTube page instead of showing markers. Enable backup reminders to get notifications for Google Drive exports.</div>
+                <div class="note">Visual markers appear on watched video thumbnails. Enable "Delete Videos" to remove watched cards instead of showing markers. Cloudflare sync sends only pending unsynced video IDs in chunks to reduce API calls and storage usage.</div>
             </div>
         </div>
 

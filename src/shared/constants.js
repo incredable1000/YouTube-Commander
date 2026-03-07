@@ -28,9 +28,6 @@ export const DEFAULT_SETTINGS = {
     windowedFullscreenShortcut: 'Enter',
     windowedFullscreenAuto: false,
     
-    // Backup reminders
-    backupRemindersEnabled: true,
-    
     // Debug settings
     debugMode: false,
     logLevel: 2 // INFO level
@@ -87,7 +84,6 @@ export const EVENTS = {
 export const STORAGE_KEYS = {
     SETTINGS: 'ytCommanderSettings',
     WATCHED_HISTORY: 'watchedHistory',
-    BACKUP_REMINDER: 'backupRemindersEnabled',
     DEBUG_MODE: 'debugMode',
     LOG_LEVEL: 'logLevel'
 };

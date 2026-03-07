@@ -17,6 +17,7 @@ import {
     PLAYBACK_BIND_MAX_RETRIES,
     RENDER_DEBOUNCE_MS,
     STORE_NAME,
+    SYNC_QUEUE_STORE_NAME,
     VIDEO_LINK_SELECTOR,
     WATCHED_ATTR
 } from './watched-history/constants.js';
@@ -61,6 +62,9 @@ async function initDB() {
             const upgradedDb = event.target.result;
             if (!upgradedDb.objectStoreNames.contains(STORE_NAME)) {
                 upgradedDb.createObjectStore(STORE_NAME, { keyPath: 'videoId' });
+            }
+            if (!upgradedDb.objectStoreNames.contains(SYNC_QUEUE_STORE_NAME)) {
+                upgradedDb.createObjectStore(SYNC_QUEUE_STORE_NAME, { keyPath: 'videoId' });
             }
         };
 
@@ -248,14 +252,38 @@ function attachListeners() {
                 return undefined;
             }
 
-            if (message.type === 'SHOW_EXPORT_REMINDER') {
-                showExportReminder();
-                return undefined;
-            }
-
             if (message.type === 'GET_ALL_WATCHED_VIDEOS') {
                 getAllWatchedVideos()
                     .then((videos) => sendResponse({ success: true, videos }))
+                    .catch((error) => sendResponse({ success: false, error: error.message }));
+                return true;
+            }
+
+            if (message.type === 'GET_PENDING_SYNC_VIDEO_IDS') {
+                const limit = Number.parseInt(message.limit, 10);
+                getPendingSyncVideoIds(limit)
+                    .then((videoIds) => sendResponse({ success: true, videoIds }))
+                    .catch((error) => sendResponse({ success: false, error: error.message }));
+                return true;
+            }
+
+            if (message.type === 'ACK_SYNCED_VIDEO_IDS') {
+                ackSyncedVideoIds(message.videoIds)
+                    .then((removedCount) => sendResponse({ success: true, removedCount }))
+                    .catch((error) => sendResponse({ success: false, error: error.message }));
+                return true;
+            }
+
+            if (message.type === 'GET_PENDING_SYNC_COUNT') {
+                getPendingSyncCount()
+                    .then((count) => sendResponse({ success: true, count }))
+                    .catch((error) => sendResponse({ success: false, error: error.message }));
+                return true;
+            }
+
+            if (message.type === 'SEED_SYNC_QUEUE_FROM_HISTORY') {
+                seedSyncQueueFromHistory()
+                    .then((seededCount) => sendResponse({ success: true, seededCount }))
                     .catch((error) => sendResponse({ success: false, error: error.message }));
                 return true;
             }
@@ -795,34 +823,36 @@ async function addToWatchedHistory(videoId) {
         return;
     }
 
-    await putWatchedRecord(videoId, Date.now());
+    await putWatchedRecordAndQueue(videoId, Date.now());
     watchedIds.add(videoId);
 
     decorateMatchingVisibleContainers(videoId);
 
     try {
-        chrome.runtime.sendMessage({ type: 'HISTORY_UPDATED' });
+        chrome.runtime.sendMessage({ type: 'HISTORY_UPDATED', videoId });
     } catch (error) {
         logger.debug('Could not send HISTORY_UPDATED message', error);
     }
 }
 
 /**
- * Insert/update a watched record.
+ * Insert/update a watched record and queue it for cloud sync.
  * @param {string} videoId
  * @param {number} timestamp
  * @returns {Promise<void>}
  */
-async function putWatchedRecord(videoId, timestamp) {
+async function putWatchedRecordAndQueue(videoId, timestamp) {
     if (!db) {
         throw new Error('Database not initialized');
     }
 
     return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const transaction = db.transaction([STORE_NAME, SYNC_QUEUE_STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
+        const queueStore = transaction.objectStore(SYNC_QUEUE_STORE_NAME);
 
         store.put({ videoId, timestamp });
+        queueStore.put({ videoId, queuedAt: Date.now() });
 
         transaction.oncomplete = () => resolve();
         transaction.onerror = () => reject(transaction.error || new Error('Failed to write watched record'));
@@ -891,6 +921,143 @@ async function getAllWatchedVideos() {
 }
 
 /**
+ * Read pending sync IDs from queue store.
+ * @param {number} [rawLimit]
+ * @returns {Promise<string[]>}
+ */
+async function getPendingSyncVideoIds(rawLimit) {
+    await ensureInitialized();
+
+    if (!db) {
+        return [];
+    }
+
+    const parsedLimit = Number.parseInt(rawLimit, 10);
+    const limit = Number.isFinite(parsedLimit)
+        ? Math.max(1, Math.min(parsedLimit, 1000))
+        : 300;
+
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SYNC_QUEUE_STORE_NAME], 'readonly');
+        const queueStore = transaction.objectStore(SYNC_QUEUE_STORE_NAME);
+        const ids = [];
+        const request = queueStore.openCursor();
+
+        request.onsuccess = (event) => {
+            const cursor = event.target.result;
+            if (!cursor || ids.length >= limit) {
+                resolve(ids);
+                return;
+            }
+
+            const videoId = cursor.value?.videoId;
+            if (isValidVideoId(videoId)) {
+                ids.push(videoId);
+            }
+
+            cursor.continue();
+        };
+
+        request.onerror = () => {
+            reject(request.error || new Error('Failed to read sync queue'));
+        };
+    });
+}
+
+/**
+ * Remove synced IDs from queue store.
+ * @param {string[]} videoIds
+ * @returns {Promise<number>}
+ */
+async function ackSyncedVideoIds(videoIds) {
+    await ensureInitialized();
+
+    if (!db || !Array.isArray(videoIds) || videoIds.length === 0) {
+        return 0;
+    }
+
+    const unique = [];
+    const seen = new Set();
+
+    for (const rawId of videoIds) {
+        const videoId = typeof rawId === 'string' ? rawId.trim() : '';
+        if (!isValidVideoId(videoId) || seen.has(videoId)) {
+            continue;
+        }
+        seen.add(videoId);
+        unique.push(videoId);
+    }
+
+    if (unique.length === 0) {
+        return 0;
+    }
+
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SYNC_QUEUE_STORE_NAME], 'readwrite');
+        const queueStore = transaction.objectStore(SYNC_QUEUE_STORE_NAME);
+
+        unique.forEach((videoId) => {
+            queueStore.delete(videoId);
+        });
+
+        transaction.oncomplete = () => resolve(unique.length);
+        transaction.onerror = () => reject(transaction.error || new Error('Failed to ack sync queue IDs'));
+        transaction.onabort = () => reject(transaction.error || new Error('Ack transaction aborted'));
+    });
+}
+
+/**
+ * Count pending sync IDs.
+ * @returns {Promise<number>}
+ */
+async function getPendingSyncCount() {
+    await ensureInitialized();
+
+    if (!db) {
+        return 0;
+    }
+
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SYNC_QUEUE_STORE_NAME], 'readonly');
+        const queueStore = transaction.objectStore(SYNC_QUEUE_STORE_NAME);
+        const request = queueStore.count();
+
+        request.onsuccess = () => resolve(Number(request.result) || 0);
+        request.onerror = () => reject(request.error || new Error('Failed to count sync queue IDs'));
+    });
+}
+
+/**
+ * Seed sync queue from already watched IDs (one-time migration helper).
+ * @returns {Promise<number>}
+ */
+async function seedSyncQueueFromHistory() {
+    await ensureInitialized();
+
+    if (!db || watchedIds.size === 0) {
+        return 0;
+    }
+
+    const ids = Array.from(watchedIds);
+
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SYNC_QUEUE_STORE_NAME], 'readwrite');
+        const queueStore = transaction.objectStore(SYNC_QUEUE_STORE_NAME);
+        const now = Date.now();
+
+        ids.forEach((videoId, index) => {
+            if (isValidVideoId(videoId)) {
+                queueStore.put({ videoId, queuedAt: now + index });
+            }
+        });
+
+        transaction.oncomplete = () => resolve(ids.length);
+        transaction.onerror = () => reject(transaction.error || new Error('Failed to seed sync queue'));
+        transaction.onabort = () => reject(transaction.error || new Error('Seed queue transaction aborted'));
+    });
+}
+
+/**
  * Count watched records from cache.
  * @returns {Promise<number>}
  */
@@ -919,9 +1086,11 @@ async function clearWatchedHistory() {
     }
 
     await new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const transaction = db.transaction([STORE_NAME, SYNC_QUEUE_STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
+        const queueStore = transaction.objectStore(SYNC_QUEUE_STORE_NAME);
         store.clear();
+        queueStore.clear();
 
         transaction.oncomplete = () => resolve();
         transaction.onerror = () => reject(transaction.error || new Error('Failed to clear watched history'));
@@ -946,14 +1115,17 @@ async function exportWatchedHistory() {
 /**
  * Import watched IDs in batches and return newly added count.
  * @param {string[]} videoIds
+ * @param {{skipSyncQueue?: boolean}} [options]
  * @returns {Promise<number>}
  */
-async function importWatchedHistory(videoIds) {
+async function importWatchedHistory(videoIds, options = {}) {
     await ensureInitialized();
 
     if (!Array.isArray(videoIds) || videoIds.length === 0 || !db) {
         return 0;
     }
+
+    const skipSyncQueue = options?.skipSyncQueue === true;
 
     const uniqueToAdd = [];
     const seenInBatch = new Set();
@@ -979,11 +1151,20 @@ async function importWatchedHistory(videoIds) {
     const startTimestamp = Date.now();
 
     await new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const storeNames = skipSyncQueue
+            ? [STORE_NAME]
+            : [STORE_NAME, SYNC_QUEUE_STORE_NAME];
+        const transaction = db.transaction(storeNames, 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
+        const queueStore = skipSyncQueue
+            ? null
+            : transaction.objectStore(SYNC_QUEUE_STORE_NAME);
 
         uniqueToAdd.forEach((videoId, index) => {
             store.put({ videoId, timestamp: startTimestamp + index });
+            if (queueStore) {
+                queueStore.put({ videoId, queuedAt: startTimestamp + index });
+            }
         });
 
         transaction.oncomplete = () => resolve();
@@ -996,7 +1177,11 @@ async function importWatchedHistory(videoIds) {
     scheduleRender('import', true);
 
     try {
-        chrome.runtime.sendMessage({ type: 'HISTORY_UPDATED' });
+        chrome.runtime.sendMessage(
+            skipSyncQueue
+                ? { type: 'HISTORY_UPDATED' }
+                : { type: 'HISTORY_UPDATED', videoIds: uniqueToAdd }
+        );
     } catch (error) {
         logger.debug('Could not send HISTORY_UPDATED after import', error);
     }
@@ -1041,41 +1226,6 @@ function updateSettings(settings) {
             scheduleRender('settings-update', true);
         }
     }
-}
-
-/**
- * Show a lightweight reminder in-page.
- */
-function showExportReminder() {
-    const existing = document.getElementById('yt-commander-export-reminder');
-    if (existing) {
-        existing.remove();
-    }
-
-    const reminder = document.createElement('div');
-    reminder.id = 'yt-commander-export-reminder';
-    reminder.style.cssText = [
-        'position: fixed',
-        'top: 20px',
-        'right: 20px',
-        'z-index: 100000',
-        'background: #1f7a35',
-        'color: #ffffff',
-        'padding: 12px 14px',
-        'border-radius: 8px',
-        'font-size: 13px',
-        'line-height: 1.4',
-        'box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35)'
-    ].join(';');
-
-    reminder.textContent = 'Backup reminder: export your watched history from the extension popup.';
-    document.body.appendChild(reminder);
-
-    setTimeout(() => {
-        if (reminder.parentNode) {
-            reminder.remove();
-        }
-    }, 8000);
 }
 
 /**
@@ -1192,7 +1342,8 @@ window.ytCommanderWatchedHistory = {
     init: initWatchedHistory,
     add: addToWatchedHistory,
     clear: clearWatchedHistory,
-    count: () => watchedIds.size
+    count: () => watchedIds.size,
+    getPendingSyncCount
 };
 
 export {
@@ -1200,6 +1351,10 @@ export {
     addToWatchedHistory,
     isVideoWatched,
     getAllWatchedVideos,
+    getPendingSyncVideoIds,
+    ackSyncedVideoIds,
+    getPendingSyncCount,
+    seedSyncQueueFromHistory,
     getWatchedVideoCount,
     getWatchedCount,
     clearWatchedHistory,

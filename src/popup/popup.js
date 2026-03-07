@@ -40,6 +40,12 @@ const LEGACY_FEATURE_KEYS = [
 
 // Current settings
 let currentSettings = {};
+const CLOUDFLARE_STORAGE_KEYS = {
+    ENDPOINT: 'cloudflareSyncEndpoint',
+    API_TOKEN: 'cloudflareSyncApiToken',
+    AUTO_ENABLED: 'cloudflareSyncAutoEnabled',
+    INTERVAL_MINUTES: 'cloudflareSyncIntervalMinutes'
+};
 
 // Feature toggle functionality (expand/collapse cards)
 function toggleFeature(featureName) {
@@ -70,41 +76,6 @@ function setupDeleteVideosToggle() {
                 'success'
             );
             saveSyncSettings();
-        });
-    }
-}
-
-// Backup reminder toggle
-function setupBackupToggle() {
-    const backupToggle = document.getElementById('backupToggle');
-    if (backupToggle) {
-        backupToggle.addEventListener('click', (e) => {
-            e.stopPropagation();
-
-            const enabled = !backupToggle.classList.contains('active');
-            backupToggle.classList.toggle('active', enabled);
-
-            chrome.storage.local.set({ backupRemindersEnabled: enabled }, () => {
-                if (chrome.runtime.lastError) {
-                    console.warn('Failed to update backup reminder setting:', chrome.runtime.lastError.message);
-                    showStatus('Failed to update backup reminders', 'error');
-                    return;
-                }
-
-                chrome.runtime.sendMessage({
-                    type: 'TOGGLE_BACKUP_REMINDERS',
-                    enabled
-                }, () => {
-                    if (chrome.runtime.lastError) {
-                        console.warn('Failed to notify background for backup reminders:', chrome.runtime.lastError.message);
-                    }
-                });
-
-                showStatus(
-                    enabled ? 'Backup reminders enabled' : 'Backup reminders disabled',
-                    'success'
-                );
-            });
         });
     }
 }
@@ -216,12 +187,10 @@ function loadSettings() {
             currentSettings.windowedFullscreenAuto === true
         );
 
-        chrome.storage.local.get(['backupRemindersEnabled'], (result) => {
-            const backupToggle = document.getElementById('backupToggle');
-            setToggleState(backupToggle, result.backupRemindersEnabled !== false);
-        });
-
         loadWatchedHistoryStats();
+        loadCloudflareSyncSettings().catch((error) => {
+            showStatus(error?.message || 'Failed to load Cloudflare sync settings', 'error');
+        });
         cleanupLegacyFeatureFlags();
     });
 }
@@ -429,6 +398,223 @@ function showStatus(message, type = 'info') {
     }, 3000);
 }
 
+/**
+ * Send runtime message with timeout and callback error handling.
+ * @param {object} message
+ * @param {number} timeoutMs
+ * @returns {Promise<any>}
+ */
+function sendRuntimeMessage(message, timeoutMs = 20000) {
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const timeoutId = setTimeout(() => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            reject(new Error('Background did not respond in time'));
+        }, timeoutMs);
+
+        try {
+            chrome.runtime.sendMessage(message, (response) => {
+                if (settled) {
+                    return;
+                }
+
+                settled = true;
+                clearTimeout(timeoutId);
+
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message || 'Failed to contact background'));
+                    return;
+                }
+
+                resolve(response);
+            });
+        } catch (error) {
+            if (!settled) {
+                settled = true;
+                clearTimeout(timeoutId);
+                reject(error);
+            }
+        }
+    });
+}
+
+/**
+ * Load Cloudflare sync settings from local storage.
+ */
+async function loadCloudflareSyncSettings() {
+    const result = await chrome.storage.local.get([
+        CLOUDFLARE_STORAGE_KEYS.ENDPOINT,
+        CLOUDFLARE_STORAGE_KEYS.API_TOKEN,
+        CLOUDFLARE_STORAGE_KEYS.AUTO_ENABLED,
+        CLOUDFLARE_STORAGE_KEYS.INTERVAL_MINUTES
+    ]);
+
+    const endpointInput = document.getElementById('cloudflareSyncEndpoint');
+    const tokenInput = document.getElementById('cloudflareSyncToken');
+    const intervalSelect = document.getElementById('cloudflareSyncInterval');
+    const autoToggle = document.getElementById('cloudflareAutoSyncToggle');
+
+    if (endpointInput) {
+        endpointInput.value = typeof result[CLOUDFLARE_STORAGE_KEYS.ENDPOINT] === 'string'
+            ? result[CLOUDFLARE_STORAGE_KEYS.ENDPOINT]
+            : '';
+    }
+
+    if (tokenInput) {
+        tokenInput.value = typeof result[CLOUDFLARE_STORAGE_KEYS.API_TOKEN] === 'string'
+            ? result[CLOUDFLARE_STORAGE_KEYS.API_TOKEN]
+            : '';
+    }
+
+    if (intervalSelect) {
+        const interval = Number.parseInt(result[CLOUDFLARE_STORAGE_KEYS.INTERVAL_MINUTES], 10);
+        intervalSelect.value = Number.isFinite(interval) ? String(interval) : '30';
+    }
+
+    setToggleState(autoToggle, result[CLOUDFLARE_STORAGE_KEYS.AUTO_ENABLED] !== false);
+
+    await refreshCloudflareSyncStatus();
+}
+
+/**
+ * Persist Cloudflare sync settings from inputs.
+ * @returns {Promise<{ endpointUrl: string, apiToken: string, autoEnabled: boolean, intervalMinutes: number }>}
+ */
+async function saveCloudflareSyncSettings() {
+    const endpointInput = document.getElementById('cloudflareSyncEndpoint');
+    const tokenInput = document.getElementById('cloudflareSyncToken');
+    const autoToggle = document.getElementById('cloudflareAutoSyncToggle');
+    const intervalSelect = document.getElementById('cloudflareSyncInterval');
+
+    const endpointUrl = typeof endpointInput?.value === 'string' ? endpointInput.value.trim() : '';
+    const apiToken = typeof tokenInput?.value === 'string' ? tokenInput.value.trim() : '';
+    const autoEnabled = !autoToggle || autoToggle.classList.contains('active');
+    const intervalValue = Number.parseInt(intervalSelect?.value || '30', 10);
+    const intervalMinutes = Number.isFinite(intervalValue) ? intervalValue : 30;
+
+    await chrome.storage.local.set({
+        [CLOUDFLARE_STORAGE_KEYS.ENDPOINT]: endpointUrl,
+        [CLOUDFLARE_STORAGE_KEYS.API_TOKEN]: apiToken,
+        [CLOUDFLARE_STORAGE_KEYS.AUTO_ENABLED]: autoEnabled,
+        [CLOUDFLARE_STORAGE_KEYS.INTERVAL_MINUTES]: intervalMinutes
+    });
+
+    const updateResponse = await sendRuntimeMessage({
+        type: 'UPDATE_CLOUDFLARE_SYNC_CONFIG',
+        endpointUrl,
+        apiToken,
+        autoEnabled,
+        intervalMinutes
+    }, 20000);
+
+    if (!updateResponse?.success) {
+        throw new Error(updateResponse?.error || 'Failed to update Cloudflare sync config');
+    }
+
+    return { endpointUrl, apiToken, autoEnabled, intervalMinutes };
+}
+
+/**
+ * Render cloud sync status in popup.
+ * @param {object} status
+ */
+function renderCloudflareSyncStatus(status = {}) {
+    const pendingEl = document.getElementById('cloudflarePendingCount');
+    const lastSyncEl = document.getElementById('cloudflareLastSyncAt');
+    const infoEl = document.getElementById('cloudflareLastSyncInfo');
+
+    if (pendingEl) {
+        pendingEl.textContent = String(Number(status.pendingCount) || 0);
+    }
+
+    if (lastSyncEl) {
+        const timestamp = Number(status.lastAt) || 0;
+        lastSyncEl.textContent = timestamp > 0
+            ? new Date(timestamp).toLocaleString()
+            : 'Never';
+    }
+
+    if (infoEl) {
+        if (status.status === 'error') {
+            infoEl.textContent = status.error || 'Error';
+            return;
+        }
+
+        if (status.status === 'success') {
+            infoEl.textContent = `Success (${Number(status.syncedCount) || 0} ids)`;
+            return;
+        }
+
+        infoEl.textContent = status.status || 'Idle';
+    }
+}
+
+/**
+ * Refresh cloud sync status from background.
+ */
+async function refreshCloudflareSyncStatus() {
+    try {
+        const status = await sendRuntimeMessage({
+            type: 'GET_CLOUDFLARE_SYNC_STATUS'
+        }, 30000);
+
+        if (status?.success) {
+            renderCloudflareSyncStatus(status);
+        }
+    } catch (_error) {
+        // Keep existing UI values when background status is unavailable.
+    }
+}
+
+/**
+ * Setup Cloudflare auto-sync controls.
+ */
+function setupCloudflareSyncControls() {
+    const autoToggle = document.getElementById('cloudflareAutoSyncToggle');
+    const intervalSelect = document.getElementById('cloudflareSyncInterval');
+    const endpointInput = document.getElementById('cloudflareSyncEndpoint');
+    const tokenInput = document.getElementById('cloudflareSyncToken');
+
+    if (autoToggle) {
+        autoToggle.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            setToggleState(autoToggle, !autoToggle.classList.contains('active'));
+            try {
+                await saveCloudflareSyncSettings();
+                await refreshCloudflareSyncStatus();
+            } catch (error) {
+                showStatus(error?.message || 'Failed to save Cloudflare settings', 'error');
+            }
+        });
+    }
+
+    if (intervalSelect) {
+        intervalSelect.addEventListener('change', async () => {
+            try {
+                await saveCloudflareSyncSettings();
+                await refreshCloudflareSyncStatus();
+            } catch (error) {
+                showStatus(error?.message || 'Failed to update sync interval', 'error');
+            }
+        });
+    }
+
+    const saveOnBlur = async () => {
+        try {
+            await saveCloudflareSyncSettings();
+            await refreshCloudflareSyncStatus();
+        } catch (error) {
+            showStatus(error?.message || 'Failed to update Cloudflare settings', 'error');
+        }
+    };
+
+    endpointInput?.addEventListener('blur', saveOnBlur);
+    tokenInput?.addEventListener('blur', saveOnBlur);
+}
+
 
 // Export history functionality (using legacy direct approach)
 async function exportHistory() {
@@ -443,7 +629,7 @@ async function exportHistory() {
             target: { tabId: tab.id },
             func: () => {
                 return new Promise((resolve, reject) => {
-                    const request = indexedDB.open('YouTubeCommanderDB', 1);
+                    const request = indexedDB.open('YouTubeCommanderDB');
                     request.onerror = () => reject(request.error);
                     request.onsuccess = () => {
                         const db = request.result;
@@ -474,6 +660,55 @@ async function exportHistory() {
     } catch (error) {
         console.error('Export error:', error);
         showStatus('Error exporting history', 'error');
+    }
+}
+
+/**
+ * Sync watched history to Cloudflare worker endpoint.
+ */
+async function syncToCloudflare() {
+    const syncButton = document.getElementById('syncToCloudflare');
+    if (!syncButton) {
+        return;
+    }
+
+    const initialLabel = syncButton.textContent;
+    syncButton.disabled = true;
+    syncButton.textContent = 'Syncing...';
+
+    try {
+        showStatus('Syncing watched history to Cloudflare...', 'info');
+        const { endpointUrl, apiToken } = await saveCloudflareSyncSettings();
+
+        if (!endpointUrl) {
+            throw new Error('Cloudflare Worker URL is required');
+        }
+
+        showStatus('Uploading pending unsynced IDs to Cloudflare...', 'info');
+        const response = await sendRuntimeMessage({
+            type: 'SYNC_TO_CLOUDFLARE',
+            endpointUrl,
+            apiToken
+        }, 90000);
+
+        if (!response?.success) {
+            throw new Error(response?.error || 'Cloudflare sync failed');
+        }
+
+        const syncedCount = Number.isFinite(response.syncedCount) ? response.syncedCount : 0;
+        const host = typeof response.endpointHost === 'string' && response.endpointHost
+            ? response.endpointHost
+            : 'Cloudflare';
+        showStatus(
+            `Synced ${syncedCount} IDs to ${host}. Pending: ${Number(response.pendingCount) || 0}`,
+            'success'
+        );
+        await refreshCloudflareSyncStatus();
+    } catch (error) {
+        showStatus(error?.message || 'Failed to sync watched history', 'error');
+    } finally {
+        syncButton.disabled = false;
+        syncButton.textContent = initialLabel;
     }
 }
 
@@ -638,15 +873,17 @@ document.addEventListener('DOMContentLoaded', () => {
     setupAudioSettingToggle();
     setupWindowedAutoToggle();
     setupDeleteVideosToggle();
-    setupBackupToggle();
+    setupCloudflareSyncControls();
     setupAutoSave();
     setupFeatureHeaders();
 
     document.getElementById('exportHistory').addEventListener('click', exportHistory);
     document.getElementById('importHistory').addEventListener('click', importHistory);
+    document.getElementById('syncToCloudflare').addEventListener('click', syncToCloudflare);
     document.getElementById('historyFileInput').addEventListener('change', handleFileImport);
 
     setInterval(loadWatchedHistoryStats, 5000);
+    setInterval(refreshCloudflareSyncStatus, 30000);
 });
 
 // Make functions globally available

@@ -3,8 +3,9 @@
  */
 
 export const DB_NAME = 'YouTubeCommanderDB';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 export const STORE_NAME = 'watchedVideos';
+export const SYNC_QUEUE_STORE_NAME = 'watchedSyncQueue';
 
 export const FEED_RENDERER_SELECTOR = [
     'ytd-rich-item-renderer',
