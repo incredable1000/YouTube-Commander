@@ -8,7 +8,8 @@
  *   source: string,
  *   requestType: string,
  *   responseType: string,
- *   timeoutMs?: number
+ *   timeoutMs?: number,
+ *   requestPrefix?: string
  * }} options
  * @returns {{
  *   sendRequest: (action: string, payload: object) => Promise<any>,
@@ -21,6 +22,7 @@ function createBridgeClient(options) {
     const requestType = String(options?.requestType || '');
     const responseType = String(options?.responseType || '');
     const timeoutMs = Number(options?.timeoutMs) > 0 ? Number(options.timeoutMs) : 30000;
+    const requestPrefix = String(options?.requestPrefix || 'ytc-bridge');
 
     let requestCounter = 0;
     const pendingRequests = new Map();
@@ -32,7 +34,7 @@ function createBridgeClient(options) {
      * @returns {Promise<any>}
      */
     function sendRequest(action, payload) {
-        const requestId = `ytc-playlist-${Date.now()}-${++requestCounter}`;
+        const requestId = `${requestPrefix}-${Date.now()}-${++requestCounter}`;
 
         return new Promise((resolve, reject) => {
             const timeoutId = window.setTimeout(() => {

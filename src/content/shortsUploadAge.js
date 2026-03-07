@@ -11,7 +11,12 @@ import {
     LABEL_ATTR,
     RENDER_DEBOUNCE_MS,
     PROCESS_CHUNK_SIZE,
-    RELATIVE_REFRESH_MS
+    RELATIVE_REFRESH_MS,
+    BRIDGE_SOURCE,
+    BRIDGE_REQUEST_TYPE,
+    BRIDGE_RESPONSE_TYPE,
+    BRIDGE_ACTION_GET_SHORTS_UPLOAD_TIMESTAMPS,
+    BRIDGE_TIMEOUT_MS
 } from './shorts-upload-age/constants.js';
 import {
     collectShortCards,
@@ -20,9 +25,20 @@ import {
 } from './shorts-upload-age/pageContext.js';
 import { formatRelativeAge, extractRelativeFromText } from './shorts-upload-age/time.js';
 import { createShortsUploadAgeResolver } from './shorts-upload-age/resolver.js';
+import { createBridgeClient } from './playlist-multi-select/bridge.js';
 
 const logger = createLogger('ShortsUploadAge');
-const resolver = createShortsUploadAgeResolver({ logger });
+const bridgeClient = createBridgeClient({
+    source: BRIDGE_SOURCE,
+    requestType: BRIDGE_REQUEST_TYPE,
+    responseType: BRIDGE_RESPONSE_TYPE,
+    timeoutMs: BRIDGE_TIMEOUT_MS,
+    requestPrefix: 'ytc-shorts-age'
+});
+const resolver = createShortsUploadAgeResolver({
+    logger,
+    batchResolveImpl: resolveBatchTimestampsViaBridge
+});
 const INLINE_HOST_CLASS = 'yt-commander-short-upload-age-inline-host';
 
 let initialized = false;
@@ -30,6 +46,7 @@ let enabled = true;
 
 let observer = null;
 let pageListenerCleanups = [];
+let bridgeListenerCleanup = null;
 
 let renderTimer = null;
 let refreshTimer = null;
@@ -45,6 +62,49 @@ function waitForNextFrame() {
     return new Promise((resolve) => {
         window.requestAnimationFrame(() => resolve());
     });
+}
+
+/**
+ * Resolve upload timestamps from main-world bridge in a single batch request.
+ * @param {string[]} shortIds
+ * @returns {Promise<Map<string, number|null>>}
+ */
+async function resolveBatchTimestampsViaBridge(shortIds) {
+    const uniqueIds = Array.from(
+        new Set(
+            (Array.isArray(shortIds) ? shortIds : [])
+                .filter((value) => typeof value === 'string')
+                .map((value) => value.trim())
+                .filter((value) => value.length > 0)
+        )
+    );
+
+    if (uniqueIds.length === 0) {
+        return new Map();
+    }
+
+    try {
+        const response = await bridgeClient.sendRequest(BRIDGE_ACTION_GET_SHORTS_UPLOAD_TIMESTAMPS, {
+            videoIds: uniqueIds
+        });
+        const payload = response?.timestampsById;
+        if (!payload || typeof payload !== 'object') {
+            return new Map();
+        }
+
+        const map = new Map();
+        uniqueIds.forEach((shortId) => {
+            const value = payload[shortId];
+            map.set(shortId, Number.isFinite(value) ? Number(value) : null);
+        });
+        return map;
+    } catch (error) {
+        logger.warn('Shorts upload-age bridge batch request failed', {
+            shortCount: uniqueIds.length,
+            error
+        });
+        return new Map();
+    }
 }
 
 /**
@@ -471,9 +531,36 @@ function detachPageListeners() {
 }
 
 /**
+ * Attach bridge response listener for main-world API responses.
+ */
+function attachBridgeListener() {
+    if (bridgeListenerCleanup) {
+        return;
+    }
+
+    bridgeListenerCleanup = addEventListenerWithCleanup(window, 'message', (event) => {
+        bridgeClient.handleResponse(event);
+    });
+}
+
+/**
+ * Detach bridge response listener and reject pending requests.
+ */
+function detachBridgeListener() {
+    if (!bridgeListenerCleanup) {
+        return;
+    }
+
+    bridgeListenerCleanup();
+    bridgeListenerCleanup = null;
+    bridgeClient.rejectAll('Shorts upload-age bridge stopped.');
+}
+
+/**
  * Start runtime hooks while feature is enabled.
  */
 function startRuntime() {
+    attachBridgeListener();
     setupObserver();
     attachPageListeners();
     startRelativeRefreshLoop();
@@ -484,6 +571,7 @@ function startRuntime() {
  * Stop runtime hooks.
  */
 function stopRuntime() {
+    detachBridgeListener();
     teardownObserver();
     detachPageListeners();
     clearRenderTimer();

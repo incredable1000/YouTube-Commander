@@ -57,7 +57,8 @@ const bridgeClient = createBridgeClient({
     source: BRIDGE_SOURCE,
     requestType: REQUEST_TYPE,
     responseType: RESPONSE_TYPE,
-    timeoutMs: REQUEST_TIMEOUT_MS
+    timeoutMs: REQUEST_TIMEOUT_MS,
+    requestPrefix: 'ytc-playlist'
 });
 
 let isInitialized = false;

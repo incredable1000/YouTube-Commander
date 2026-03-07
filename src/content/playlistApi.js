@@ -15,7 +15,8 @@ const ACTIONS = {
     GET_PLAYLISTS: 'GET_PLAYLISTS',
     ADD_TO_PLAYLISTS: 'ADD_TO_PLAYLISTS',
     CREATE_PLAYLIST_AND_ADD: 'CREATE_PLAYLIST_AND_ADD',
-    REMOVE_FROM_PLAYLIST: 'REMOVE_FROM_PLAYLIST'
+    REMOVE_FROM_PLAYLIST: 'REMOVE_FROM_PLAYLIST',
+    GET_SHORTS_UPLOAD_TIMESTAMPS: 'GET_SHORTS_UPLOAD_TIMESTAMPS'
 };
 
 const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{10,15}$/;
@@ -24,6 +25,8 @@ const MAX_BATCH_SIZE = 45;
 const REMOVE_LOOKUP_CONCURRENCY = 4;
 const EDIT_PLAYLIST_RETRY_ATTEMPTS = 2;
 const EDIT_PLAYLIST_RETRY_DELAY_MS = 420;
+const SHORTS_TIMESTAMP_BATCH_SIZE = 60;
+const SHORTS_TIMESTAMP_SCAN_DEPTH_LIMIT = 10;
 
 let isInitialized = false;
 let cachedAuthHeader = null;
@@ -244,6 +247,260 @@ function readApiError(responseText) {
     }
 
     return String(responseText).slice(0, 240);
+}
+
+/**
+ * Extract simple text from renderer text nodes.
+ * @param {any} value
+ * @returns {string}
+ */
+function readTextValue(value) {
+    if (typeof value === 'string') {
+        return value.trim();
+    }
+
+    if (!value || typeof value !== 'object') {
+        return '';
+    }
+
+    if (typeof value.simpleText === 'string') {
+        return value.simpleText.trim();
+    }
+
+    if (Array.isArray(value.runs)) {
+        const text = value.runs
+            .map((entry) => (typeof entry?.text === 'string' ? entry.text : ''))
+            .join('')
+            .trim();
+        if (text) {
+            return text;
+        }
+    }
+
+    return '';
+}
+
+/**
+ * Parse relative age text to timestamp approximation.
+ * @param {string} value
+ * @returns {number|null}
+ */
+function parseRelativeAgeToTimestamp(value) {
+    if (!value || typeof value !== 'string') {
+        return null;
+    }
+
+    const normalized = value.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!normalized) {
+        return null;
+    }
+
+    if (normalized === 'just now') {
+        return Date.now();
+    }
+
+    const match = normalized.match(/\b(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago\b/);
+    if (!match) {
+        return null;
+    }
+
+    const amount = Number.parseInt(match[1], 10);
+    if (!Number.isFinite(amount) || amount < 0) {
+        return null;
+    }
+
+    const unit = match[2];
+    const unitMs = {
+        second: 1000,
+        minute: 60 * 1000,
+        hour: 60 * 60 * 1000,
+        day: 24 * 60 * 60 * 1000,
+        week: 7 * 24 * 60 * 60 * 1000,
+        month: 30 * 24 * 60 * 60 * 1000,
+        year: 365 * 24 * 60 * 60 * 1000
+    }[unit];
+
+    if (!unitMs) {
+        return null;
+    }
+
+    return Date.now() - (amount * unitMs);
+}
+
+/**
+ * Parse one date-like value to timestamp.
+ * @param {any} value
+ * @returns {number|null}
+ */
+function parseDateLikeValue(value) {
+    const text = readTextValue(value);
+    if (!text) {
+        return null;
+    }
+
+    const normalized = /^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T00:00:00Z` : text;
+    const parsed = Date.parse(normalized);
+    if (Number.isFinite(parsed)) {
+        return parsed;
+    }
+
+    return parseRelativeAgeToTimestamp(text);
+}
+
+/**
+ * Read video ID from one metadata object.
+ * @param {any} value
+ * @param {Set<string>} validIds
+ * @returns {string}
+ */
+function readVideoIdFromValue(value, validIds) {
+    if (!value || typeof value !== 'object') {
+        return '';
+    }
+
+    const candidates = [
+        value.videoId,
+        value.videoDetails?.videoId,
+        value.entityKey,
+        value.onTap?.innertubeCommand?.reelWatchEndpoint?.videoId,
+        value.reelWatchEndpoint?.videoId
+    ];
+
+    for (const candidate of candidates) {
+        if (typeof candidate !== 'string') {
+            continue;
+        }
+
+        const match = candidate.match(/[A-Za-z0-9_-]{10,15}/);
+        const videoId = match?.[0] || '';
+        if (videoId && validIds.has(videoId)) {
+            return videoId;
+        }
+    }
+
+    return '';
+}
+
+/**
+ * Read timestamp candidates from one metadata object.
+ * @param {any} value
+ * @returns {number|null}
+ */
+function readTimestampFromValue(value) {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+
+    const candidates = [
+        value.publishDate,
+        value.uploadDate,
+        value.datePublished,
+        value.publishedDate,
+        value.publishedAt,
+        value.publishTime,
+        value.publishedTimeText,
+        value.dateText,
+        value.publishedTime
+    ];
+
+    for (const candidate of candidates) {
+        const parsed = parseDateLikeValue(candidate);
+        if (Number.isFinite(parsed)) {
+            return parsed;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Extract upload timestamps from updated_metadata payload.
+ * @param {any} payload
+ * @param {Set<string>} validIds
+ * @returns {Map<string, number|null>}
+ */
+function extractShortsTimestampsFromMetadata(payload, validIds) {
+    const timestampsById = new Map();
+    if (!payload || typeof payload !== 'object' || validIds.size === 0) {
+        return timestampsById;
+    }
+
+    const visited = new WeakSet();
+
+    /**
+     * @param {any} node
+     * @param {string} currentVideoId
+     * @param {number} depth
+     */
+    function scan(node, currentVideoId, depth) {
+        if (!node || depth > SHORTS_TIMESTAMP_SCAN_DEPTH_LIMIT) {
+            return;
+        }
+
+        if (Array.isArray(node)) {
+            node.forEach((child) => scan(child, currentVideoId, depth + 1));
+            return;
+        }
+
+        if (typeof node !== 'object') {
+            return;
+        }
+
+        if (visited.has(node)) {
+            return;
+        }
+        visited.add(node);
+
+        let scopedVideoId = currentVideoId;
+        const ownVideoId = readVideoIdFromValue(node, validIds);
+        if (ownVideoId) {
+            scopedVideoId = ownVideoId;
+        }
+
+        if (scopedVideoId && !timestampsById.has(scopedVideoId)) {
+            const timestampMs = readTimestampFromValue(node);
+            if (Number.isFinite(timestampMs)) {
+                timestampsById.set(scopedVideoId, timestampMs);
+            }
+        }
+
+        Object.values(node).forEach((child) => scan(child, scopedVideoId, depth + 1));
+    }
+
+    scan(payload, '', 0);
+    return timestampsById;
+}
+
+/**
+ * Extract upload timestamp from watch-page HTML.
+ * @param {string} html
+ * @returns {number|null}
+ */
+function extractUploadTimestampFromHtml(html) {
+    if (typeof html !== 'string' || html.length === 0) {
+        return null;
+    }
+
+    const patterns = [
+        /<meta[^>]+itemprop=["']uploadDate["'][^>]+content=["']([^"']+)["']/i,
+        /<meta[^>]+itemprop=["']datePublished["'][^>]+content=["']([^"']+)["']/i,
+        /"uploadDate"\s*:\s*"([^"]+)"/i,
+        /"datePublished"\s*:\s*"([^"]+)"/i,
+        /"publishDate"\s*:\s*"([^"]+)"/i,
+        /\\"uploadDate\\"\s*:\s*\\"([^\\"]+)\\"/i,
+        /\\"datePublished\\"\s*:\s*\\"([^\\"]+)\\"/i,
+        /\\"publishDate\\"\s*:\s*\\"([^\\"]+)\\"/i
+    ];
+
+    for (const pattern of patterns) {
+        const match = html.match(pattern);
+        const parsed = parseDateLikeValue(match?.[1] || '');
+        if (Number.isFinite(parsed)) {
+            return parsed;
+        }
+    }
+
+    return null;
 }
 
 /**
@@ -1137,6 +1394,143 @@ async function createPlaylistAndAdd(payload) {
 }
 
 /**
+ * Resolve one video upload timestamp via watch-page HTML.
+ * @param {string} videoId
+ * @returns {Promise<number|null>}
+ */
+async function resolveUploadTimestampFromWatchPage(videoId) {
+    try {
+        const watchUrl = new URL('/watch', location.origin);
+        watchUrl.searchParams.set('v', videoId);
+
+        const response = await fetch(watchUrl.toString(), {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'default',
+            redirect: 'follow'
+        });
+
+        if (!response.ok) {
+            return null;
+        }
+
+        const html = await response.text();
+        return extractUploadTimestampFromHtml(html);
+    } catch (error) {
+        logger.warn('Failed watch-page fallback timestamp request', { videoId, error });
+        return null;
+    }
+}
+
+/**
+ * Resolve one chunk of Shorts upload timestamps via YouTube metadata endpoint.
+ * Falls back to watch-page HTML for unresolved IDs.
+ * @param {string[]} videoIds
+ * @param {{apiKey: string, context: object, headers: Record<string, string>}} config
+ * @returns {Promise<Map<string, number|null>>}
+ */
+async function resolveShortsTimestampChunk(videoIds, config) {
+    const ids = sanitizeVideoIds(videoIds);
+    const results = new Map();
+    if (ids.length === 0) {
+        return results;
+    }
+
+    const idSet = new Set(ids);
+    let batchTimestamps = new Map();
+
+    try {
+        const payload = {
+            context: config.context,
+            videoIds: ids
+        };
+
+        const response = await postInnertube('updated_metadata', payload, config);
+
+        batchTimestamps = extractShortsTimestampsFromMetadata(response.body, idSet);
+    } catch (error) {
+        logger.warn('Failed batch Shorts timestamp request', {
+            videoCount: ids.length,
+            error
+        });
+    }
+
+    const unresolvedIds = ids.filter((videoId) => !Number.isFinite(batchTimestamps.get(videoId)));
+    unresolvedIds.forEach((videoId) => {
+        results.set(videoId, null);
+    });
+
+    if (unresolvedIds.length > 0) {
+        const fallbackTimestamps = await mapWithConcurrency(
+            unresolvedIds,
+            REMOVE_LOOKUP_CONCURRENCY,
+            async (videoId) => {
+                const timestampMs = await resolveUploadTimestampFromWatchPage(videoId);
+                return [videoId, Number.isFinite(timestampMs) ? timestampMs : null];
+            }
+        );
+
+        fallbackTimestamps.forEach((entry) => {
+            const videoId = Array.isArray(entry) ? entry[0] : '';
+            const timestampMs = Array.isArray(entry) ? entry[1] : null;
+            if (typeof videoId === 'string' && videoId) {
+                results.set(videoId, Number.isFinite(timestampMs) ? timestampMs : null);
+            }
+        });
+    }
+
+    batchTimestamps.forEach((timestampMs, videoId) => {
+        if (!idSet.has(videoId)) {
+            return;
+        }
+
+        results.set(videoId, Number.isFinite(timestampMs) ? Number(timestampMs) : null);
+    });
+
+    ids.forEach((videoId) => {
+        if (!results.has(videoId)) {
+            results.set(videoId, null);
+        }
+    });
+
+    logger.debug('Resolved Shorts timestamp chunk', {
+        requested: ids.length,
+        batchResolved: ids.length - unresolvedIds.length,
+        fallbackResolved: unresolvedIds.filter((videoId) => Number.isFinite(results.get(videoId))).length
+    });
+
+    return results;
+}
+
+/**
+ * Bridge action: resolve Shorts upload timestamps in batched requests.
+ * @param {{videoIds?: string[]}} payload
+ * @returns {Promise<{timestampsById: Record<string, number|null>}>}
+ */
+async function getShortsUploadTimestamps(payload) {
+    const videoIds = sanitizeVideoIds(payload?.videoIds);
+    if (videoIds.length === 0) {
+        return { timestampsById: {} };
+    }
+
+    const config = await getInnertubeConfig();
+    const chunks = chunk(videoIds, SHORTS_TIMESTAMP_BATCH_SIZE);
+    const timestampsById = {};
+
+    for (const videoIdChunk of chunks) {
+        const chunkResult = await resolveShortsTimestampChunk(videoIdChunk, config);
+        videoIdChunk.forEach((videoId) => {
+            const timestampMs = chunkResult.get(videoId);
+            timestampsById[videoId] = Number.isFinite(timestampMs) ? Number(timestampMs) : null;
+        });
+    }
+
+    return {
+        timestampsById
+    };
+}
+
+/**
  * Post bridge response.
  * @param {string} requestId
  * @param {boolean} success
@@ -1174,6 +1568,8 @@ async function handleBridgeRequest(message) {
             result = await removeFromPlaylist(payload);
         } else if (action === ACTIONS.CREATE_PLAYLIST_AND_ADD) {
             result = await createPlaylistAndAdd(payload);
+        } else if (action === ACTIONS.GET_SHORTS_UPLOAD_TIMESTAMPS) {
+            result = await getShortsUploadTimestamps(payload);
         } else {
             throw new Error('Unsupported playlist action.');
         }
