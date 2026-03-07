@@ -329,7 +329,7 @@ try {
                     
                     if (watchedModule && watchedModule.importWatchedHistory) {
                         console.log('🚀 Calling importWatchedHistory function...');
-                        watchedModule.importWatchedHistory(message.videoIds).then(count => {
+                        watchedModule.importWatchedHistory(message.videoIds, message.options || {}).then(count => {
                             console.log('🚀 Import completed successfully, count:', count);
                             sendResponse({ success: true, count });
                         }).catch(error => {
@@ -391,3 +391,4 @@ window.testYTCommanderContentScript = function() {
     console.log('🎯 Available modules:', Object.keys(moduleInstances));
     return 'Content script is working';
 };
+
