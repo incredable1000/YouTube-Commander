@@ -14,32 +14,29 @@ import { createLogger } from './utils/logger.js';
 import { createKeyboardShortcut, waitForElement, createThrottledObserver } from './utils/events.js';
 import { ensureAnimations } from './utils/ui.js';
 import { DEFAULT_SETTINGS, STORAGE_KEYS } from '../shared/constants.js';
+import {
+    BUTTON_CLASS,
+    BUTTON_CONTAINER_CLASS,
+    BUTTON_UPDATE_THROTTLE_MS,
+    BUTTON_WAIT_TIMEOUT_MS,
+    CONTROL_VISIBILITY_HOLD_MS,
+    FLAT_SEEK_SETTING_KEYS,
+    INDICATOR_HIDE_DELAY_MS,
+    INDICATOR_REMOVE_DELAY_MS,
+    SEEK_CONFIG
+} from './seek-controls/constants.js';
+import {
+    clampSeconds,
+    isPlainObject,
+    normalizeSettings
+} from './seek-controls/settings.js';
+import {
+    createIndicatorElement,
+    createIndicatorState,
+    updateIndicatorElement
+} from './seek-controls/indicatorDom.js';
 
 const logger = createLogger('SeekControls');
-
-const SEEK_CONFIG = [
-    { id: 'short', secondsKey: 'shortSeek', shortcutKey: 'shortSeekKey' },
-    { id: 'medium', secondsKey: 'mediumSeek', shortcutKey: 'mediumSeekKey' },
-    { id: 'long', secondsKey: 'longSeek', shortcutKey: 'longSeekKey' }
-];
-
-const FLAT_SEEK_SETTING_KEYS = [
-    'shortSeek',
-    'mediumSeek',
-    'longSeek',
-    'shortSeekKey',
-    'mediumSeekKey',
-    'longSeekKey'
-];
-
-const BUTTON_CONTAINER_CLASS = 'custom-seek-buttons';
-const BUTTON_CLASS = 'custom-seek-button';
-
-const BUTTON_WAIT_TIMEOUT_MS = 1200;
-const BUTTON_UPDATE_THROTTLE_MS = 650;
-const INDICATOR_HIDE_DELAY_MS = 920;
-const INDICATOR_REMOVE_DELAY_MS = 260;
-const CONTROL_VISIBILITY_HOLD_MS = 1250;
 
 let settings = normalizeSettings(DEFAULT_SETTINGS);
 let isInitialized = false;
@@ -67,16 +64,6 @@ const indicatorStates = {
     forward: createIndicatorState(),
     backward: createIndicatorState()
 };
-
-function createIndicatorState() {
-    return {
-        element: null,
-        player: null,
-        totalSeconds: 0,
-        hideTimer: null,
-        removeTimer: null
-    };
-}
 
 /**
  * Initialize seek controls.
@@ -516,58 +503,6 @@ function showSeekIndicator(direction, seconds) {
 }
 
 /**
- * Create indicator DOM structure.
- * @param {'forward'|'backward'} direction
- * @returns {HTMLDivElement}
- */
-function createIndicatorElement(direction) {
-    const root = document.createElement('div');
-    root.className = `modern-seek-indicator ${direction}`;
-
-    const content = document.createElement('div');
-    content.className = 'modern-seek-indicator__content';
-
-    const amount = document.createElement('div');
-    amount.className = 'modern-seek-indicator__amount';
-
-    const edgeArrow = document.createElement('div');
-    edgeArrow.className = 'modern-seek-indicator__edge-arrow';
-
-    const valueRow = document.createElement('div');
-    valueRow.className = 'modern-seek-indicator__value-row';
-
-    valueRow.appendChild(amount);
-    valueRow.appendChild(edgeArrow);
-    content.appendChild(valueRow);
-    root.appendChild(content);
-
-    updateIndicatorElement(root, direction, 0);
-
-    return root;
-}
-
-/**
- * Update indicator label text.
- * @param {HTMLDivElement} element
- * @param {'forward'|'backward'} direction
- * @param {number} totalSeconds
- */
-function updateIndicatorElement(element, direction, totalSeconds) {
-    const amount = element.querySelector('.modern-seek-indicator__amount');
-    const edgeArrow = element.querySelector('.modern-seek-indicator__edge-arrow');
-    if (!amount) {
-        return;
-    }
-
-    const prefix = direction === 'forward' ? '+' : '-';
-    amount.textContent = `${prefix}${totalSeconds}`;
-
-    if (edgeArrow) {
-        edgeArrow.textContent = direction === 'forward' ? '>' : '<';
-    }
-}
-
-/**
  * Hide indicator and reset accumulated state.
  * @param {'forward'|'backward'} direction
  */
@@ -946,67 +881,6 @@ function cleanup() {
     initPromise = null;
 
     logger.info('Seek controls cleaned up');
-}
-
-/**
- * Normalize settings with safe defaults.
- * @param {object} source
- * @returns {object}
- */
-function normalizeSettings(source) {
-    const safe = isPlainObject(source) ? source : {};
-
-    return {
-        ...DEFAULT_SETTINGS,
-        shortSeek: clampSeconds(safe.shortSeek, DEFAULT_SETTINGS.shortSeek),
-        mediumSeek: clampSeconds(safe.mediumSeek, DEFAULT_SETTINGS.mediumSeek),
-        longSeek: clampSeconds(safe.longSeek, DEFAULT_SETTINGS.longSeek),
-        shortSeekKey: normalizeShortcut(safe.shortSeekKey, DEFAULT_SETTINGS.shortSeekKey),
-        mediumSeekKey: normalizeShortcut(safe.mediumSeekKey, DEFAULT_SETTINGS.mediumSeekKey),
-        longSeekKey: normalizeShortcut(safe.longSeekKey, DEFAULT_SETTINGS.longSeekKey)
-    };
-}
-
-/**
- * Normalize shortcut shape.
- * @param {any} value
- * @param {object} fallback
- * @returns {{ctrl: boolean, shift: boolean, alt: boolean, key: string}}
- */
-function normalizeShortcut(value, fallback) {
-    const source = isPlainObject(value) ? value : {};
-
-    return {
-        ctrl: Boolean(source.ctrl ?? fallback.ctrl ?? false),
-        shift: Boolean(source.shift ?? fallback.shift ?? false),
-        alt: Boolean(source.alt ?? fallback.alt ?? false),
-        key: typeof source.key === 'string' && source.key.length > 0
-            ? source.key
-            : (fallback.key || 'ArrowRight')
-    };
-}
-
-/**
- * Clamp seek seconds to a safe range.
- * @param {any} value
- * @param {number} fallback
- * @returns {number}
- */
-function clampSeconds(value, fallback) {
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isFinite(parsed)) {
-        return fallback;
-    }
-    return Math.min(600, Math.max(1, parsed));
-}
-
-/**
- * Check plain object.
- * @param {any} value
- * @returns {boolean}
- */
-function isPlainObject(value) {
-    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 if (document.readyState === 'loading') {

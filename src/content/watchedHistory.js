@@ -5,34 +5,24 @@
 
 import { getCurrentVideoId } from './utils/youtube.js';
 import { createLogger } from './utils/logger.js';
+import {
+    CACHE_REFRESH_DEBOUNCE_MS,
+    DB_NAME,
+    DB_VERSION,
+    FEED_RENDERER_SELECTOR,
+    HIDDEN_CLASS,
+    MARKER_CLASS,
+    MAX_PENDING_NODES,
+    PLAYBACK_BIND_DELAY_MS,
+    PLAYBACK_BIND_MAX_RETRIES,
+    RENDER_DEBOUNCE_MS,
+    STORE_NAME,
+    VIDEO_LINK_SELECTOR,
+    WATCHED_ATTR
+} from './watched-history/constants.js';
+import { extractVideoId, isValidVideoId } from './watched-history/videoId.js';
 
 const logger = createLogger('WatchedHistory');
-
-const DB_NAME = 'YouTubeCommanderDB';
-const DB_VERSION = 1;
-const STORE_NAME = 'watchedVideos';
-
-const FEED_RENDERER_SELECTOR = [
-    'ytd-rich-item-renderer',
-    'ytd-video-renderer',
-    'ytd-grid-video-renderer',
-    'ytd-compact-video-renderer',
-    'ytd-playlist-video-renderer',
-    'ytd-playlist-panel-video-renderer',
-    'ytd-reel-item-renderer',
-    'ytm-shorts-lockup-view-model'
-].join(', ');
-
-const VIDEO_LINK_SELECTOR = 'a[href*="/watch?v="], a[href*="/shorts/"]';
-const MARKER_CLASS = 'yt-commander-watched-marker';
-const HIDDEN_CLASS = 'yt-commander-hidden-video';
-const WATCHED_ATTR = 'data-yt-commander-watched';
-
-const RENDER_DEBOUNCE_MS = 120;
-const PLAYBACK_BIND_DELAY_MS = 250;
-const PLAYBACK_BIND_MAX_RETRIES = 12;
-const CACHE_REFRESH_DEBOUNCE_MS = 300;
-const MAX_PENDING_NODES = 2000;
 
 let db = null;
 let initialized = false;
@@ -554,44 +544,6 @@ function decorateContainer(container) {
  */
 function findThumbnailAnchor(container, fallbackLink) {
     return container.querySelector('a#thumbnail') || fallbackLink || null;
-}
-
-/**
- * Parse video ID from watch/shorts URL.
- * @param {string} url
- * @returns {string|null}
- */
-function extractVideoId(url) {
-    if (!url || typeof url !== 'string') {
-        return null;
-    }
-
-    try {
-        const parsed = new URL(url, location.origin);
-
-        if (parsed.pathname === '/watch') {
-            return parsed.searchParams.get('v');
-        }
-
-        if (parsed.pathname.startsWith('/shorts/')) {
-            const shortsId = parsed.pathname.split('/shorts/')[1];
-            return shortsId ? shortsId.split('/')[0] : null;
-        }
-
-        return null;
-    } catch (_error) {
-        const fallback = url.match(/(?:v=|\/shorts\/)([A-Za-z0-9_-]{10,15})/);
-        return fallback ? fallback[1] : null;
-    }
-}
-
-/**
- * Validate YouTube-like ID length and charset.
- * @param {string|null} videoId
- * @returns {boolean}
- */
-function isValidVideoId(videoId) {
-    return typeof videoId === 'string' && /^[A-Za-z0-9_-]{10,15}$/.test(videoId);
 }
 
 /**

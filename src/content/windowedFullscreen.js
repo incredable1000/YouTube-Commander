@@ -8,24 +8,33 @@ import { createLogger } from './utils/logger.js';
 import { createThrottledObserver } from './utils/events.js';
 import { getActivePlayer, isShortsPage, isVideoPage } from './utils/youtube.js';
 import { normalizeShortcutKey, shortcutKeyEquals } from '../shared/shortcutKey.js';
+import {
+    AUTO_WINDOWED_WARMUP_MS,
+    BUTTON_ACTIVE_CLASS,
+    BUTTON_CLASS,
+    BUTTON_ENSURE_INTERVAL_MS,
+    BUTTON_ID,
+    DEFAULT_WINDOWED_SHORTCUT,
+    OBSERVER_THROTTLE_MS,
+    OVERLAY_CLASS,
+    PLAYER_ACTIVE_CLASS,
+    RELAYOUT_DELAYS_MS,
+    RESTORE_ANCHOR_CLASS,
+    RESTORE_RETRY_DELAY_MS,
+    RESTORE_RETRY_MAX_ATTEMPTS,
+    ROOT_LOCK_CLASS,
+    WINDOWED_ICON_PATH
+} from './windowed-fullscreen/constants.js';
+import {
+    ensureOverlayHost as createWindowedOverlayHost,
+    findFallbackPlayerMount,
+    forcePlayerRelayout as triggerPlayerRelayout,
+    getCurrentWatchVideoId,
+    getRootPlayerHost,
+    isUsableMountParent
+} from './windowed-fullscreen/dom.js';
 
 const logger = createLogger('WindowedFullscreen');
-
-const BUTTON_ID = 'yt-commander-windowed-fullscreen-button';
-const BUTTON_CLASS = 'ytp-button yt-commander-fullwindow-button';
-const BUTTON_ACTIVE_CLASS = 'is-active';
-const PLAYER_ACTIVE_CLASS = 'yt-commander-windowed-player';
-const OVERLAY_CLASS = 'yt-commander-windowed-overlay';
-const ROOT_LOCK_CLASS = 'yt-commander-windowed-lock';
-const RESTORE_ANCHOR_CLASS = 'yt-commander-windowed-anchor';
-const OBSERVER_THROTTLE_MS = 650;
-const BUTTON_ENSURE_INTERVAL_MS = 1200;
-const WINDOWED_ICON_PATH = 'M7 14H5v5h5v-2H7v-3zm0-4h2V7h3V5H5v5zm10 7h-3v2h5v-5h-2v3zm0-12V5h-3v2h3v3h2V5z';
-const RELAYOUT_DELAYS_MS = [0, 60, 180];
-const DEFAULT_WINDOWED_SHORTCUT = 'Enter';
-const AUTO_WINDOWED_WARMUP_MS = 1200;
-const RESTORE_RETRY_MAX_ATTEMPTS = 12;
-const RESTORE_RETRY_DELAY_MS = 120;
 
 let isInitialized = false;
 let initPromise = null;
@@ -48,6 +57,14 @@ let originalRootNextSibling = null;
 let restoreAnchor = null;
 let overlayHost = null;
 let isWindowed = false;
+
+function forcePlayerRelayout(player) {
+    triggerPlayerRelayout(player, RELAYOUT_DELAYS_MS);
+}
+
+function ensureOverlayHost() {
+    return createWindowedOverlayHost(OVERLAY_CLASS);
+}
 
 /**
  * Initialize module.
@@ -348,51 +365,6 @@ function restoreMountedRootPlayer() {
 }
 
 /**
- * Check whether a mount parent can safely host #movie_player.
- * @param {Node|null} node
- * @returns {boolean}
- */
-function isUsableMountParent(node) {
-    if (!(node instanceof Element) || !node.isConnected) {
-        return false;
-    }
-
-    if (node.closest('ytd-miniplayer')) {
-        return false;
-    }
-
-    const style = window.getComputedStyle(node);
-    if (style.display === 'none' || style.visibility === 'hidden') {
-        return false;
-    }
-
-    return true;
-}
-
-/**
- * Resolve fallback watch-page container for #movie_player when original mount is stale.
- * @returns {Element|null}
- */
-function findFallbackPlayerMount() {
-    const selectors = [
-        'ytd-watch-flexy #player-container #player',
-        'ytd-watch-flexy #player-full-bleed-container #player',
-        'ytd-watch-flexy #primary #player',
-        'ytd-watch-flexy #player',
-        '#primary #player'
-    ];
-
-    for (const selector of selectors) {
-        const candidate = document.querySelector(selector);
-        if (isUsableMountParent(candidate)) {
-            return candidate;
-        }
-    }
-
-    return null;
-}
-
-/**
  * Retry restoring detached player root when page containers are still rebuilding.
  * @param {Element} rootPlayer
  */
@@ -628,61 +600,6 @@ function markCurrentVideoAsAutoHandled() {
 }
 
 /**
- * Resolve root player host that should be moved into the windowed overlay.
- * @param {Element|null} player
- * @returns {Element|null}
- */
-function getRootPlayerHost(player) {
-    if (!(player instanceof Element)) {
-        return null;
-    }
-
-    return player.closest('#movie_player') || player;
-}
-
-/**
- * Ensure overlay host exists in document body.
- * @returns {HTMLDivElement|null}
- */
-function ensureOverlayHost() {
-    if (!document.body) {
-        return null;
-    }
-
-    const host = document.createElement('div');
-    host.className = OVERLAY_CLASS;
-    host.setAttribute('aria-hidden', 'true');
-    document.body.appendChild(host);
-    return host;
-}
-
-/**
- * Trigger a few resize ticks so YouTube recalculates stream geometry.
- * @param {Element|null} player
- */
-function forcePlayerRelayout(player) {
-    const target = player instanceof Element ? player : null;
-
-    RELAYOUT_DELAYS_MS.forEach((delay) => {
-        setTimeout(() => {
-            try {
-                window.dispatchEvent(new Event('resize'));
-            } catch (_error) {
-                // no-op
-            }
-
-            if (target && typeof target.dispatchEvent === 'function') {
-                try {
-                    target.dispatchEvent(new Event('resize'));
-                } catch (_error) {
-                    // no-op
-                }
-            }
-        }, delay);
-    });
-}
-
-/**
  * Start listeners + observer.
  */
 function startRuntimeTracking() {
@@ -814,20 +731,6 @@ function shouldHandleWindowedShortcut(event) {
     }
 
     return true;
-}
-
-/**
- * Get current watch video id from URL.
- * @returns {string|null}
- */
-function getCurrentWatchVideoId() {
-    try {
-        const url = new URL(location.href);
-        const value = url.searchParams.get('v');
-        return value && value.trim() ? value.trim() : null;
-    } catch (_error) {
-        return null;
-    }
 }
 
 /**
