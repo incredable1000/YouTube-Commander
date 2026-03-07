@@ -1,266 +1,133 @@
 /**
- * Quality Controls - Refactored with DRY principles
- * Main world script for YouTube quality control using YouTube's internal API
+ * Quality Controls (Main World)
+ * Applies preferred quality once when a video loads, then does not override manual changes.
  */
 
-// Note: This runs in MAIN world to access YouTube's player API
-// Cannot import ES modules here, so we'll use a simpler approach
+import { createLogger } from './utils/logger.js';
+import { DEFAULT_SETTINGS, MESSAGE_TYPES } from '../shared/constants.js';
+import { normalizeQualityId } from '../shared/quality.js';
+import { createQualityController } from './quality-controls/controller.js';
 
-// Keep track of user's preferred quality
-let userPreferredQuality = 'hd1080';
-let isInitialized = false;
+const logger = createLogger('QualityControls');
 
-// Quality levels in order of preference (highest to lowest)
-const QUALITY_ORDER = [
-    'highres',   // 4K
-    'hd1440',    // 1440p
-    'hd1080',    // 1080p
-    'hd720',     // 720p
-    'large',     // 480p
-    'medium',    // 360p
-    'small',     // 240p
-    'tiny'       // 144p
-];
+let initialized = false;
+let messageListenerAttached = false;
+
+const controller = createQualityController({
+    logger,
+    initialQuality: DEFAULT_SETTINGS.maxQuality
+});
 
 /**
- * Debug logging function
+ * Handle quality messages from isolated-world wrapper.
+ * @param {MessageEvent} event
  */
-function debugLog(message, data = null) {
-    console.log(`[YT-Commander][QualityControls] ${message}`, data || '');
-}
-
-/**
- * Get YouTube player instance
- */
-function getPlayer() {
-    return document.getElementById('movie_player') || 
-           document.querySelector('.html5-video-player');
-}
-
-/**
- * Set video quality using YouTube's internal API
- */
-function setVideoQuality(preferredQuality = 'hd1080') {
-    try {
-        // Update user's preferred quality
-        userPreferredQuality = preferredQuality;
-        
-        const player = getPlayer();
-        
-        if (!player || typeof player.getAvailableQualityLevels !== 'function') {
-            debugLog('Player not ready or API not available');
-            return false;
-        }
-        
-        const availableQualities = player.getAvailableQualityLevels();
-        debugLog('Available qualities:', availableQualities);
-        
-        if (availableQualities.length === 0) {
-            debugLog('No quality levels available');
-            return false;
-        }
-        
-        let targetQuality = preferredQuality;
-        
-        // If preferred quality is available, use it
-        if (availableQualities.includes(preferredQuality)) {
-            targetQuality = preferredQuality;
-        } else {
-            // Find the best available quality within the limit
-            targetQuality = findBestAvailableQuality(preferredQuality, availableQualities);
-        }
-        
-        // Set the quality
-        if (targetQuality) {
-            player.setPlaybackQualityRange(targetQuality, targetQuality);
-            player.setPlaybackQuality(targetQuality);
-            
-            debugLog(`Quality set to: ${targetQuality} (requested: ${preferredQuality})`);
-            return true;
-        }
-        
-        return false;
-    } catch (error) {
-        debugLog('Error setting video quality:', error);
-        return false;
+function handleWindowMessage(event) {
+    if (event.source !== window || !event.data || typeof event.data !== 'object') {
+        return;
     }
-}
 
-/**
- * Find the best available quality within the preferred limit
- */
-function findBestAvailableQuality(preferredQuality, availableQualities) {
-    const preferredIndex = QUALITY_ORDER.indexOf(preferredQuality);
-    
-    if (preferredIndex === -1) {
-        // Unknown quality, return highest available
-        return availableQualities[0];
+    if (event.data.type !== MESSAGE_TYPES.SET_QUALITY) {
+        return;
     }
-    
-    // Find the highest quality that's not higher than preferred
-    for (let i = preferredIndex; i < QUALITY_ORDER.length; i++) {
-        const quality = QUALITY_ORDER[i];
-        if (availableQualities.includes(quality)) {
-            return quality;
-        }
-    }
-    
-    // If no quality found within limit, return highest available
-    return availableQualities[0];
-}
 
-/**
- * Monitor for quality changes and reapply if needed
- */
-function monitorQualityChanges() {
-    const player = getPlayer();
-    if (!player) return;
-    
-    // Check current quality periodically
-    const checkInterval = setInterval(() => {
-        try {
-            if (typeof player.getPlaybackQuality === 'function') {
-                const currentQuality = player.getPlaybackQuality();
-                const availableQualities = player.getAvailableQualityLevels();
-                
-                // If quality changed unexpectedly, reapply preferred quality
-                if (currentQuality && currentQuality !== userPreferredQuality) {
-                    const expectedQuality = findBestAvailableQuality(userPreferredQuality, availableQualities);
-                    
-                    if (currentQuality !== expectedQuality) {
-                        debugLog(`Quality drift detected: ${currentQuality} -> ${expectedQuality}`);
-                        setVideoQuality(userPreferredQuality);
-                    }
-                }
-            }
-        } catch (error) {
-            // Player might not be ready, ignore errors
-        }
-    }, 5000); // Check every 5 seconds
-    
-    // Clean up interval after 5 minutes to avoid memory leaks
-    setTimeout(() => {
-        clearInterval(checkInterval);
-    }, 300000);
-}
+    const requestedQuality = normalizeQualityId(
+        event.data.quality,
+        controller.getPreferredQuality()
+    );
 
-/**
- * Handle messages from content script
- */
-function handleMessages() {
-    window.addEventListener('message', (event) => {
-        if (event.source !== window) return;
-        
-        if (event.data.type === 'SET_QUALITY') {
-            const quality = event.data.quality;
-            debugLog('Received quality change request:', quality);
-            
-            // Apply quality immediately and retry if needed
-            const success = setVideoQuality(quality);
-            
-            if (!success) {
-                // Retry after a short delay
-                setTimeout(() => {
-                    setVideoQuality(quality);
-                }, 1000);
-            }
-            
-            // Send confirmation back
-            window.postMessage({
-                type: 'QUALITY_CHANGED',
-                quality: quality,
-                success: success
-            }, '*');
-        }
+    controller.updatePreferredQuality(requestedQuality, {
+        applyNow: true,
+        forceApply: true
     });
-    
-    debugLog('Message listeners set up');
+
+    window.postMessage({
+        type: MESSAGE_TYPES.QUALITY_CHANGED,
+        quality: requestedQuality,
+        success: true
+    }, '*');
 }
 
 /**
- * Wait for YouTube player to be ready
+ * Attach message listener once.
  */
-function waitForPlayer() {
-    return new Promise((resolve) => {
-        const checkPlayer = () => {
-            const player = getPlayer();
-            if (player && typeof player.getAvailableQualityLevels === 'function') {
-                resolve(player);
-            } else {
-                setTimeout(checkPlayer, 500);
-            }
-        };
-        checkPlayer();
-    });
+function attachMessageListener() {
+    if (messageListenerAttached) {
+        return;
+    }
+
+    window.addEventListener('message', handleWindowMessage);
+    messageListenerAttached = true;
 }
 
 /**
- * Initialize quality controls
+ * Initialize quality controls.
  */
 async function initQualityControls() {
-    if (isInitialized) return;
-    
-    try {
-        debugLog('Initializing quality controls (main world)');
-        
-        // Wait for player to be ready
-        await waitForPlayer();
-        
-        // Set up message handling
-        handleMessages();
-        
-        // Start monitoring quality changes
-        monitorQualityChanges();
-        
-        // Apply default quality
-        setVideoQuality(userPreferredQuality);
-        
-        isInitialized = true;
-        debugLog('Quality controls initialized successfully');
-    } catch (error) {
-        debugLog('Failed to initialize quality controls:', error);
+    if (initialized) {
+        return;
     }
+
+    attachMessageListener();
+    controller.start();
+    initialized = true;
+
+    logger.info('Quality controls initialized');
 }
 
 /**
- * Handle page navigation in YouTube SPA
+ * Apply explicit quality update programmatically.
+ * @param {string} quality
+ * @returns {boolean}
  */
-function handleNavigation() {
-    let lastUrl = location.href;
-    
-    const observer = new MutationObserver(() => {
-        if (location.href !== lastUrl) {
-            lastUrl = location.href;
-            
-            // Reinitialize on navigation
-            if (location.pathname.includes('/watch')) {
-                setTimeout(() => {
-                    setVideoQuality(userPreferredQuality);
-                }, 2000);
-            }
-        }
+function setVideoQuality(quality) {
+    const normalized = controller.updatePreferredQuality(quality, {
+        applyNow: true,
+        forceApply: true
     });
-    
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
+
+    return Boolean(normalized);
 }
 
-// Initialize when DOM is ready
+/**
+ * Read current preferred quality.
+ * @returns {string}
+ */
+function getPreferredQuality() {
+    return controller.getPreferredQuality();
+}
+
+/**
+ * Cleanup runtime listeners.
+ */
+function cleanupQualityControls() {
+    controller.stop();
+    if (messageListenerAttached) {
+        window.removeEventListener('message', handleWindowMessage);
+        messageListenerAttached = false;
+    }
+    initialized = false;
+    logger.info('Quality controls cleaned up');
+}
+
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-        initQualityControls();
-        handleNavigation();
-    });
+        void initQualityControls();
+    }, { once: true });
 } else {
-    initQualityControls();
-    handleNavigation();
+    void initQualityControls();
 }
 
-// Export for potential external use (in main world)
 window.ytCommanderQualityControls = {
+    init: initQualityControls,
+    cleanup: cleanupQualityControls,
     setVideoQuality,
-    getPlayer,
-    init: initQualityControls
+    getPreferredQuality
+};
+
+export {
+    initQualityControls,
+    cleanupQualityControls,
+    setVideoQuality,
+    getPreferredQuality
 };

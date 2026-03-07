@@ -1,4 +1,5 @@
 import { normalizeShortcutKey } from '../shared/shortcutKey.js';
+import { normalizeQualityId } from '../shared/quality.js';
 
 // Modern YouTube Commander Popup Script
 const defaultSettings = {
@@ -195,21 +196,24 @@ function loadSettings() {
     chrome.storage.sync.get(defaultSettings, (settings) => {
         currentSettings = sanitizeSettings(settings);
 
-        document.getElementById('shortSeek').value = settings.shortSeek;
-        document.getElementById('mediumSeek').value = settings.mediumSeek;
-        document.getElementById('longSeek').value = settings.longSeek;
-        document.getElementById('maxQuality').value = settings.maxQuality;
-        document.getElementById('rotationShortcut').value = settings.rotationShortcut || defaultSettings.rotationShortcut;
-        document.getElementById('windowedFullscreenShortcut').value = settings.windowedFullscreenShortcut || defaultSettings.windowedFullscreenShortcut;
+        document.getElementById('shortSeek').value = currentSettings.shortSeek;
+        document.getElementById('mediumSeek').value = currentSettings.mediumSeek;
+        document.getElementById('longSeek').value = currentSettings.longSeek;
+        document.getElementById('maxQuality').value = normalizeQualityId(
+            currentSettings.maxQuality,
+            defaultSettings.maxQuality
+        );
+        document.getElementById('rotationShortcut').value = currentSettings.rotationShortcut || defaultSettings.rotationShortcut;
+        document.getElementById('windowedFullscreenShortcut').value = currentSettings.windowedFullscreenShortcut || defaultSettings.windowedFullscreenShortcut;
 
-        setToggleState(document.getElementById('deleteVideosToggle'), settings.deleteVideosEnabled === true);
+        setToggleState(document.getElementById('deleteVideosToggle'), currentSettings.deleteVideosEnabled === true);
         setToggleState(
             document.getElementById('autoSwitchToOriginalToggle'),
-            settings.autoSwitchToOriginal !== false
+            currentSettings.autoSwitchToOriginal !== false
         );
         setToggleState(
             document.getElementById('windowedFullscreenAutoToggle'),
-            settings.windowedFullscreenAuto === true
+            currentSettings.windowedFullscreenAuto === true
         );
 
         chrome.storage.local.get(['backupRemindersEnabled'], (result) => {
@@ -243,6 +247,10 @@ function sanitizeSettings(settings) {
     LEGACY_FEATURE_KEYS.forEach((key) => {
         delete sanitized[key];
     });
+    sanitized.maxQuality = normalizeQualityId(
+        sanitized.maxQuality,
+        defaultSettings.maxQuality
+    );
     return sanitized;
 }
 

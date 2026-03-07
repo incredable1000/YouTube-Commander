@@ -38,7 +38,8 @@ export const DEFAULT_SETTINGS = {
 
 // Video quality levels in order of preference
 export const QUALITY_LEVELS = [
-    'highres',   // 4K
+    'highres',   // 8K / highest available
+    'hd2160',    // 4K
     'hd1440',    // 1440p
     'hd1080',    // 1080p
     'hd720',     // 720p

@@ -1,115 +1,131 @@
 /**
- * Quality Controls Wrapper - Refactored with DRY principles
- * Bridge between isolated and main world for quality control
+ * Quality Controls Wrapper (Isolated World)
+ * Sends quality settings to main-world quality controller.
  */
 
 import { createLogger } from './utils/logger.js';
 import { getStorageData } from './utils/storage.js';
 import { DEFAULT_SETTINGS, MESSAGE_TYPES } from '../shared/constants.js';
+import { normalizeQualityId } from '../shared/quality.js';
 
-// Create scoped logger
 const logger = createLogger('QualityWrapper');
 
+let initialized = false;
+let enabled = true;
+let runtimeListenerAttached = false;
+let lastSentQuality = '';
+
 /**
- * Send quality setting to main world script
+ * Post quality update to main world.
+ * @param {string} quality
+ * @param {{force?: boolean}} [options]
  */
-function sendQualityToPage(quality) {
-    try {
-        window.postMessage({ 
-            type: MESSAGE_TYPES.SET_QUALITY, 
-            quality: quality 
-        }, '*');
-        
-        logger.debug('Quality setting sent to page', { quality });
-    } catch (error) {
-        logger.error('Failed to send quality to page', error);
+function sendQualityToPage(quality, options = {}) {
+    if (!enabled) {
+        return;
     }
+
+    const normalized = normalizeQualityId(quality, DEFAULT_SETTINGS.maxQuality);
+    const force = options.force === true;
+
+    if (!force && normalized === lastSentQuality) {
+        return;
+    }
+
+    window.postMessage({
+        type: MESSAGE_TYPES.SET_QUALITY,
+        quality: normalized
+    }, '*');
+
+    lastSentQuality = normalized;
+    logger.debug('Quality setting sent to page', { quality: normalized, force });
 }
 
 /**
- * Load and apply initial quality setting
+ * Read stored quality and apply to current page context.
  */
 async function loadInitialQuality() {
     try {
-        const settings = await getStorageData('ytCommanderSettings', DEFAULT_SETTINGS);
-        const quality = settings.maxQuality || DEFAULT_SETTINGS.maxQuality;
-        
-        sendQualityToPage(quality);
+        const settings = await getStorageData(null, DEFAULT_SETTINGS);
+        const quality = normalizeQualityId(settings.maxQuality, DEFAULT_SETTINGS.maxQuality);
+        sendQualityToPage(quality, { force: true });
         logger.info('Initial quality loaded and applied', { quality });
     } catch (error) {
         logger.error('Failed to load initial quality', error);
-        // Fallback to default
-        sendQualityToPage(DEFAULT_SETTINGS.maxQuality);
+        sendQualityToPage(DEFAULT_SETTINGS.maxQuality, { force: true });
     }
 }
 
 /**
- * Set up message listeners
+ * Attach runtime message listener once.
  */
 function setupMessageListeners() {
-    // Listen for quality changes from popup or other sources
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (runtimeListenerAttached) {
+        return;
+    }
+
+    chrome.runtime.onMessage.addListener((message) => {
         try {
-            if (message.type === MESSAGE_TYPES.QUALITY_CHANGED) {
-                sendQualityToPage(message.quality);
-                logger.info('Quality changed via message', { quality: message.quality });
+            if (message?.type === MESSAGE_TYPES.QUALITY_CHANGED) {
+                sendQualityToPage(message.quality, { force: true });
             }
         } catch (error) {
             logger.error('Error handling runtime message', error);
         }
     });
-    
-    logger.debug('Message listeners set up');
+
+    runtimeListenerAttached = true;
 }
 
 /**
- * Update settings from popup
+ * Update settings from popup/runtime changes.
+ * @param {object} newSettings
  */
 function updateSettings(newSettings) {
-    const quality = newSettings.maxQuality || DEFAULT_SETTINGS.maxQuality;
-    logger.info('Settings updated from popup', { quality });
+    if (!newSettings || typeof newSettings !== 'object') {
+        return;
+    }
+
+    const quality = normalizeQualityId(
+        newSettings.maxQuality,
+        DEFAULT_SETTINGS.maxQuality
+    );
+
     sendQualityToPage(quality);
+    logger.info('Quality settings updated', { quality });
 }
 
 /**
- * Enable quality controls
+ * Enable quality wrapper.
  */
 function enable() {
-    logger.info('Quality controls enabled');
-    // Quality controls are always active when enabled
-}
-
-/**
- * Disable quality controls
- */
-function disable() {
-    logger.info('Quality controls disabled');
-    // Could send a message to stop quality management
-}
-
-/**
- * Initialize quality controls wrapper
- */
-async function initQualityWrapper() {
-    try {
-        logger.info('Initializing quality controls wrapper');
-        
-        // Load initial quality setting
-        await loadInitialQuality();
-        
-        // Set up message listeners
-        setupMessageListeners();
-        
-        logger.info('Quality controls wrapper initialized successfully');
-    } catch (error) {
-        logger.error('Failed to initialize quality controls wrapper', error);
+    enabled = true;
+    if (initialized) {
+        sendQualityToPage(lastSentQuality || DEFAULT_SETTINGS.maxQuality, { force: true });
     }
 }
 
-// Initialize immediately
-initQualityWrapper();
+/**
+ * Disable quality wrapper.
+ */
+function disable() {
+    enabled = false;
+}
 
-// Export for potential external use
+/**
+ * Initialize quality wrapper.
+ */
+async function initQualityWrapper() {
+    if (initialized) {
+        return;
+    }
+
+    setupMessageListeners();
+    await loadInitialQuality();
+    initialized = true;
+    logger.info('Quality controls wrapper initialized');
+}
+
 export {
     initQualityWrapper,
     sendQualityToPage,
