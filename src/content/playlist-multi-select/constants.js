@@ -23,7 +23,9 @@ const FEED_RENDERER_SELECTOR = [
     'ytd-playlist-panel-video-renderer',
     'ytd-reel-item-renderer',
     'ytd-shorts-lockup-view-model',
-    'yt-lockup-view-model'
+    'yt-lockup-view-model',
+    'ytm-shorts-lockup-view-model',
+    'ytm-shorts-lockup-view-model-v2'
 ].join(', ');
 
 const VIDEO_LINK_SELECTOR = 'a[href*="/watch?v="], a[href*="/shorts/"]';

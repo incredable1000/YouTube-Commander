@@ -131,6 +131,36 @@ function createShortsUploadAgeResolver(options = {}) {
     }
 
     /**
+     * Resolve upload timestamps for multiple Shorts IDs in one batch call site.
+     * Each ID still respects shared cache/inflight queue and bounded concurrency.
+     * @param {string[]} shortIds
+     * @returns {Promise<Map<string, number|null>>}
+     */
+    async function resolveUploadTimestamps(shortIds) {
+        if (!Array.isArray(shortIds) || shortIds.length === 0) {
+            return new Map();
+        }
+
+        const uniqueIds = Array.from(
+            new Set(
+                shortIds
+                    .filter((value) => typeof value === 'string')
+                    .map((value) => value.trim())
+                    .filter((value) => value.length > 0)
+            )
+        );
+
+        const resolvedEntries = await Promise.all(
+            uniqueIds.map(async (shortId) => {
+                const timestampMs = await resolveUploadTimestamp(shortId);
+                return [shortId, timestampMs];
+            })
+        );
+
+        return new Map(resolvedEntries);
+    }
+
+    /**
      * Read cached timestamp if available.
      * @param {string} shortId
      * @returns {number|null}
@@ -154,6 +184,7 @@ function createShortsUploadAgeResolver(options = {}) {
 
     return {
         resolveUploadTimestamp,
+        resolveUploadTimestamps,
         getCachedTimestamp,
         clear
     };

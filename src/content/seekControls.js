@@ -344,6 +344,86 @@ function showPlayerSeekFeedback(player) {
 }
 
 /**
+ * Force progress/timer UI refresh after programmatic seek.
+ * @param {HTMLVideoElement} video
+ * @param {HTMLElement|null} player
+ */
+function syncProgressUiAfterSeek(video, player) {
+    if (!(video instanceof HTMLVideoElement)) {
+        return;
+    }
+
+    const moviePlayer = document.getElementById('movie_player');
+    const controlsRoot = moviePlayer instanceof HTMLElement
+        ? moviePlayer
+        : (player instanceof HTMLElement ? player : null);
+    const progressContainer = controlsRoot?.querySelector('.ytp-progress-bar-container') || null;
+
+    const emitVideoEvents = () => {
+        try {
+            video.dispatchEvent(new Event('timeupdate', { bubbles: true }));
+            video.dispatchEvent(new Event('seeked', { bubbles: true }));
+        } catch (_error) {
+            // no-op
+        }
+    };
+
+    const triggerApiRefresh = () => {
+        [moviePlayer, player].forEach((api) => {
+            if (!api) {
+                return;
+            }
+
+            ['updateProgressBar_', 'updateProgressBar', 'updateTimeDisplay_', 'updateTimeDisplay'].forEach((methodName) => {
+                const method = api[methodName];
+                if (typeof method === 'function') {
+                    try {
+                        method.call(api);
+                    } catch (_error) {
+                        // no-op
+                    }
+                }
+            });
+        });
+    };
+
+    const nudgeProgressLayer = () => {
+        if (!(progressContainer instanceof HTMLElement)) {
+            return;
+        }
+
+        const rect = progressContainer.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return;
+        }
+
+        const duration = Number(video.duration) || 0;
+        const ratio = duration > 0 ? Math.max(0, Math.min(1, video.currentTime / duration)) : 0.5;
+        const clientX = rect.left + (rect.width * ratio);
+        const clientY = rect.top + (rect.height * 0.5);
+
+        try {
+            progressContainer.dispatchEvent(new MouseEvent('mousemove', {
+                bubbles: true,
+                cancelable: true,
+                clientX,
+                clientY
+            }));
+        } catch (_error) {
+            // no-op
+        }
+    };
+
+    emitVideoEvents();
+    triggerApiRefresh();
+    window.requestAnimationFrame(() => {
+        emitVideoEvents();
+        triggerApiRefresh();
+        nudgeProgressLayer();
+    });
+}
+
+/**
  * Seek active video and trigger indicator.
  * @param {number} seconds
  * @param {'forward'|'backward'} direction
@@ -379,6 +459,7 @@ function performSeek(seconds, direction) {
 
     applySeekTime(video, targetTime);
     showPlayerSeekFeedback(player);
+    syncProgressUiAfterSeek(video, player);
     showSeekIndicator(direction, seekSeconds);
 
     logger.debug(`Seek ${direction} ${seekSeconds}s: ${currentTime.toFixed(2)} -> ${targetTime.toFixed(2)}`);
@@ -406,11 +487,7 @@ function showSeekIndicator(direction, seconds) {
         state.removeTimer = null;
     }
 
-    const hasLegacyChevronLayout = Boolean(
-        state.element && state.element.querySelector('.modern-seek-indicator__chevrons')
-    );
-
-    if (!state.element || !state.element.isConnected || state.player !== player || hasLegacyChevronLayout) {
+    if (!state.element || !state.element.isConnected || state.player !== player) {
         if (state.element && state.element.parentNode) {
             state.element.remove();
         }

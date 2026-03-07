@@ -205,21 +205,22 @@ function refreshRenderedLabels() {
 }
 
 /**
- * Render one card label.
+ * Render one card with local/visible data and mark unresolved entries for batch lookup.
  * @param {{container: Element, host: Element, shortId: string, mode: 'inline'|'block'}} card
  * @param {number} nowMs
+ * @returns {{shortId: string, label: HTMLElement, host: Element}|null}
  */
-async function renderCard(card, nowMs) {
+function renderCard(card, nowMs) {
     const label = ensureCardLabel(card);
     if (!label) {
-        return;
+        return null;
     }
 
     const visibleRelative = extractRelativeFromCard(card);
     if (visibleRelative) {
         label.textContent = visibleRelative;
         label.classList.remove('is-loading');
-        return;
+        return null;
     }
 
     const cachedTimestampMs = resolver.getCachedTimestamp(card.shortId);
@@ -228,37 +229,16 @@ async function renderCard(card, nowMs) {
         if (cachedText) {
             label.textContent = cachedText;
             label.classList.remove('is-loading');
-            return;
+            return null;
         }
     }
 
     label.classList.add('is-loading');
-    const timestampMs = await resolver.resolveUploadTimestamp(card.shortId);
-
-    if (!enabled || !label.isConnected) {
-        return;
-    }
-
-    const attachedShortId = label.getAttribute(LABEL_ATTR) || '';
-    if (attachedShortId !== card.shortId) {
-        return;
-    }
-
-    if (!Number.isFinite(timestampMs)) {
-        label.remove();
-        card.host.classList.remove(INLINE_HOST_CLASS);
-        return;
-    }
-
-    const text = formatRelativeAge(timestampMs, Date.now());
-    if (!text) {
-        label.remove();
-        card.host.classList.remove(INLINE_HOST_CLASS);
-        return;
-    }
-
-    label.textContent = text;
-    label.classList.remove('is-loading');
+    return {
+        shortId: card.shortId,
+        label,
+        host: card.host
+    };
 }
 
 /**
@@ -284,17 +264,55 @@ async function runRenderPass() {
         }
 
         const nowMs = Date.now();
+        const pendingCards = [];
+
         for (let index = 0; index < cards.length; index += PROCESS_CHUNK_SIZE) {
             if (!enabled) {
                 break;
             }
 
             const chunk = cards.slice(index, index + PROCESS_CHUNK_SIZE);
-            await Promise.all(chunk.map((card) => renderCard(card, nowMs)));
+            chunk.forEach((card) => {
+                const pending = renderCard(card, nowMs);
+                if (pending) {
+                    pendingCards.push(pending);
+                }
+            });
 
             if (index + PROCESS_CHUNK_SIZE < cards.length) {
                 await waitForNextFrame();
             }
+        }
+
+        if (enabled && pendingCards.length > 0) {
+            const timestampsById = await resolver.resolveUploadTimestamps(
+                pendingCards.map((entry) => entry.shortId)
+            );
+
+            const renderNowMs = Date.now();
+            pendingCards.forEach((entry) => {
+                if (!enabled || !entry.label.isConnected) {
+                    return;
+                }
+
+                const attachedShortId = entry.label.getAttribute(LABEL_ATTR) || '';
+                if (attachedShortId !== entry.shortId) {
+                    return;
+                }
+
+                const timestampMs = timestampsById.get(entry.shortId);
+                if (!Number.isFinite(timestampMs)) {
+                    return;
+                }
+
+                const text = formatRelativeAge(timestampMs, renderNowMs);
+                if (!text) {
+                    return;
+                }
+
+                entry.label.textContent = text;
+                entry.label.classList.remove('is-loading');
+            });
         }
 
         refreshRenderedLabels();

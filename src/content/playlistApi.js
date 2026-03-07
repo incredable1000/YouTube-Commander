@@ -22,6 +22,8 @@ const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{10,15}$/;
 const PLAYLIST_ID_PATTERN = /^[A-Za-z0-9_-]{2,120}$/;
 const MAX_BATCH_SIZE = 45;
 const REMOVE_LOOKUP_CONCURRENCY = 4;
+const EDIT_PLAYLIST_RETRY_ATTEMPTS = 2;
+const EDIT_PLAYLIST_RETRY_DELAY_MS = 420;
 
 let isInitialized = false;
 let cachedAuthHeader = null;
@@ -371,6 +373,18 @@ function chunk(items, size) {
         chunks.push(items.slice(index, index + size));
     }
     return chunks;
+}
+
+/**
+ * Wait helper.
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function delay(ms) {
+    const safeMs = Number.isFinite(ms) ? Math.max(0, ms) : 0;
+    return new Promise((resolve) => {
+        window.setTimeout(resolve, safeMs);
+    });
 }
 
 /**
@@ -800,11 +814,22 @@ async function getPlaylists(payload) {
  * @param {string} playlistId
  * @param {string[]} videoIds
  * @param {{apiKey: string, context: object, headers: Record<string, string>}} config
+ * @param {{throwOnFailure?: boolean, retryAttempts?: number}} [options]
+ * @returns {Promise<{requestedCount: number, addedCount: number, failures: Array<{batchIndex: number, videoIds: string[], error: string}>}>}
  */
-async function addVideosToSinglePlaylist(playlistId, videoIds, config) {
+async function addVideosToSinglePlaylist(playlistId, videoIds, config, options = {}) {
     const batches = chunk(videoIds, MAX_BATCH_SIZE);
+    const failures = [];
+    const retryAttempts = Number.isFinite(options.retryAttempts)
+        ? Math.max(1, Math.floor(options.retryAttempts))
+        : EDIT_PLAYLIST_RETRY_ATTEMPTS;
+    let addedCount = 0;
 
-    for (const batch of batches) {
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+        const batch = batches[batchIndex];
+        let success = false;
+        let lastError = null;
+
         const payload = {
             context: config.context,
             playlistId,
@@ -814,8 +839,40 @@ async function addVideosToSinglePlaylist(playlistId, videoIds, config) {
             }))
         };
 
-        await postInnertube(['playlist/edit_playlist', 'browse/edit_playlist'], payload, config);
+        for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
+            try {
+                await postInnertube(['playlist/edit_playlist', 'browse/edit_playlist'], payload, config);
+                success = true;
+                break;
+            } catch (error) {
+                lastError = error;
+                if (attempt < retryAttempts) {
+                    await delay(EDIT_PLAYLIST_RETRY_DELAY_MS * attempt);
+                }
+            }
+        }
+
+        if (success) {
+            addedCount += batch.length;
+            continue;
+        }
+
+        failures.push({
+            batchIndex,
+            videoIds: batch,
+            error: lastError instanceof Error ? lastError.message : 'Failed to add videos batch.'
+        });
     }
+
+    if (failures.length > 0 && options.throwOnFailure !== false) {
+        throw new Error(failures[0]?.error || 'Failed to add videos to playlist.');
+    }
+
+    return {
+        requestedCount: videoIds.length,
+        addedCount,
+        failures
+    };
 }
 
 /**
@@ -1023,7 +1080,12 @@ async function removeFromPlaylist(payload) {
 /**
  * Create a playlist and add selected videos into it.
  * @param {{title?: string, privacyStatus?: string, collaborate?: boolean, videoIds?: string[]}} payload
- * @returns {Promise<{playlistId: string, addedCount: number}>}
+ * @returns {Promise<{
+ *   playlistId: string,
+ *   requestedVideoCount: number,
+ *   addedCount: number,
+ *   failures: Array<{batchIndex: number, videoIds: string[], error: string}>
+ * }>}
  */
 async function createPlaylistAndAdd(payload) {
     const title = typeof payload?.title === 'string' ? payload.title.trim() : '';
@@ -1061,11 +1123,16 @@ async function createPlaylistAndAdd(payload) {
         throw new Error('Playlist created, but ID was not returned.');
     }
 
-    await addVideosToSinglePlaylist(playlistId, videoIds, config);
+    const addResult = await addVideosToSinglePlaylist(playlistId, videoIds, config, {
+        throwOnFailure: false,
+        retryAttempts: EDIT_PLAYLIST_RETRY_ATTEMPTS
+    });
 
     return {
         playlistId,
-        addedCount: videoIds.length
+        requestedVideoCount: videoIds.length,
+        addedCount: Number(addResult?.addedCount) || 0,
+        failures: Array.isArray(addResult?.failures) ? addResult.failures : []
     };
 }
 

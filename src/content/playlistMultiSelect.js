@@ -106,6 +106,7 @@ let createStatus = null;
 let observer = null;
 let pendingContainers = new Set();
 let renderScheduled = false;
+let deferredRescanTimer = null;
 
 let lastKnownUrl = location.href;
 let statusTimer = null;
@@ -117,6 +118,10 @@ const selectedPlaylistIds = new Set();
 const cleanupCallbacks = [];
 const playlistMap = new Map();
 const selectionRangeController = createSelectionRangeController();
+let decorateRetryCounts = new WeakMap();
+
+const DECORATE_MAX_RETRIES = 3;
+const DECORATE_RETRY_DELAY_MS = 320;
 
 let playlistOptions = [];
 
@@ -1119,6 +1124,62 @@ function removeSelectedCardsFromDom(videoIds) {
 }
 
 /**
+ * Detect whether a selected video id is currently rendered as a Shorts row/card.
+ * @param {string} videoId
+ * @returns {boolean}
+ */
+function isVideoIdRenderedAsShort(videoId) {
+    if (!VIDEO_ID_PATTERN.test(videoId)) {
+        return false;
+    }
+
+    const hosts = document.querySelectorAll(`.${HOST_CLASS}[data-yt-commander-video-id="${videoId}"]`);
+    for (const host of hosts) {
+        if (!(host instanceof Element)) {
+            continue;
+        }
+
+        const shortLink = host.querySelector('a[href*="/shorts/"]');
+        const shortsBadge = host.querySelector(
+            'ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"], [overlay-style="SHORTS"], [is-shorts], [is-shorts-grid]'
+        );
+
+        if (shortLink || shortsBadge) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Determine if playlist view needs a full refresh after remove.
+ * YouTube currently keeps Shorts playlist lists capped and may not rehydrate rows after removal.
+ * @param {string[]} removedOrRequestedIds
+ * @returns {boolean}
+ */
+function shouldRefreshPlaylistAfterRemove(removedOrRequestedIds) {
+    if (!isPlaylistCollectionPage()) {
+        return false;
+    }
+
+    if (!Array.isArray(removedOrRequestedIds) || removedOrRequestedIds.length === 0) {
+        return false;
+    }
+
+    return removedOrRequestedIds.some((videoId) => isVideoIdRenderedAsShort(videoId));
+}
+
+/**
+ * Force playlist refresh so Shorts rows are re-requested from YouTube after removal.
+ */
+function refreshPlaylistAfterRemove() {
+    window.setTimeout(() => {
+        window.location.reload();
+    }, 80);
+}
+
+/**
  * Remove selected videos from the currently opened playlist page.
  */
 async function removeSelectionFromCurrentPlaylist() {
@@ -1138,6 +1199,7 @@ async function removeSelectionFromCurrentPlaylist() {
     }
 
     const videoIds = Array.from(selectedVideoIds);
+    const shouldForceRefresh = shouldRefreshPlaylistAfterRemove(videoIds);
     if (videoIds.length === 0) {
         setStatusMessage('Select at least one video.', STATUS_KIND.ERROR);
         return;
@@ -1175,6 +1237,11 @@ async function removeSelectionFromCurrentPlaylist() {
             `Removed ${removedCount} video(s) from ${playlistLabel}.`,
             STATUS_KIND.SUCCESS
         );
+
+        if (shouldForceRefresh) {
+            setStatusMessage('Removed videos. Refreshing playlist...', STATUS_KIND.INFO);
+            refreshPlaylistAfterRemove();
+        }
     } catch (error) {
         logger.warn('Failed to remove selected videos from playlist', error);
         setStatusMessage(error instanceof Error ? error.message : 'Failed to remove videos.', STATUS_KIND.ERROR);
@@ -1283,7 +1350,10 @@ async function submitCreatePlaylist() {
             videoIds
         });
 
-        const addedCount = Number(response?.addedCount) || videoIds.length;
+        const addedCount = Number(response?.addedCount) || 0;
+        const requestedCount = Number(response?.requestedVideoCount) || videoIds.length;
+        const failureCount = Array.isArray(response?.failures) ? response.failures.length : 0;
+
         lastPlaylistProbeVideoId = '';
         playlistOptions = [];
         selectedPlaylistIds.clear();
@@ -1291,6 +1361,13 @@ async function submitCreatePlaylist() {
         closeCreateModal(true);
         closePlaylistPanel();
         clearSelectedVideos();
+
+        if (failureCount > 0) {
+            const savedLabel = `${addedCount}/${requestedCount}`;
+            setStatusMessage(`Created "${title}". Saved ${savedLabel} video(s).`, STATUS_KIND.INFO);
+            return;
+        }
+
         setStatusMessage(`Created "${title}" and saved ${addedCount} video(s).`, STATUS_KIND.SUCCESS);
     } catch (error) {
         logger.warn('Failed to create playlist', error);
@@ -1490,6 +1567,36 @@ function clearSelectedVideos() {
 }
 
 /**
+ * Clear delayed fallback rescan timer.
+ */
+function clearDeferredRescanTimer() {
+    if (!deferredRescanTimer) {
+        return;
+    }
+
+    window.clearTimeout(deferredRescanTimer);
+    deferredRescanTimer = null;
+}
+
+/**
+ * Schedule one delayed full rescan for cards that hydrate after insertion.
+ */
+function scheduleDeferredRescan() {
+    if (!isEnabled || !selectionMode || !isEligiblePage()) {
+        return;
+    }
+
+    if (deferredRescanTimer) {
+        return;
+    }
+
+    deferredRescanTimer = window.setTimeout(() => {
+        deferredRescanTimer = null;
+        queueFullRescan();
+    }, DECORATE_RETRY_DELAY_MS);
+}
+
+/**
  * Remove overlay artifacts from all hosts.
  */
 function cleanupDecorations() {
@@ -1503,25 +1610,26 @@ function cleanupDecorations() {
 /**
  * Decorate one renderer container with click overlay.
  * @param {Element} container
+ * @returns {boolean}
  */
 function decorateContainer(container) {
     if (!selectionMode || !container || !container.isConnected) {
-        return;
+        return false;
     }
 
     const link = findVideoLink(container);
     if (!link || !link.href) {
-        return;
+        return false;
     }
 
     const videoId = extractVideoId(link.href);
     if (!videoId) {
-        return;
+        return false;
     }
 
     const host = findCardHost(container);
     if (!host) {
-        return;
+        return false;
     }
 
     host.classList.add(HOST_CLASS);
@@ -1559,6 +1667,8 @@ function decorateContainer(container) {
 
     overlay.setAttribute('data-yt-commander-video-id', videoId);
     applySelectedState(host, videoId);
+    decorateRetryCounts.delete(container);
+    return true;
 }
 
 /**
@@ -1642,7 +1752,28 @@ function processPendingContainers() {
         }
     }
 
-    batch.forEach((container) => decorateContainer(container));
+    let hasRetryableHydrationMiss = false;
+    batch.forEach((container) => {
+        const decorated = decorateContainer(container);
+        if (decorated || !container?.isConnected) {
+            decorateRetryCounts.delete(container);
+            return;
+        }
+
+        const retryCount = decorateRetryCounts.get(container) || 0;
+        if (retryCount < DECORATE_MAX_RETRIES) {
+            decorateRetryCounts.set(container, retryCount + 1);
+            pendingContainers.add(container);
+            hasRetryableHydrationMiss = true;
+            return;
+        }
+
+        decorateRetryCounts.delete(container);
+    });
+
+    if (hasRetryableHydrationMiss) {
+        scheduleDeferredRescan();
+    }
 
     if (pendingContainers.size > 0) {
         renderScheduled = true;
@@ -1700,8 +1831,10 @@ function setSelectionMode(active) {
         clearSelectedVideos();
         cleanupDecorations();
         clearStatusMessage();
+        clearDeferredRescanTimer();
         pendingContainers.clear();
         renderScheduled = false;
+        decorateRetryCounts = new WeakMap();
         playlistOptions = [];
         playlistMap.clear();
         selectedPlaylistIds.clear();
@@ -2081,7 +2214,19 @@ function setupObserver() {
 
         const found = new Set();
         mutations.forEach((mutation) => {
-            mutation.addedNodes.forEach((node) => collectRenderers(node, found));
+            if (mutation.type === 'childList') {
+                mutation.addedNodes.forEach((node) => collectRenderers(node, found));
+                return;
+            }
+
+            if (mutation.type === 'attributes' && mutation.target instanceof Element) {
+                const targetRenderer = mutation.target.matches(FEED_RENDERER_SELECTOR)
+                    ? mutation.target
+                    : mutation.target.closest(FEED_RENDERER_SELECTOR);
+                if (targetRenderer) {
+                    found.add(targetRenderer);
+                }
+            }
         });
 
         queueContainers(found);
@@ -2089,7 +2234,9 @@ function setupObserver() {
 
     observer.observe(document.body, {
         childList: true,
-        subtree: true
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['href', 'video-id', 'data-video-id']
     });
 }
 
@@ -2101,6 +2248,10 @@ function setupListeners() {
         ensureMastheadButton();
         ensureActionUi();
         handleRouteChange();
+
+        if (selectionMode && isEnabled && isEligiblePage()) {
+            queueFullRescan();
+        }
     };
 
     window.addEventListener('message', handleBridgeResponse);
@@ -2190,6 +2341,8 @@ function cleanup() {
 
     pendingContainers.clear();
     renderScheduled = false;
+    clearDeferredRescanTimer();
+    decorateRetryCounts = new WeakMap();
 
     clearStatusMessage();
 
