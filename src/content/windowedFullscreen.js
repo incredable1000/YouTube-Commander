@@ -17,11 +17,15 @@ const BUTTON_ACTIVE_CLASS = 'is-active';
 const PLAYER_ACTIVE_CLASS = 'yt-commander-windowed-player';
 const OVERLAY_CLASS = 'yt-commander-windowed-overlay';
 const ROOT_LOCK_CLASS = 'yt-commander-windowed-lock';
+const RESTORE_ANCHOR_CLASS = 'yt-commander-windowed-anchor';
 const OBSERVER_THROTTLE_MS = 650;
 const BUTTON_ENSURE_INTERVAL_MS = 1200;
 const WINDOWED_ICON_PATH = 'M7 14H5v5h5v-2H7v-3zm0-4h2V7h3V5H5v5zm10 7h-3v2h5v-5h-2v3zm0-12V5h-3v2h3v3h2V5z';
 const RELAYOUT_DELAYS_MS = [0, 60, 180];
 const DEFAULT_WINDOWED_SHORTCUT = 'Enter';
+const AUTO_WINDOWED_WARMUP_MS = 1200;
+const RESTORE_RETRY_MAX_ATTEMPTS = 12;
+const RESTORE_RETRY_DELAY_MS = 120;
 
 let isInitialized = false;
 let initPromise = null;
@@ -29,6 +33,8 @@ let isEnabled = true;
 let windowedShortcut = DEFAULT_WINDOWED_SHORTCUT;
 let autoWindowedEnabled = false;
 let lastAutoWindowedVideoId = null;
+let autoWarmupVideoId = null;
+let autoWarmupStartedAt = 0;
 
 let windowedButton = null;
 let observer = null;
@@ -39,6 +45,7 @@ let activePlayer = null;
 let mountedRootPlayer = null;
 let originalRootParent = null;
 let originalRootNextSibling = null;
+let restoreAnchor = null;
 let overlayHost = null;
 let isWindowed = false;
 
@@ -185,6 +192,7 @@ function toggleWindowedMode() {
     }
 
     if (isWindowed) {
+        markCurrentVideoAsAutoHandled();
         exitWindowedMode();
     } else {
         enterWindowedMode();
@@ -216,12 +224,17 @@ function enterWindowedMode() {
     mountedRootPlayer = rootPlayer;
     originalRootParent = rootPlayer.parentNode;
     originalRootNextSibling = rootPlayer.nextSibling;
+    restoreAnchor = createRestoreAnchor(rootPlayer);
 
     overlayHost = ensureOverlayHost();
     if (!overlayHost) {
+        if (restoreAnchor && restoreAnchor.parentNode) {
+            restoreAnchor.remove();
+        }
         mountedRootPlayer = null;
         originalRootParent = null;
         originalRootNextSibling = null;
+        restoreAnchor = null;
         return;
     }
 
@@ -248,19 +261,13 @@ function exitWindowedMode() {
         player.classList.remove(PLAYER_ACTIVE_CLASS);
     });
 
-    if (
-        mountedRootPlayer
-        && originalRootParent instanceof Node
-    ) {
-        if (
-            originalRootNextSibling instanceof Node
-            && originalRootNextSibling.parentNode === originalRootParent
-        ) {
-            originalRootParent.insertBefore(mountedRootPlayer, originalRootNextSibling);
-        } else {
-            originalRootParent.appendChild(mountedRootPlayer);
-        }
+    const rootToRestore = mountedRootPlayer instanceof Element ? mountedRootPlayer : null;
+    const restored = restoreMountedRootPlayer();
+
+    if (restoreAnchor && restoreAnchor.parentNode) {
+        restoreAnchor.remove();
     }
+    restoreAnchor = null;
 
     if (overlayHost && overlayHost.parentNode) {
         overlayHost.remove();
@@ -271,14 +278,196 @@ function exitWindowedMode() {
 
     const relayoutTarget = mountedRootPlayer || getRootPlayerHost(getActivePlayer());
 
+    if (!restored && rootToRestore) {
+        scheduleDeferredRestore(rootToRestore);
+        logger.warn('Windowed player restore deferred until mount target becomes available');
+    }
+
     activePlayer = null;
     mountedRootPlayer = null;
     originalRootParent = null;
     originalRootNextSibling = null;
+    restoreAnchor = null;
     overlayHost = null;
     isWindowed = false;
     updateButtonState();
     forcePlayerRelayout(relayoutTarget);
+}
+
+/**
+ * Insert an invisible anchor before moving player so we can restore to the exact slot.
+ * @param {Element} rootPlayer
+ * @returns {HTMLDivElement|null}
+ */
+function createRestoreAnchor(rootPlayer) {
+    if (!(rootPlayer instanceof Element) || !(rootPlayer.parentNode instanceof Node)) {
+        return null;
+    }
+
+    const anchor = document.createElement('div');
+    anchor.className = RESTORE_ANCHOR_CLASS;
+    anchor.setAttribute('aria-hidden', 'true');
+    anchor.style.display = 'none';
+    rootPlayer.parentNode.insertBefore(anchor, rootPlayer);
+    return anchor;
+}
+
+/**
+ * Restore moved player root to original location or a safe fallback mount point.
+ * @returns {boolean}
+ */
+function restoreMountedRootPlayer() {
+    if (!(mountedRootPlayer instanceof Element)) {
+        return false;
+    }
+
+    if (restoreAnchor && restoreAnchor.parentNode instanceof Node) {
+        restoreAnchor.parentNode.insertBefore(mountedRootPlayer, restoreAnchor);
+        return true;
+    }
+
+    if (isUsableMountParent(originalRootParent)) {
+        if (
+            originalRootNextSibling instanceof Node
+            && originalRootNextSibling.parentNode === originalRootParent
+        ) {
+            originalRootParent.insertBefore(mountedRootPlayer, originalRootNextSibling);
+        } else {
+            originalRootParent.appendChild(mountedRootPlayer);
+        }
+        return true;
+    }
+
+    const fallbackParent = findFallbackPlayerMount();
+    if (fallbackParent) {
+        fallbackParent.appendChild(mountedRootPlayer);
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * Check whether a mount parent can safely host #movie_player.
+ * @param {Node|null} node
+ * @returns {boolean}
+ */
+function isUsableMountParent(node) {
+    if (!(node instanceof Element) || !node.isConnected) {
+        return false;
+    }
+
+    if (node.closest('ytd-miniplayer')) {
+        return false;
+    }
+
+    const style = window.getComputedStyle(node);
+    if (style.display === 'none' || style.visibility === 'hidden') {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Resolve fallback watch-page container for #movie_player when original mount is stale.
+ * @returns {Element|null}
+ */
+function findFallbackPlayerMount() {
+    const selectors = [
+        'ytd-watch-flexy #player-container #player',
+        'ytd-watch-flexy #player-full-bleed-container #player',
+        'ytd-watch-flexy #primary #player',
+        'ytd-watch-flexy #player',
+        '#primary #player'
+    ];
+
+    for (const selector of selectors) {
+        const candidate = document.querySelector(selector);
+        if (isUsableMountParent(candidate)) {
+            return candidate;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Retry restoring detached player root when page containers are still rebuilding.
+ * @param {Element} rootPlayer
+ */
+function scheduleDeferredRestore(rootPlayer) {
+    if (!(rootPlayer instanceof Element)) {
+        return;
+    }
+
+    let attempt = 0;
+    const tryRestore = () => {
+        if (rootPlayer.isConnected) {
+            forcePlayerRelayout(rootPlayer);
+            return;
+        }
+
+        const fallbackParent = findFallbackPlayerMount();
+        if (fallbackParent) {
+            fallbackParent.appendChild(rootPlayer);
+            forcePlayerRelayout(rootPlayer);
+            return;
+        }
+
+        attempt += 1;
+        if (attempt >= RESTORE_RETRY_MAX_ATTEMPTS) {
+            logger.warn('Unable to restore player root after retries');
+            return;
+        }
+
+        setTimeout(tryRestore, RESTORE_RETRY_DELAY_MS);
+    };
+
+    setTimeout(tryRestore, RESTORE_RETRY_DELAY_MS);
+}
+
+/**
+ * Ensure auto mode waits until player shell is stable before moving player root.
+ * @param {string} watchVideoId
+ * @returns {boolean}
+ */
+function isAutoWindowedReady(watchVideoId) {
+    if (watchVideoId !== autoWarmupVideoId) {
+        autoWarmupVideoId = watchVideoId;
+        autoWarmupStartedAt = Date.now();
+        return false;
+    }
+
+    if ((Date.now() - autoWarmupStartedAt) < AUTO_WINDOWED_WARMUP_MS) {
+        return false;
+    }
+
+    const player = getActivePlayer();
+    const rootPlayer = getRootPlayerHost(player);
+    if (!player || !rootPlayer || !rootPlayer.parentElement || !rootPlayer.isConnected) {
+        return false;
+    }
+
+    const controls = findControlsHost();
+    if (!controls) {
+        return false;
+    }
+
+    const video = player.querySelector('video.html5-main-video');
+    if (video instanceof HTMLVideoElement && video.readyState < 1) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Reset auto-windowed warmup state.
+ */
+function resetAutoWarmup() {
+    autoWarmupVideoId = null;
+    autoWarmupStartedAt = 0;
 }
 
 /**
@@ -312,6 +501,7 @@ function syncUiState() {
         }
         removeButton();
         lastAutoWindowedVideoId = null;
+        resetAutoWarmup();
         return;
     }
 
@@ -335,6 +525,7 @@ function syncUiState() {
 function handleKeydown(event) {
     if (event.key === 'Escape' && isWindowed) {
         event.preventDefault();
+        markCurrentVideoAsAutoHandled();
         exitWindowedMode();
         return;
     }
@@ -367,10 +558,16 @@ function applyAutoWindowedMode() {
 
     if (isWindowed) {
         lastAutoWindowedVideoId = watchVideoId;
+        resetAutoWarmup();
         return;
     }
 
     if (watchVideoId === lastAutoWindowedVideoId) {
+        resetAutoWarmup();
+        return;
+    }
+
+    if (!isAutoWindowedReady(watchVideoId)) {
         return;
     }
 
@@ -378,6 +575,7 @@ function applyAutoWindowedMode() {
 
     if (isWindowed) {
         lastAutoWindowedVideoId = watchVideoId;
+        resetAutoWarmup();
     }
 }
 
@@ -412,6 +610,21 @@ function handleFullscreenChange() {
     if (document.fullscreenElement) {
         exitWindowedMode();
     }
+}
+
+/**
+ * Mark current watch video as manually handled so auto mode does not immediately re-enter.
+ */
+function markCurrentVideoAsAutoHandled() {
+    if (!autoWindowedEnabled) {
+        return;
+    }
+
+    const watchVideoId = getCurrentWatchVideoId();
+    if (watchVideoId) {
+        lastAutoWindowedVideoId = watchVideoId;
+    }
+    resetAutoWarmup();
 }
 
 /**
@@ -645,6 +858,7 @@ function updateSettings(newSettings) {
 
     if (autoModeChanged) {
         lastAutoWindowedVideoId = null;
+        resetAutoWarmup();
     }
 
     logger.debug('Windowed fullscreen settings updated', {
@@ -690,6 +904,7 @@ function disable() {
     exitWindowedMode();
     removeButton();
     lastAutoWindowedVideoId = null;
+    resetAutoWarmup();
 }
 
 /**
