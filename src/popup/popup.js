@@ -712,6 +712,51 @@ async function syncToCloudflare() {
     }
 }
 
+/**
+ * Download IDs from Cloudflare and import to local IndexedDB.
+ */
+async function downloadFromCloudflare() {
+    const button = document.getElementById('downloadFromCloudflare');
+    if (!button) {
+        return;
+    }
+
+    const initialLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Downloading...';
+
+    try {
+        showStatus('Downloading IDs from Cloudflare...', 'info');
+        const { endpointUrl, apiToken } = await saveCloudflareSyncSettings();
+
+        if (!endpointUrl) {
+            throw new Error('Cloudflare Worker URL is required');
+        }
+
+        const response = await sendRuntimeMessage({
+            type: 'DOWNLOAD_FROM_CLOUDFLARE',
+            endpointUrl,
+            apiToken
+        }, 240000);
+
+        if (!response?.success) {
+            throw new Error(response?.error || 'Cloudflare download failed');
+        }
+
+        showStatus(
+            `Downloaded ${Number(response.pulledCount) || 0} IDs, imported ${Number(response.importedCount) || 0} new IDs`,
+            'success'
+        );
+        await refreshCloudflareSyncStatus();
+        await loadWatchedHistoryStats();
+    } catch (error) {
+        showStatus(error?.message || 'Failed to download from Cloudflare', 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = initialLabel;
+    }
+}
+
 // Import history functionality
 function importHistory() {
     const fileInput = document.getElementById('historyFileInput');
@@ -880,6 +925,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('exportHistory').addEventListener('click', exportHistory);
     document.getElementById('importHistory').addEventListener('click', importHistory);
     document.getElementById('syncToCloudflare').addEventListener('click', syncToCloudflare);
+    document.getElementById('downloadFromCloudflare').addEventListener('click', downloadFromCloudflare);
     document.getElementById('historyFileInput').addEventListener('change', handleFileImport);
 
     setInterval(loadWatchedHistoryStats, 5000);
