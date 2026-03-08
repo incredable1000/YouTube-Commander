@@ -828,7 +828,7 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-short-upload-age.is-loading {
-    opacity: 0.55;
+    display: none;
 }
 
 /* Playlist Multi-Select */

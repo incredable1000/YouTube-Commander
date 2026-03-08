@@ -27,6 +27,7 @@ const EDIT_PLAYLIST_RETRY_ATTEMPTS = 2;
 const EDIT_PLAYLIST_RETRY_DELAY_MS = 420;
 const SHORTS_TIMESTAMP_BATCH_SIZE = 60;
 const SHORTS_TIMESTAMP_SCAN_DEPTH_LIMIT = 10;
+const SHORTS_TIMESTAMP_PLAYER_FALLBACK_CONCURRENCY = 3;
 
 let isInitialized = false;
 let cachedAuthHeader = null;
@@ -1214,49 +1215,6 @@ async function getPlaylists(payload) {
 }
 
 /**
- * Try add-to-playlist in one request payload.
- * @param {string} playlistId
- * @param {string[]} videoIds
- * @param {{apiKey: string, context: object, headers: Record<string, string>}} config
- * @param {number} retryAttempts
- * @returns {Promise<boolean>}
- */
-async function tryAddVideosSinglePayload(playlistId, videoIds, config, retryAttempts) {
-    if (!Array.isArray(videoIds) || videoIds.length === 0) {
-        return true;
-    }
-
-    const payload = {
-        context: config.context,
-        playlistId,
-        actions: videoIds.map((videoId) => ({
-            action: 'ACTION_ADD_VIDEO',
-            addedVideoId: videoId
-        }))
-    };
-
-    for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
-        try {
-            await postInnertube(['playlist/edit_playlist', 'browse/edit_playlist'], payload, config);
-            return true;
-        } catch (error) {
-            if (attempt >= retryAttempts) {
-                logger.warn('Single-payload add failed, will fallback to chunked mode', {
-                    playlistId,
-                    requestedCount: videoIds.length,
-                    message: error instanceof Error ? error.message : String(error || 'Unknown error')
-                });
-                return false;
-            }
-
-            await delay(EDIT_PLAYLIST_RETRY_DELAY_MS * attempt);
-        }
-    }
-
-    return false;
-}
-
-/**
  * Add videos to one playlist.
  * @param {string} playlistId
  * @param {string[]} videoIds
@@ -1268,15 +1226,6 @@ async function addVideosToSinglePlaylist(playlistId, videoIds, config, options =
     const retryAttempts = Number.isFinite(options.retryAttempts)
         ? Math.max(1, Math.floor(options.retryAttempts))
         : EDIT_PLAYLIST_RETRY_ATTEMPTS;
-
-    const usedSinglePayload = await tryAddVideosSinglePayload(playlistId, videoIds, config, retryAttempts);
-    if (usedSinglePayload) {
-        return {
-            requestedCount: videoIds.length,
-            addedCount: videoIds.length,
-            failures: []
-        };
-    }
 
     const batches = chunk(videoIds, MAX_BATCH_SIZE);
     const failures = [];
@@ -1570,22 +1519,6 @@ async function removeFromPlaylist(payload) {
     }
 
     const config = await getInnertubeConfig();
-    const removedVideoIds = new Set();
-    const errorsByVideoId = new Map();
-
-    const applyBatchResult = (result) => {
-        result.appliedVideoIds.forEach((videoId) => {
-            removedVideoIds.add(videoId);
-            errorsByVideoId.delete(videoId);
-        });
-
-        result.failedEntries.forEach((entry) => {
-            if (!removedVideoIds.has(entry.videoId)) {
-                errorsByVideoId.set(entry.videoId, entry.error || 'Failed to remove video.');
-            }
-        });
-    };
-
     const primaryResult = await executeRemoveEntriesBatched(
         playlistId,
         buildDirectRemoveEntries(videoIds, 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID'),
@@ -1595,45 +1528,24 @@ async function removeFromPlaylist(payload) {
             retryAttempts: EDIT_PLAYLIST_RETRY_ATTEMPTS
         }
     );
-    applyBatchResult(primaryResult);
-
-    let pendingVideoIds = videoIds.filter((videoId) => !removedVideoIds.has(videoId));
-    if (pendingVideoIds.length > 0) {
-        const secondaryResult = await executeRemoveEntriesBatched(
-            playlistId,
-            buildDirectRemoveEntries(pendingVideoIds, 'ACTION_REMOVE_VIDEO'),
-            config,
-            {
-                batchSize: MAX_BATCH_SIZE,
-                retryAttempts: EDIT_PLAYLIST_RETRY_ATTEMPTS
-            }
-        );
-        applyBatchResult(secondaryResult);
-        pendingVideoIds = videoIds.filter((videoId) => !removedVideoIds.has(videoId));
-    }
-
-    if (pendingVideoIds.length > 0) {
-        const resolvedFallbackResult = await removeWithResolvedActions(playlistId, pendingVideoIds, config);
-        resolvedFallbackResult.appliedVideoIds.forEach((videoId) => {
-            removedVideoIds.add(videoId);
-            errorsByVideoId.delete(videoId);
-        });
-        resolvedFallbackResult.failures.forEach((failure) => {
-            if (!removedVideoIds.has(failure.videoId)) {
-                errorsByVideoId.set(failure.videoId, failure.error || 'Failed to remove video.');
-            }
-        });
-    }
+    const removedVideoIds = new Set(primaryResult.appliedVideoIds);
 
     if (removedVideoIds.size === 0) {
-        throw new Error(errorsByVideoId.get(videoIds[0]) || 'Failed to remove selected videos.');
+        throw new Error(primaryResult.failedEntries[0]?.error || 'Failed to remove selected videos.');
     }
+
+    const failureByVideoId = new Map();
+    primaryResult.failedEntries.forEach((entry) => {
+        if (!removedVideoIds.has(entry.videoId) && !failureByVideoId.has(entry.videoId)) {
+            failureByVideoId.set(entry.videoId, entry.error || 'Failed to remove video.');
+        }
+    });
 
     const failures = videoIds
         .filter((videoId) => !removedVideoIds.has(videoId))
         .map((videoId) => ({
             videoId,
-            error: errorsByVideoId.get(videoId) || 'Failed to remove video.'
+            error: failureByVideoId.get(videoId) || 'Failed to remove video.'
         }));
 
     logger.debug('Playlist remove completed', {
@@ -1712,37 +1624,64 @@ async function createPlaylistAndAdd(payload) {
 }
 
 /**
- * Resolve one video upload timestamp via watch-page HTML.
+ * Extract one upload timestamp from player response payload.
+ * @param {any} responseBody
+ * @returns {number|null}
+ */
+function extractShortsTimestampFromPlayerResponse(responseBody) {
+    if (!responseBody || typeof responseBody !== 'object') {
+        return null;
+    }
+
+    const candidates = [
+        responseBody?.microformat?.playerMicroformatRenderer?.uploadDate,
+        responseBody?.microformat?.playerMicroformatRenderer?.publishDate,
+        responseBody?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails?.startTimestamp,
+        responseBody?.videoDetails?.publishDate
+    ];
+
+    for (const candidate of candidates) {
+        const parsed = parseDateLikeValue(candidate);
+        if (Number.isFinite(parsed)) {
+            return Number(parsed);
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Resolve one video upload timestamp via internal player endpoint.
  * @param {string} videoId
+ * @param {{apiKey: string, context: object, headers: Record<string, string>}} config
  * @returns {Promise<number|null>}
  */
-async function resolveUploadTimestampFromWatchPage(videoId) {
+async function resolveUploadTimestampFromPlayer(videoId, config) {
     try {
-        const watchUrl = new URL('/watch', location.origin);
-        watchUrl.searchParams.set('v', videoId);
+        const response = await postInnertube(
+            'player',
+            {
+                context: config.context,
+                videoId,
+                contentCheckOk: true,
+                racyCheckOk: true
+            },
+            config
+        );
 
-        const response = await fetch(watchUrl.toString(), {
-            method: 'GET',
-            credentials: 'same-origin',
-            cache: 'default',
-            redirect: 'follow'
-        });
-
-        if (!response.ok) {
-            return null;
-        }
-
-        const html = await response.text();
-        return extractUploadTimestampFromHtml(html);
+        return extractShortsTimestampFromPlayerResponse(response.body);
     } catch (error) {
-        logger.warn('Failed watch-page fallback timestamp request', { videoId, error });
+        logger.debug('Player fallback timestamp request failed', {
+            videoId,
+            error: error instanceof Error ? error.message : String(error || 'Unknown error')
+        });
         return null;
     }
 }
 
 /**
  * Resolve one chunk of Shorts upload timestamps via YouTube metadata endpoint.
- * Falls back to watch-page HTML for unresolved IDs.
+ * Unresolved IDs are returned as null and retried later by cache policy.
  * @param {string[]} videoIds
  * @param {{apiKey: string, context: object, headers: Record<string, string>}} config
  * @returns {Promise<Map<string, number|null>>}
@@ -1774,17 +1713,13 @@ async function resolveShortsTimestampChunk(videoIds, config) {
     }
 
     const unresolvedIds = ids.filter((videoId) => !Number.isFinite(batchTimestamps.get(videoId)));
-    unresolvedIds.forEach((videoId) => {
-        results.set(videoId, null);
-    });
-
     if (unresolvedIds.length > 0) {
         const fallbackTimestamps = await mapWithConcurrency(
             unresolvedIds,
-            REMOVE_LOOKUP_CONCURRENCY,
+            SHORTS_TIMESTAMP_PLAYER_FALLBACK_CONCURRENCY,
             async (videoId) => {
-                const timestampMs = await resolveUploadTimestampFromWatchPage(videoId);
-                return [videoId, Number.isFinite(timestampMs) ? timestampMs : null];
+                const timestampMs = await resolveUploadTimestampFromPlayer(videoId, config);
+                return [videoId, Number.isFinite(timestampMs) ? Number(timestampMs) : null];
             }
         );
 
@@ -1792,7 +1727,7 @@ async function resolveShortsTimestampChunk(videoIds, config) {
             const videoId = Array.isArray(entry) ? entry[0] : '';
             const timestampMs = Array.isArray(entry) ? entry[1] : null;
             if (typeof videoId === 'string' && videoId) {
-                results.set(videoId, Number.isFinite(timestampMs) ? timestampMs : null);
+                results.set(videoId, Number.isFinite(timestampMs) ? Number(timestampMs) : null);
             }
         });
     }
