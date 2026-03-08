@@ -318,6 +318,19 @@ try {
                         return true;
                     }
                     sendResponse({ success: false, error: 'Watched history module not available' });
+                } else if (message.type === 'GET_SYNC_ACCOUNT_IDENTITY') {
+                    const watchedModule = moduleInstances['watchedHistory'];
+                    if (watchedModule && watchedModule.getSyncAccountIdentity) {
+                        const identity = watchedModule.getSyncAccountIdentity();
+                        sendResponse({ success: true, ...identity });
+                    } else {
+                        sendResponse({
+                            success: true,
+                            accountKey: 'default',
+                            source: 'fallback',
+                            isPrimaryCandidate: false
+                        });
+                    }
                 } else if (message.type === 'IMPORT_WATCHED_VIDEOS') {
                     // Handle watched videos import requests
                     console.log('🚀 Content script received IMPORT_WATCHED_VIDEOS message with', message.videoIds?.length, 'IDs');

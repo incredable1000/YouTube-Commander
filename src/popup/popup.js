@@ -399,6 +399,22 @@ function showStatus(message, type = 'info') {
 }
 
 /**
+ * Format account key for compact popup display.
+ * @param {string} accountKey
+ * @returns {string}
+ */
+function formatAccountKey(accountKey) {
+    const value = typeof accountKey === 'string' ? accountKey.trim() : '';
+    if (!value || value === 'default') {
+        return 'Not locked';
+    }
+    if (value.length <= 22) {
+        return value;
+    }
+    return `${value.slice(0, 10)}...${value.slice(-8)}`;
+}
+
+/**
  * Send runtime message with timeout and callback error handling.
  * @param {object} message
  * @param {number} timeoutMs
@@ -525,9 +541,14 @@ function renderCloudflareSyncStatus(status = {}) {
     const pendingEl = document.getElementById('cloudflarePendingCount');
     const lastSyncEl = document.getElementById('cloudflareLastSyncAt');
     const infoEl = document.getElementById('cloudflareLastSyncInfo');
+    const primaryAccountEl = document.getElementById('cloudflarePrimaryAccount');
 
     if (pendingEl) {
         pendingEl.textContent = String(Number(status.pendingCount) || 0);
+    }
+
+    if (primaryAccountEl) {
+        primaryAccountEl.textContent = formatAccountKey(status.primaryAccountKey);
     }
 
     if (lastSyncEl) {
@@ -685,10 +706,12 @@ async function syncToCloudflare() {
         }
 
         showStatus('Uploading pending unsynced IDs to Cloudflare...', 'info');
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true, url: '*://*.youtube.com/*' });
         const response = await sendRuntimeMessage({
             type: 'SYNC_TO_CLOUDFLARE',
             endpointUrl,
-            apiToken
+            apiToken,
+            activeTabId: activeTab?.id
         }, 90000);
 
         if (!response?.success) {
@@ -709,6 +732,45 @@ async function syncToCloudflare() {
     } finally {
         syncButton.disabled = false;
         syncButton.textContent = initialLabel;
+    }
+}
+
+/**
+ * Lock cloud sync to currently active YouTube account context.
+ */
+async function lockPrimarySyncAccount() {
+    const button = document.getElementById('lockPrimarySyncAccount');
+    if (!button) {
+        return;
+    }
+
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true, url: '*://*.youtube.com/*' });
+    if (!activeTab?.id) {
+        showStatus('Open a YouTube tab first to lock account', 'error');
+        return;
+    }
+
+    const initialLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Locking...';
+
+    try {
+        const response = await sendRuntimeMessage({
+            type: 'LOCK_PRIMARY_SYNC_ACCOUNT',
+            tabId: activeTab.id
+        }, 30000);
+
+        if (!response?.success) {
+            throw new Error(response?.error || 'Failed to lock sync account');
+        }
+
+        renderCloudflareSyncStatus(response);
+        showStatus('Sync account locked to current YouTube tab', 'success');
+    } catch (error) {
+        showStatus(error?.message || 'Failed to lock sync account', 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = initialLabel;
     }
 }
 
@@ -926,6 +988,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('importHistory').addEventListener('click', importHistory);
     document.getElementById('syncToCloudflare').addEventListener('click', syncToCloudflare);
     document.getElementById('downloadFromCloudflare').addEventListener('click', downloadFromCloudflare);
+    document.getElementById('lockPrimarySyncAccount').addEventListener('click', lockPrimarySyncAccount);
     document.getElementById('historyFileInput').addEventListener('change', handleFileImport);
 
     setInterval(loadWatchedHistoryStats, 5000);

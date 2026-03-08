@@ -51,6 +51,41 @@ let storageListener = null;
 const teardownCallbacks = [];
 const CLOUD_PENDING_QUEUE_KEY = 'cloudflareSyncPendingVideoIds';
 const CLOUD_PENDING_COUNT_KEY = 'cloudflareSyncPendingCount';
+const CLOUD_PENDING_BY_ACCOUNT_KEY = 'cloudflareSyncPendingByAccount';
+const SYNC_ACCOUNT_KEY_STORAGE = 'ytCommanderSyncAccountKeyV1';
+const DEFAULT_SYNC_ACCOUNT_KEY = 'default';
+
+let syncAccountKey = DEFAULT_SYNC_ACCOUNT_KEY;
+
+/**
+ * Generate a stable per-storage-context key so multi-login tabs stay isolated.
+ * @returns {string}
+ */
+function createSyncAccountKey() {
+    const randomPart = Math.random().toString(36).slice(2, 12);
+    return `ctx_${Date.now().toString(36)}_${randomPart}`;
+}
+
+/**
+ * Read or create sync account key from page localStorage context.
+ * Different Cent multi-login containers keep separate localStorage, which
+ * gives us account-level partitioning without extra permissions.
+ * @returns {string}
+ */
+function getOrCreateSyncAccountKey() {
+    try {
+        const existing = window.localStorage.getItem(SYNC_ACCOUNT_KEY_STORAGE);
+        if (typeof existing === 'string' && existing.trim()) {
+            return existing.trim().slice(0, 120);
+        }
+
+        const created = createSyncAccountKey();
+        window.localStorage.setItem(SYNC_ACCOUNT_KEY_STORAGE, created);
+        return created;
+    } catch (_error) {
+        return DEFAULT_SYNC_ACCOUNT_KEY;
+    }
+}
 
 /**
  * Merge and persist pending cloud-sync IDs into local storage.
@@ -77,9 +112,16 @@ async function persistPendingCloudSyncIds(videoIds) {
     }
 
     try {
-        const result = await chrome.storage.local.get([CLOUD_PENDING_QUEUE_KEY]);
-        const existingRaw = Array.isArray(result?.[CLOUD_PENDING_QUEUE_KEY])
-            ? result[CLOUD_PENDING_QUEUE_KEY]
+        const result = await chrome.storage.local.get([
+            CLOUD_PENDING_QUEUE_KEY,
+            CLOUD_PENDING_BY_ACCOUNT_KEY
+        ]);
+        const pendingByAccount = result?.[CLOUD_PENDING_BY_ACCOUNT_KEY]
+            && typeof result[CLOUD_PENDING_BY_ACCOUNT_KEY] === 'object'
+            ? result[CLOUD_PENDING_BY_ACCOUNT_KEY]
+            : {};
+        const existingRaw = Array.isArray(pendingByAccount[syncAccountKey])
+            ? pendingByAccount[syncAccountKey]
             : [];
 
         const merged = [];
@@ -102,7 +144,11 @@ async function persistPendingCloudSyncIds(videoIds) {
             merged.push(videoId);
         }
 
+        pendingByAccount[syncAccountKey] = merged;
+
         await chrome.storage.local.set({
+            [CLOUD_PENDING_BY_ACCOUNT_KEY]: pendingByAccount,
+            // Keep legacy mirrors updated for popup/backward compatibility.
             [CLOUD_PENDING_QUEUE_KEY]: merged,
             [CLOUD_PENDING_COUNT_KEY]: merged.length
         });
@@ -166,6 +212,7 @@ async function ensureInitialized() {
 
     initializingPromise = (async () => {
         logger.info('Initializing watched history');
+        syncAccountKey = getOrCreateSyncAccountKey();
         await initDB();
         await loadDeleteModeSetting();
         await hydrateWatchedIdCache();
@@ -179,7 +226,7 @@ async function ensureInitialized() {
         scheduleRender('init', true);
         schedulePlaybackBinding();
 
-        logger.info('Watched history initialized', { watchedCount: watchedIds.size });
+        logger.info('Watched history initialized', { watchedCount: watchedIds.size, syncAccountKey });
     })();
 
     try {
@@ -340,6 +387,11 @@ function attachListeners() {
                     .then((count) => sendResponse({ success: true, count }))
                     .catch((error) => sendResponse({ success: false, error: error.message }));
                 return true;
+            }
+
+            if (message.type === 'GET_SYNC_ACCOUNT_IDENTITY') {
+                sendResponse({ success: true, ...getSyncAccountIdentity() });
+                return undefined;
             }
 
             if (message.type === 'SEED_SYNC_QUEUE_FROM_HISTORY') {
@@ -891,7 +943,11 @@ async function addToWatchedHistory(videoId) {
     decorateMatchingVisibleContainers(videoId);
 
     try {
-        chrome.runtime.sendMessage({ type: 'HISTORY_UPDATED', videoId });
+        chrome.runtime.sendMessage({
+            type: 'HISTORY_UPDATED',
+            videoId,
+            accountKey: syncAccountKey || DEFAULT_SYNC_ACCOUNT_KEY
+        });
     } catch (error) {
         logger.debug('Could not send HISTORY_UPDATED message', error);
     }
@@ -1163,7 +1219,15 @@ async function clearWatchedHistory() {
     resetVisualDecorations();
 
     try {
+        const result = await chrome.storage.local.get([CLOUD_PENDING_BY_ACCOUNT_KEY]);
+        const pendingByAccount = result?.[CLOUD_PENDING_BY_ACCOUNT_KEY]
+            && typeof result[CLOUD_PENDING_BY_ACCOUNT_KEY] === 'object'
+            ? result[CLOUD_PENDING_BY_ACCOUNT_KEY]
+            : {};
+        delete pendingByAccount[syncAccountKey];
+
         await chrome.storage.local.set({
+            [CLOUD_PENDING_BY_ACCOUNT_KEY]: pendingByAccount,
             [CLOUD_PENDING_QUEUE_KEY]: [],
             [CLOUD_PENDING_COUNT_KEY]: 0
         });
@@ -1255,7 +1319,11 @@ async function importWatchedHistory(videoIds, options = {}) {
         chrome.runtime.sendMessage(
             skipSyncQueue
                 ? { type: 'HISTORY_UPDATED' }
-                : { type: 'HISTORY_UPDATED', videoIds: uniqueToAdd }
+                : {
+                    type: 'HISTORY_UPDATED',
+                    videoIds: uniqueToAdd,
+                    accountKey: syncAccountKey || DEFAULT_SYNC_ACCOUNT_KEY
+                }
         );
     } catch (error) {
         logger.debug('Could not send HISTORY_UPDATED after import', error);
@@ -1301,6 +1369,22 @@ function updateSettings(settings) {
             scheduleRender('settings-update', true);
         }
     }
+}
+
+/**
+ * Return account identity used for cloud-sync partitioning.
+ * @returns {{accountKey: string, source: string, isPrimaryCandidate: boolean}}
+ */
+function getSyncAccountIdentity() {
+    if (!syncAccountKey) {
+        syncAccountKey = getOrCreateSyncAccountKey();
+    }
+
+    return {
+        accountKey: syncAccountKey || DEFAULT_SYNC_ACCOUNT_KEY,
+        source: 'localStorage-context',
+        isPrimaryCandidate: true
+    };
 }
 
 /**
@@ -1418,7 +1502,8 @@ window.ytCommanderWatchedHistory = {
     add: addToWatchedHistory,
     clear: clearWatchedHistory,
     count: () => watchedIds.size,
-    getPendingSyncCount
+    getPendingSyncCount,
+    getSyncAccountIdentity
 };
 
 export {
@@ -1435,6 +1520,7 @@ export {
     clearWatchedHistory,
     exportWatchedHistory,
     importWatchedHistory,
+    getSyncAccountIdentity,
     updateSettings,
     enable,
     disable,

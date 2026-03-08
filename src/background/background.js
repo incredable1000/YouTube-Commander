@@ -26,6 +26,8 @@ const CLOUD_SYNC_STORAGE_KEYS = {
     COUNT: 'cloudflareSyncCount',
     PENDING_COUNT: 'cloudflareSyncPendingCount',
     PENDING_QUEUE: 'cloudflareSyncPendingVideoIds',
+    PENDING_BY_ACCOUNT: 'cloudflareSyncPendingByAccount',
+    PRIMARY_ACCOUNT_KEY: 'cloudflareSyncPrimaryAccountKey',
     FAILURE_COUNT: 'cloudflareSyncFailureCount',
     BACKOFF_UNTIL: 'cloudflareSyncBackoffUntil',
     QUEUE_SEEDED: 'cloudflareSyncQueueSeeded'
@@ -41,6 +43,7 @@ const CLOUD_SYNC_DEFAULTS = {
 };
 
 let cloudSyncInProgress = false;
+const DEFAULT_ACCOUNT_KEY = 'default';
 
 /**
  * Sleep helper.
@@ -314,6 +317,114 @@ async function resolveYouTubeTabForHistory() {
 }
 
 /**
+ * Read account identity from a YouTube tab.
+ * @param {number} tabId
+ * @returns {Promise<{accountKey: string, source: string, isPrimaryCandidate: boolean}>}
+ */
+async function getSyncIdentityFromTab(tabId) {
+    const response = await sendMessageToTab(tabId, { type: 'GET_SYNC_ACCOUNT_IDENTITY' }, 8000);
+    if (!response?.success) {
+        throw new Error(response?.error || 'Failed to read account identity from tab');
+    }
+
+    return {
+        accountKey: normalizeAccountKey(response.accountKey),
+        source: typeof response.source === 'string' ? response.source : 'unknown',
+        isPrimaryCandidate: response.isPrimaryCandidate !== false
+    };
+}
+
+/**
+ * Persist locked primary account key.
+ * @param {string} accountKey
+ * @returns {Promise<string>}
+ */
+async function setPrimarySyncAccountKey(accountKey) {
+    const normalized = normalizeAccountKey(accountKey);
+    await storageLocalSet({
+        [CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]: normalized
+    });
+
+    const queue = await readPendingQueue(normalized);
+    await storageLocalSet({
+        [CLOUD_SYNC_STORAGE_KEYS.PENDING_QUEUE]: queue,
+        [CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT]: queue.length
+    });
+
+    return normalized;
+}
+
+/**
+ * Lock primary sync account from current/target tab.
+ * @param {number} tabId
+ * @returns {Promise<{accountKey: string, source: string}>}
+ */
+async function lockPrimarySyncAccountFromTab(tabId) {
+    const identity = await getSyncIdentityFromTab(tabId);
+    const accountKey = await setPrimarySyncAccountKey(identity.accountKey);
+    return {
+        accountKey,
+        source: identity.source
+    };
+}
+
+/**
+ * Resolve sync account key for manual actions.
+ * If no primary account is locked yet, lock it to current active YouTube tab.
+ * @param {number|undefined} preferredTabId
+ * @returns {Promise<string>}
+ */
+async function resolveManualSyncAccountKey(preferredTabId) {
+    const result = await storageLocalGet([CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]);
+    const currentPrimary = normalizeAccountKey(result[CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]);
+    if (currentPrimary && currentPrimary !== DEFAULT_ACCOUNT_KEY) {
+        return currentPrimary;
+    }
+
+    let tabId = Number.isFinite(preferredTabId) ? Number(preferredTabId) : 0;
+    if (!tabId) {
+        const candidates = await getYouTubeTabCandidates();
+        tabId = candidates.find((tab) => tab.active && typeof tab.id === 'number')?.id || 0;
+    }
+
+    if (!tabId) {
+        return currentPrimary || DEFAULT_ACCOUNT_KEY;
+    }
+
+    try {
+        const locked = await lockPrimarySyncAccountFromTab(tabId);
+        return locked.accountKey;
+    } catch (_error) {
+        return currentPrimary || DEFAULT_ACCOUNT_KEY;
+    }
+}
+
+/**
+ * Auto-lock first observed non-default account as primary to preserve old auto-sync behavior.
+ * @param {string} accountKey
+ * @param {chrome.tabs.Tab|undefined} senderTab
+ * @returns {Promise<void>}
+ */
+async function autoLockPrimaryAccountIfMissing(accountKey, senderTab) {
+    const candidateKey = normalizeAccountKey(accountKey);
+    if (!candidateKey || candidateKey === DEFAULT_ACCOUNT_KEY) {
+        return;
+    }
+
+    if (senderTab?.incognito === true) {
+        return;
+    }
+
+    const result = await storageLocalGet([CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]);
+    const currentPrimary = normalizeAccountKey(result[CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]);
+    if (currentPrimary && currentPrimary !== DEFAULT_ACCOUNT_KEY) {
+        return;
+    }
+
+    await setPrimarySyncAccountKey(candidateKey);
+}
+
+/**
  * Parse URL and validate protocol.
  * @param {string} rawEndpoint
  * @returns {URL}
@@ -423,60 +534,186 @@ function normalizeVideoIds(ids) {
 }
 
 /**
- * Read pending sync queue from local storage.
- * @returns {Promise<string[]>}
+ * Normalize account key used for cloud-sync queue partitioning.
+ * @param {any} rawAccountKey
+ * @returns {string}
  */
-async function readPendingQueue() {
-    const result = await storageLocalGet([CLOUD_SYNC_STORAGE_KEYS.PENDING_QUEUE]);
-    return normalizeVideoIds(result[CLOUD_SYNC_STORAGE_KEYS.PENDING_QUEUE]);
+function normalizeAccountKey(rawAccountKey) {
+    const value = typeof rawAccountKey === 'string' ? rawAccountKey.trim() : '';
+    if (!value) {
+        return DEFAULT_ACCOUNT_KEY;
+    }
+
+    const cleaned = value.replace(/[^A-Za-z0-9:_-]/g, '');
+    if (!cleaned) {
+        return DEFAULT_ACCOUNT_KEY;
+    }
+
+    return cleaned.slice(0, 120);
 }
 
 /**
- * Persist pending sync queue and derived count.
- * @param {string[]} videoIds
+ * Keep only valid account queues.
+ * @param {any} rawValue
+ * @returns {Record<string, string[]>}
+ */
+function normalizePendingByAccount(rawValue) {
+    const normalized = {};
+    if (!rawValue || typeof rawValue !== 'object') {
+        return normalized;
+    }
+
+    for (const [rawKey, rawQueue] of Object.entries(rawValue)) {
+        const accountKey = normalizeAccountKey(rawKey);
+        const videoIds = normalizeVideoIds(Array.isArray(rawQueue) ? rawQueue : []);
+        if (videoIds.length === 0) {
+            continue;
+        }
+        normalized[accountKey] = videoIds;
+    }
+
+    return normalized;
+}
+
+/**
+ * Ensure new per-account queue exists (migrate from legacy global queue if needed).
  * @returns {Promise<void>}
  */
-async function writePendingQueue(videoIds) {
-    const normalized = normalizeVideoIds(videoIds);
+async function ensurePendingQueueMigration() {
+    const result = await storageLocalGet([
+        CLOUD_SYNC_STORAGE_KEYS.PENDING_BY_ACCOUNT,
+        CLOUD_SYNC_STORAGE_KEYS.PENDING_QUEUE,
+        CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY
+    ]);
+    const existingMap = normalizePendingByAccount(result[CLOUD_SYNC_STORAGE_KEYS.PENDING_BY_ACCOUNT]);
+    if (Object.keys(existingMap).length > 0) {
+        return;
+    }
+
+    const legacyQueue = normalizeVideoIds(result[CLOUD_SYNC_STORAGE_KEYS.PENDING_QUEUE]);
+    if (legacyQueue.length === 0) {
+        return;
+    }
+
+    const primaryAccountKey = normalizeAccountKey(result[CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]);
+    const migratedMap = {
+        [primaryAccountKey]: legacyQueue
+    };
+
     await storageLocalSet({
-        [CLOUD_SYNC_STORAGE_KEYS.PENDING_QUEUE]: normalized,
-        [CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT]: normalized.length
+        [CLOUD_SYNC_STORAGE_KEYS.PENDING_BY_ACCOUNT]: migratedMap
     });
 }
 
 /**
- * Add IDs to pending queue (deduped).
+ * Read pending queues for all accounts.
+ * @returns {Promise<Record<string, string[]>>}
+ */
+async function readPendingByAccount() {
+    await ensurePendingQueueMigration();
+    const result = await storageLocalGet([CLOUD_SYNC_STORAGE_KEYS.PENDING_BY_ACCOUNT]);
+    return normalizePendingByAccount(result[CLOUD_SYNC_STORAGE_KEYS.PENDING_BY_ACCOUNT]);
+}
+
+/**
+ * Resolve account key used for syncing in current operation.
+ * @returns {Promise<string>}
+ */
+async function resolveSyncAccountKey() {
+    const result = await storageLocalGet([CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]);
+    const primaryAccountKey = normalizeAccountKey(result[CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]);
+    if (primaryAccountKey) {
+        return primaryAccountKey;
+    }
+    return DEFAULT_ACCOUNT_KEY;
+}
+
+/**
+ * Persist pending queues and mirrored legacy status fields for popup compatibility.
+ * @param {Record<string, string[]>} pendingByAccount
+ * @returns {Promise<void>}
+ */
+async function writePendingByAccount(pendingByAccount) {
+    const normalizedMap = normalizePendingByAccount(pendingByAccount);
+    const activeAccountKey = normalizeAccountKey(await resolveSyncAccountKey());
+    const activeQueue = normalizeVideoIds(normalizedMap[activeAccountKey] || []);
+
+    await storageLocalSet({
+        [CLOUD_SYNC_STORAGE_KEYS.PENDING_BY_ACCOUNT]: normalizedMap,
+        [CLOUD_SYNC_STORAGE_KEYS.PENDING_QUEUE]: activeQueue,
+        [CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT]: activeQueue.length
+    });
+}
+
+/**
+ * Read pending queue for a single account.
+ * @param {string} [accountKey]
+ * @returns {Promise<string[]>}
+ */
+async function readPendingQueue(accountKey) {
+    const pendingByAccount = await readPendingByAccount();
+    const scopedAccountKey = normalizeAccountKey(accountKey || await resolveSyncAccountKey());
+    return normalizeVideoIds(pendingByAccount[scopedAccountKey] || []);
+}
+
+/**
+ * Persist pending queue for one account.
+ * @param {string[]} videoIds
+ * @param {string} [accountKey]
+ * @returns {Promise<void>}
+ */
+async function writePendingQueue(videoIds, accountKey) {
+    const pendingByAccount = await readPendingByAccount();
+    const scopedAccountKey = normalizeAccountKey(accountKey || await resolveSyncAccountKey());
+    const normalizedQueue = normalizeVideoIds(videoIds);
+
+    if (normalizedQueue.length > 0) {
+        pendingByAccount[scopedAccountKey] = normalizedQueue;
+    } else {
+        delete pendingByAccount[scopedAccountKey];
+    }
+
+    await writePendingByAccount(pendingByAccount);
+}
+
+/**
+ * Add IDs to pending queue (deduped) for selected account.
  * @param {string[]} incomingVideoIds
+ * @param {string} [accountKey]
  * @returns {Promise<number>}
  */
-async function enqueuePendingVideoIds(incomingVideoIds) {
+async function enqueuePendingVideoIds(incomingVideoIds, accountKey) {
     const incoming = normalizeVideoIds(incomingVideoIds);
+    const scopedAccountKey = normalizeAccountKey(accountKey || await resolveSyncAccountKey());
+
     if (incoming.length === 0) {
-        const current = await readPendingQueue();
+        const current = await readPendingQueue(scopedAccountKey);
         return current.length;
     }
 
-    const current = await readPendingQueue();
+    const current = await readPendingQueue(scopedAccountKey);
     const merged = normalizeVideoIds(current.concat(incoming));
-    await writePendingQueue(merged);
+    await writePendingQueue(merged, scopedAccountKey);
     return merged.length;
 }
 
 /**
  * Remove IDs from pending queue.
  * @param {string[]} syncedIds
+ * @param {string} [accountKey]
  * @returns {Promise<number>}
  */
-async function removePendingVideoIds(syncedIds) {
+async function removePendingVideoIds(syncedIds, accountKey) {
     const removeSet = new Set(normalizeVideoIds(syncedIds));
+    const scopedAccountKey = normalizeAccountKey(accountKey || await resolveSyncAccountKey());
     if (removeSet.size === 0) {
-        const current = await readPendingQueue();
+        const current = await readPendingQueue(scopedAccountKey);
         return current.length;
     }
 
-    const current = await readPendingQueue();
+    const current = await readPendingQueue(scopedAccountKey);
     const next = current.filter((videoId) => !removeSet.has(videoId));
-    await writePendingQueue(next);
+    await writePendingQueue(next, scopedAccountKey);
     return next.length;
 }
 
@@ -509,6 +746,7 @@ async function readCloudSyncState() {
         CLOUD_SYNC_STORAGE_KEYS.ERROR,
         CLOUD_SYNC_STORAGE_KEYS.COUNT,
         CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT,
+        CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY,
         CLOUD_SYNC_STORAGE_KEYS.FAILURE_COUNT,
         CLOUD_SYNC_STORAGE_KEYS.BACKOFF_UNTIL,
         CLOUD_SYNC_STORAGE_KEYS.QUEUE_SEEDED
@@ -532,6 +770,7 @@ async function readCloudSyncState() {
             : '',
         count: Number(result[CLOUD_SYNC_STORAGE_KEYS.COUNT]) || 0,
         pendingCount: Number(result[CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT]) || 0,
+        primaryAccountKey: normalizeAccountKey(result[CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]),
         failureCount: Number(result[CLOUD_SYNC_STORAGE_KEYS.FAILURE_COUNT]) || CLOUD_SYNC_DEFAULTS.failureCount,
         backoffUntil: Number(result[CLOUD_SYNC_STORAGE_KEYS.BACKOFF_UNTIL]) || CLOUD_SYNC_DEFAULTS.backoffUntil,
         queueSeeded: result[CLOUD_SYNC_STORAGE_KEYS.QUEUE_SEEDED] === true
@@ -639,10 +878,14 @@ async function seedSyncQueueFromHistoryInTab(tabId) {
  * @param {URL} endpoint
  * @param {string} apiToken
  * @param {string[]} videoIds
+ * @param {string} [accountKey]
  * @returns {Promise<any>}
  */
-async function postCloudflareSyncBatch(endpoint, apiToken, videoIds) {
+async function postCloudflareSyncBatch(endpoint, apiToken, videoIds, accountKey) {
     const payload = { videoIds };
+    if (accountKey) {
+        payload.accountKey = accountKey;
+    }
     console.info('[YT-Commander][CloudSync] Sending batch to API', {
         endpoint: endpoint.toString(),
         count: videoIds.length,
@@ -871,7 +1114,7 @@ async function downloadFromCloudflare(options = {}) {
 
 /**
  * Perform queue-based cloud sync.
- * @param {{manual?: boolean, endpointUrl?: string, apiToken?: string, source?: string}} options
+ * @param {{manual?: boolean, endpointUrl?: string, apiToken?: string, source?: string, activeTabId?: number}} options
  * @returns {Promise<object>}
  */
 async function performCloudflareSync(options = {}) {
@@ -894,6 +1137,9 @@ async function performCloudflareSync(options = {}) {
     const apiToken = typeof options.apiToken === 'string'
         ? options.apiToken.trim()
         : state.apiToken;
+    const syncAccountKey = manual
+        ? await resolveManualSyncAccountKey(options.activeTabId)
+        : normalizeAccountKey(state.primaryAccountKey);
 
     const endpoint = parseCloudflareEndpoint(endpointRaw);
 
@@ -920,7 +1166,8 @@ async function performCloudflareSync(options = {}) {
     console.info('[YT-Commander][CloudSync] Sync started', {
         endpoint: endpoint.origin + endpoint.pathname,
         manual,
-        source
+        source,
+        accountKey: syncAccountKey
     });
 
     try {
@@ -930,7 +1177,7 @@ async function performCloudflareSync(options = {}) {
         let lastServerResult = null;
 
         while (syncedCount < maxPerRun) {
-            const pendingQueue = await readPendingQueue();
+            const pendingQueue = await readPendingQueue(syncAccountKey);
             if (pendingQueue.length === 0) {
                 break;
             }
@@ -939,8 +1186,8 @@ async function performCloudflareSync(options = {}) {
             const chunkLimit = Math.min(AUTO_SYNC_CHUNK_SIZE, remaining, pendingQueue.length);
             const videoIds = pendingQueue.slice(0, chunkLimit);
 
-            lastServerResult = await postCloudflareSyncBatch(endpoint, apiToken, videoIds);
-            await removePendingVideoIds(videoIds);
+            lastServerResult = await postCloudflareSyncBatch(endpoint, apiToken, videoIds, syncAccountKey);
+            await removePendingVideoIds(videoIds, syncAccountKey);
 
             syncedCount += videoIds.length;
             batchCount += 1;
@@ -950,7 +1197,7 @@ async function performCloudflareSync(options = {}) {
             }
         }
 
-        const pendingCount = (await readPendingQueue()).length;
+        const pendingCount = (await readPendingQueue(syncAccountKey)).length;
 
         await storageLocalSet({
             [CLOUD_SYNC_STORAGE_KEYS.ENDPOINT]: endpoint.toString(),
@@ -966,6 +1213,7 @@ async function performCloudflareSync(options = {}) {
 
         return {
             success: true,
+            accountKey: syncAccountKey,
             syncedCount,
             pendingCount,
             endpointHost: endpoint.host,
@@ -1000,7 +1248,8 @@ async function performCloudflareSync(options = {}) {
  */
 async function getCloudSyncStatus() {
     const state = await readCloudSyncState();
-    const pendingCount = (await readPendingQueue()).length;
+    const syncAccountKey = normalizeAccountKey(state.primaryAccountKey);
+    const pendingCount = (await readPendingQueue(syncAccountKey)).length;
 
     return {
         success: true,
@@ -1012,13 +1261,14 @@ async function getCloudSyncStatus() {
         error: state.error,
         syncedCount: state.count,
         pendingCount,
+        primaryAccountKey: syncAccountKey,
         backoffUntil: state.backoffUntil
     };
 }
 
 /**
  * Update cloud sync config and re-arm alarms.
- * @param {{endpointUrl?: string, apiToken?: string, autoEnabled?: boolean, intervalMinutes?: number}} config
+ * @param {{endpointUrl?: string, apiToken?: string, autoEnabled?: boolean, intervalMinutes?: number, primaryAccountKey?: string}} config
  * @returns {Promise<object>}
  */
 async function updateCloudSyncConfig(config = {}) {
@@ -1038,6 +1288,10 @@ async function updateCloudSyncConfig(config = {}) {
 
     if (config.intervalMinutes !== undefined) {
         nextValues[CLOUD_SYNC_STORAGE_KEYS.INTERVAL_MINUTES] = normalizeSyncInterval(config.intervalMinutes);
+    }
+
+    if (typeof config.primaryAccountKey === 'string') {
+        nextValues[CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY] = normalizeAccountKey(config.primaryAccountKey);
     }
 
     if (Object.keys(nextValues).length > 0) {
@@ -1131,7 +1385,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             endpointUrl: message.endpointUrl,
             apiToken: message.apiToken,
             autoEnabled: message.autoEnabled,
-            intervalMinutes: message.intervalMinutes
+            intervalMinutes: message.intervalMinutes,
+            primaryAccountKey: message.primaryAccountKey
         })
             .then((status) => sendResponse({ success: true, ...status }))
             .catch((error) => sendResponse({ success: false, error: error.message }));
@@ -1150,9 +1405,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             manual: true,
             endpointUrl: message.endpointUrl,
             apiToken: message.apiToken,
-            source: 'popup-manual-sync'
+            source: 'popup-manual-sync',
+            activeTabId: Number.isFinite(message.activeTabId) ? Number(message.activeTabId) : undefined
         })
             .then((result) => sendResponse({ success: true, ...result }))
+            .catch((error) => sendResponse({ success: false, error: error.message }));
+        return true;
+    }
+
+    if (message.type === 'LOCK_PRIMARY_SYNC_ACCOUNT') {
+        const tabId = Number.isFinite(message.tabId) ? Number(message.tabId) : 0;
+        if (!tabId) {
+            sendResponse({ success: false, error: 'A valid YouTube tab is required to lock account' });
+            return false;
+        }
+
+        lockPrimarySyncAccountFromTab(tabId)
+            .then(async (result) => {
+                const status = await getCloudSyncStatus();
+                sendResponse({
+                    success: true,
+                    ...status,
+                    accountKey: result.accountKey,
+                    source: result.source
+                });
+            })
             .catch((error) => sendResponse({ success: false, error: error.message }));
         return true;
     }
@@ -1177,12 +1454,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             ...(Array.isArray(message.videoIds) ? message.videoIds : []),
             ...(typeof message.videoId === 'string' ? [message.videoId] : [])
         ]);
+        const accountKey = normalizeAccountKey(message.accountKey);
 
-        enqueuePendingVideoIds(changedIds)
+        autoLockPrimaryAccountIfMissing(accountKey, sender.tab).catch((error) => {
+            console.warn('[YT-Commander][CloudSync] Could not auto-lock primary account', error);
+        });
+
+        enqueuePendingVideoIds(changedIds, accountKey)
             .then((pendingCount) => {
                 if (changedIds.length > 0) {
                     console.info('[YT-Commander][CloudSync] Queued watched IDs', {
                         added: changedIds.length,
+                        accountKey,
                         pendingCount
                     });
                 }
