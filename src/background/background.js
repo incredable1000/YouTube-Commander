@@ -208,6 +208,17 @@ async function clearAlarm(name) {
 }
 
 /**
+ * Get alarm by name.
+ * @param {string} name
+ * @returns {Promise<chrome.alarms.Alarm|null>}
+ */
+async function getAlarm(name) {
+    return new Promise((resolve) => {
+        chrome.alarms.get(name, (alarm) => resolve(alarm || null));
+    });
+}
+
+/**
  * Check whether an error indicates that no content-script receiver exists on tab.
  * @param {any} error
  * @returns {boolean}
@@ -789,7 +800,10 @@ async function ensureAutoSyncAlarm() {
         return;
     }
 
+    // Recreate alarm explicitly so interval changes apply deterministically.
+    await clearAlarm(AUTO_SYNC_ALARM_NAME);
     chrome.alarms.create(AUTO_SYNC_ALARM_NAME, {
+        delayInMinutes: state.intervalMinutes,
         periodInMinutes: state.intervalMinutes
     });
 }
@@ -804,8 +818,19 @@ async function scheduleSoonAutoSync() {
         return;
     }
 
+    // Respect user-selected long intervals; avoid forcing rapid sync cadence.
+    if (state.intervalMinutes > 15) {
+        return;
+    }
+
+    const targetWhen = Date.now() + AUTO_SYNC_SOON_DELAY_MS;
+    const existing = await getAlarm(AUTO_SYNC_SOON_ALARM_NAME);
+    if (existing && Number.isFinite(existing.scheduledTime) && existing.scheduledTime <= targetWhen) {
+        return;
+    }
+
     chrome.alarms.create(AUTO_SYNC_SOON_ALARM_NAME, {
-        when: Date.now() + AUTO_SYNC_SOON_DELAY_MS
+        when: targetWhen
     });
 }
 
