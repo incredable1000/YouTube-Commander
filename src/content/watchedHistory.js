@@ -49,6 +49,67 @@ let runtimeMessageListener = null;
 let storageListener = null;
 
 const teardownCallbacks = [];
+const CLOUD_PENDING_QUEUE_KEY = 'cloudflareSyncPendingVideoIds';
+const CLOUD_PENDING_COUNT_KEY = 'cloudflareSyncPendingCount';
+
+/**
+ * Merge and persist pending cloud-sync IDs into local storage.
+ * This runs in content context so pending data survives browser close
+ * even if runtime messaging is interrupted.
+ * @param {string[]} videoIds
+ * @returns {Promise<void>}
+ */
+async function persistPendingCloudSyncIds(videoIds) {
+    const incoming = [];
+    const seenIncoming = new Set();
+
+    for (const rawId of videoIds || []) {
+        const videoId = typeof rawId === 'string' ? rawId.trim() : '';
+        if (!isValidVideoId(videoId) || seenIncoming.has(videoId)) {
+            continue;
+        }
+        seenIncoming.add(videoId);
+        incoming.push(videoId);
+    }
+
+    if (incoming.length === 0) {
+        return;
+    }
+
+    try {
+        const result = await chrome.storage.local.get([CLOUD_PENDING_QUEUE_KEY]);
+        const existingRaw = Array.isArray(result?.[CLOUD_PENDING_QUEUE_KEY])
+            ? result[CLOUD_PENDING_QUEUE_KEY]
+            : [];
+
+        const merged = [];
+        const seen = new Set();
+
+        for (const rawId of existingRaw) {
+            const videoId = typeof rawId === 'string' ? rawId.trim() : '';
+            if (!isValidVideoId(videoId) || seen.has(videoId)) {
+                continue;
+            }
+            seen.add(videoId);
+            merged.push(videoId);
+        }
+
+        for (const videoId of incoming) {
+            if (seen.has(videoId)) {
+                continue;
+            }
+            seen.add(videoId);
+            merged.push(videoId);
+        }
+
+        await chrome.storage.local.set({
+            [CLOUD_PENDING_QUEUE_KEY]: merged,
+            [CLOUD_PENDING_COUNT_KEY]: merged.length
+        });
+    } catch (error) {
+        logger.debug('Failed to persist pending cloud-sync IDs', error);
+    }
+}
 
 /**
  * Initialize IndexedDB for watched history.
@@ -825,6 +886,7 @@ async function addToWatchedHistory(videoId) {
 
     await putWatchedRecordAndQueue(videoId, Date.now());
     watchedIds.add(videoId);
+    await persistPendingCloudSyncIds([videoId]);
 
     decorateMatchingVisibleContainers(videoId);
 
@@ -1099,6 +1161,15 @@ async function clearWatchedHistory() {
 
     watchedIds.clear();
     resetVisualDecorations();
+
+    try {
+        await chrome.storage.local.set({
+            [CLOUD_PENDING_QUEUE_KEY]: [],
+            [CLOUD_PENDING_COUNT_KEY]: 0
+        });
+    } catch (error) {
+        logger.debug('Failed to clear pending cloud-sync queue from local storage', error);
+    }
 }
 
 /**
@@ -1173,6 +1244,10 @@ async function importWatchedHistory(videoIds, options = {}) {
     });
 
     uniqueToAdd.forEach((videoId) => watchedIds.add(videoId));
+
+    if (!skipSyncQueue) {
+        await persistPendingCloudSyncIds(uniqueToAdd);
+    }
 
     scheduleRender('import', true);
 
