@@ -40,6 +40,8 @@ const LEGACY_FEATURE_KEYS = [
 
 // Current settings
 let currentSettings = {};
+let cloudflareNextSyncAt = 0;
+let cloudflareAutoEnabled = true;
 const CLOUDFLARE_STORAGE_KEYS = {
     ENDPOINT: 'cloudflareSyncEndpoint',
     API_TOKEN: 'cloudflareSyncApiToken',
@@ -415,6 +417,42 @@ function formatAccountKey(accountKey) {
 }
 
 /**
+ * Format remaining milliseconds to mm:ss.
+ * @param {number} remainingMs
+ * @returns {string}
+ */
+function formatRemainingMinSec(remainingMs) {
+    const safeMs = Number.isFinite(remainingMs) ? Math.max(0, remainingMs) : 0;
+    const totalSeconds = Math.ceil(safeMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+/**
+ * Render live "Next Sync In" countdown.
+ */
+function renderNextSyncCountdown() {
+    const nextSyncEl = document.getElementById('cloudflareNextSyncIn');
+    if (!nextSyncEl) {
+        return;
+    }
+
+    if (!cloudflareAutoEnabled) {
+        nextSyncEl.textContent = 'Off';
+        return;
+    }
+
+    if (!Number.isFinite(cloudflareNextSyncAt) || cloudflareNextSyncAt <= 0) {
+        nextSyncEl.textContent = '--:--';
+        return;
+    }
+
+    const remainingMs = cloudflareNextSyncAt - Date.now();
+    nextSyncEl.textContent = formatRemainingMinSec(remainingMs);
+}
+
+/**
  * Send runtime message with timeout and callback error handling.
  * @param {object} message
  * @param {number} timeoutMs
@@ -542,6 +580,8 @@ function renderCloudflareSyncStatus(status = {}) {
     const lastSyncEl = document.getElementById('cloudflareLastSyncAt');
     const infoEl = document.getElementById('cloudflareLastSyncInfo');
     const primaryAccountEl = document.getElementById('cloudflarePrimaryAccount');
+    cloudflareAutoEnabled = status.autoEnabled !== false;
+    cloudflareNextSyncAt = Number(status.nextSyncAt) || 0;
 
     if (pendingEl) {
         pendingEl.textContent = String(Number(status.pendingCount) || 0);
@@ -571,6 +611,8 @@ function renderCloudflareSyncStatus(status = {}) {
 
         infoEl.textContent = status.status || 'Idle';
     }
+
+    renderNextSyncCountdown();
 }
 
 /**
@@ -993,6 +1035,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setInterval(loadWatchedHistoryStats, 5000);
     setInterval(refreshCloudflareSyncStatus, 30000);
+    setInterval(renderNextSyncCountdown, 1000);
 });
 
 // Make functions globally available

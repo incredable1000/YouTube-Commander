@@ -835,6 +835,37 @@ async function scheduleSoonAutoSync() {
 }
 
 /**
+ * Resolve next scheduled cloud-sync timestamp from active alarms.
+ * @param {{autoEnabled: boolean, endpointUrl: string}} state
+ * @returns {Promise<number>}
+ */
+async function getNextSyncAt(state) {
+    if (!state?.autoEnabled || !state?.endpointUrl) {
+        return 0;
+    }
+
+    const [periodicAlarm, soonAlarm] = await Promise.all([
+        getAlarm(AUTO_SYNC_ALARM_NAME),
+        getAlarm(AUTO_SYNC_SOON_ALARM_NAME)
+    ]);
+    const now = Date.now();
+    const candidates = [];
+
+    [periodicAlarm, soonAlarm].forEach((alarm) => {
+        const scheduledAt = Number(alarm?.scheduledTime) || 0;
+        if (scheduledAt > now) {
+            candidates.push(scheduledAt);
+        }
+    });
+
+    if (candidates.length === 0) {
+        return 0;
+    }
+
+    return Math.min(...candidates);
+}
+
+/**
  * Request pending sync IDs from content script.
  * @param {number} tabId
  * @param {number} limit
@@ -1275,6 +1306,7 @@ async function getCloudSyncStatus() {
     const state = await readCloudSyncState();
     const syncAccountKey = normalizeAccountKey(state.primaryAccountKey);
     const pendingCount = (await readPendingQueue(syncAccountKey)).length;
+    const nextSyncAt = await getNextSyncAt(state);
 
     return {
         success: true,
@@ -1287,6 +1319,7 @@ async function getCloudSyncStatus() {
         syncedCount: state.count,
         pendingCount,
         primaryAccountKey: syncAccountKey,
+        nextSyncAt,
         backoffUntil: state.backoffUntil
     };
 }
