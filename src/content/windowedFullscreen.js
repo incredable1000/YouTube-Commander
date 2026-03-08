@@ -191,13 +191,43 @@ function createWindowedButton() {
     svgIcon.appendChild(path);
     button.appendChild(svgIcon);
 
+    button.addEventListener('mousedown', (event) => {
+        // Keep keyboard focus on player so native arrow-key controls continue to work.
+        event.preventDefault();
+    });
+
     button.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
         toggleWindowedMode();
+        focusPlayerForKeyboardControls();
     });
 
     return button;
+}
+
+/**
+ * Restore keyboard focus to the YouTube player after interacting with custom controls.
+ */
+function focusPlayerForKeyboardControls() {
+    const player = getActivePlayer();
+    if (player instanceof HTMLElement) {
+        try {
+            player.focus({ preventScroll: true });
+            return;
+        } catch (_error) {
+            // Fallback below.
+        }
+    }
+
+    const video = document.querySelector('video.html5-main-video');
+    if (video instanceof HTMLElement) {
+        try {
+            video.focus({ preventScroll: true });
+        } catch (_error) {
+            // No-op.
+        }
+    }
 }
 
 /**
@@ -513,6 +543,7 @@ function handleKeydown(event) {
     event.preventDefault();
     event.stopPropagation();
     toggleWindowedMode();
+    focusPlayerForKeyboardControls();
 }
 
 /**
@@ -546,6 +577,7 @@ function applyAutoWindowedMode() {
     enterWindowedMode();
 
     if (isWindowed) {
+        focusPlayerForKeyboardControls();
         lastAutoWindowedVideoId = watchVideoId;
         resetAutoWarmup();
     }
