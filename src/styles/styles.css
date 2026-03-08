@@ -982,9 +982,9 @@ body.yt-commander-windowed-lock {
     left: 50%;
     bottom: 16px;
     transform: translateX(-50%) translateY(18px);
-    min-width: 236px;
-    height: 52px;
-    padding: 0 10px 0 14px;
+    min-width: min(96vw, 560px);
+    height: 54px;
+    padding: 0 10px 0 12px;
     border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 16px;
     background: linear-gradient(180deg, rgba(39, 39, 39, 0.96), rgba(22, 22, 22, 0.96));
@@ -1007,17 +1007,18 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-playlist-action-count {
-    min-width: 108px;
+    min-width: 156px;
     height: 34px;
     border-radius: 999px;
-    padding: 0 12px;
+    padding: 0 10px;
     border: 1px solid rgba(255, 255, 255, 0.14);
     background: rgba(255, 255, 255, 0.06);
     display: inline-flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
+    justify-content: flex-start;
+    gap: 6px;
     box-sizing: border-box;
+    margin-right: 4px;
 }
 
 .yt-commander-playlist-action-count-label {
@@ -1036,8 +1037,16 @@ body.yt-commander-windowed-lock {
     letter-spacing: 0.16px;
 }
 
-.yt-commander-playlist-action-menu-button,
-.yt-commander-playlist-action-exit {
+.yt-commander-playlist-action-count-total {
+    color: rgba(241, 241, 241, 0.9);
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.14px;
+}
+
+.yt-commander-playlist-action-button {
+    position: relative;
     width: 34px;
     height: 34px;
     border-radius: 50%;
@@ -1051,25 +1060,56 @@ body.yt-commander-windowed-lock {
     transition: background-color 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
 }
 
-.yt-commander-playlist-action-menu-button:hover:not(:disabled),
-.yt-commander-playlist-action-exit:hover:not(:disabled) {
+.yt-commander-playlist-action-button:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.14);
     border-color: rgba(255, 255, 255, 0.3);
     transform: translateY(-1px);
 }
 
-.yt-commander-playlist-action-menu-button:disabled,
-.yt-commander-playlist-action-exit:disabled {
+.yt-commander-playlist-action-button.is-active {
+    background: rgba(62, 166, 255, 0.22);
+    border-color: rgba(62, 166, 255, 0.68);
+    color: #8bcfff;
+}
+
+.yt-commander-playlist-action-button:disabled {
     opacity: 0.45;
     cursor: not-allowed;
 }
 
-.yt-commander-playlist-action-menu-button svg,
-.yt-commander-playlist-action-exit svg {
+.yt-commander-playlist-action-button svg {
     width: 18px;
     height: 18px;
     fill: currentColor;
     pointer-events: none;
+}
+
+.yt-commander-playlist-action-button[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 9px);
+    transform: translate(-50%, 4px);
+    white-space: nowrap;
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    color: #f1f1f1;
+    background: rgba(18, 18, 18, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    padding: 6px 8px;
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.36);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.14s ease, transform 0.14s ease;
+    z-index: 2;
+}
+
+.yt-commander-playlist-action-button:hover[data-tooltip]::after {
+    opacity: 1;
+    transform: translate(-50%, 0);
 }
 
 .yt-commander-playlist-action-status {
@@ -1778,20 +1818,19 @@ body.yt-commander-windowed-lock {
     }
 
     .yt-commander-playlist-action-bar {
-        min-width: min(94vw, 300px);
+        min-width: min(95vw, 360px);
         padding: 0 8px 0 10px;
         height: 48px;
-        gap: 8px;
+        gap: 6px;
     }
 
     .yt-commander-playlist-action-count {
-        min-width: 98px;
+        min-width: 130px;
         height: 32px;
-        padding: 0 10px;
+        padding: 0 8px;
     }
 
-    .yt-commander-playlist-action-menu-button,
-    .yt-commander-playlist-action-exit {
+    .yt-commander-playlist-action-button {
         width: 32px;
         height: 32px;
     }

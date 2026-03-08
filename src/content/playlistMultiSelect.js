@@ -20,7 +20,6 @@ import {
     HOST_SELECTED_CLASS,
     OVERLAY_CLASS,
     ACTION_BAR_CLASS,
-    ACTION_MENU_CLASS,
     PLAYLIST_PANEL_CLASS,
     CREATE_BACKDROP_CLASS,
     CREATE_MODAL_CLASS,
@@ -33,13 +32,14 @@ import {
 import {
     createSvgIcon,
     createMastheadIcon,
-    createDotsIcon,
     createBookmarkIcon,
     createCloseIcon,
     createPlusIcon,
     createChevronDownIcon,
     createCheckIcon,
-    createRemoveIcon
+    createRemoveIcon,
+    createSelectAllIcon,
+    createUnselectAllIcon
 } from './playlist-multi-select/icons.js';
 import {
     extractVideoId,
@@ -64,7 +64,6 @@ const bridgeClient = createBridgeClient({
 let isInitialized = false;
 let isEnabled = true;
 let selectionMode = false;
-let actionMenuVisible = false;
 let playlistPanelVisible = false;
 let createModalVisible = false;
 let createVisibilityMenuVisible = false;
@@ -78,13 +77,13 @@ let mastheadBadge = null;
 
 let actionBar = null;
 let actionCount = null;
-let actionMenuButton = null;
+let actionTotalCount = null;
+let actionSaveButton = null;
+let actionRemoveButton = null;
+let actionSelectAllButton = null;
+let actionUnselectAllButton = null;
 let actionExitButton = null;
 let actionBarStatus = null;
-
-let actionMenu = null;
-let actionMenuSaveButton = null;
-let actionMenuRemoveButton = null;
 
 let playlistPanel = null;
 let playlistPanelCount = null;
@@ -113,6 +112,7 @@ let lastKnownUrl = location.href;
 let statusTimer = null;
 let lastPlaylistProbeVideoId = '';
 let createVisibility = 'PRIVATE';
+let selectAllMode = false;
 
 const selectedVideoIds = new Set();
 const selectedPlaylistIds = new Set();
@@ -217,6 +217,23 @@ function updateMastheadVisibility() {
 }
 
 /**
+ * Build one icon button for action bar.
+ * @param {SVGSVGElement} icon
+ * @param {string} label
+ * @returns {HTMLButtonElement}
+ */
+function createActionIconButton(icon, label) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'yt-commander-playlist-action-button';
+    button.setAttribute('aria-label', label);
+    button.setAttribute('title', label);
+    button.setAttribute('data-tooltip', label);
+    button.appendChild(icon);
+    return button;
+}
+
+/**
  * Ensure bottom action bar exists.
  */
 function ensureActionBar() {
@@ -238,25 +255,37 @@ function ensureActionBar() {
     actionCount.className = 'yt-commander-playlist-action-count-value';
     actionCount.textContent = '0';
 
+    const totalLabel = document.createElement('span');
+    totalLabel.className = 'yt-commander-playlist-action-count-label';
+    totalLabel.textContent = 'of';
+
+    actionTotalCount = document.createElement('span');
+    actionTotalCount.className = 'yt-commander-playlist-action-count-total';
+    actionTotalCount.textContent = '0';
+
     countWrap.appendChild(countLabel);
     countWrap.appendChild(actionCount);
+    countWrap.appendChild(totalLabel);
+    countWrap.appendChild(actionTotalCount);
 
-    actionMenuButton = document.createElement('button');
-    actionMenuButton.type = 'button';
-    actionMenuButton.className = 'yt-commander-playlist-action-menu-button';
-    actionMenuButton.setAttribute('aria-label', 'Selection actions');
-    actionMenuButton.setAttribute('aria-haspopup', 'menu');
-    actionMenuButton.setAttribute('aria-expanded', 'false');
-    actionMenuButton.appendChild(createDotsIcon());
+    actionSaveButton = createActionIconButton(createBookmarkIcon(), 'Save to playlist');
+    actionRemoveButton = createActionIconButton(createRemoveIcon(), getRemoveActionLabel());
+    actionSelectAllButton = createActionIconButton(createSelectAllIcon(), 'Select all');
+    actionUnselectAllButton = createActionIconButton(createUnselectAllIcon(), 'Unselect all');
 
     actionExitButton = document.createElement('button');
     actionExitButton.type = 'button';
-    actionExitButton.className = 'yt-commander-playlist-action-exit';
+    actionExitButton.className = 'yt-commander-playlist-action-button yt-commander-playlist-action-exit';
     actionExitButton.setAttribute('aria-label', 'Exit selection mode');
+    actionExitButton.setAttribute('title', 'Exit selection mode');
+    actionExitButton.setAttribute('data-tooltip', 'Exit selection mode');
     actionExitButton.appendChild(createCloseIcon());
 
     actionBar.appendChild(countWrap);
-    actionBar.appendChild(actionMenuButton);
+    actionBar.appendChild(actionSaveButton);
+    actionBar.appendChild(actionRemoveButton);
+    actionBar.appendChild(actionSelectAllButton);
+    actionBar.appendChild(actionUnselectAllButton);
     actionBar.appendChild(actionExitButton);
 
     actionBarStatus = document.createElement('div');
@@ -266,67 +295,18 @@ function ensureActionBar() {
     document.body.appendChild(actionBar);
     document.body.appendChild(actionBarStatus);
 
-    actionMenuButton.addEventListener('click', handleActionMenuButtonClick);
+    actionSaveButton.addEventListener('click', handleActionSaveClick);
+    actionRemoveButton.addEventListener('click', handleActionRemoveClick);
+    actionSelectAllButton.addEventListener('click', handleActionSelectAllClick);
+    actionUnselectAllButton.addEventListener('click', handleActionUnselectAllClick);
     actionExitButton.addEventListener('click', handleActionExitButtonClick);
 
-    cleanupCallbacks.push(() => actionMenuButton?.removeEventListener('click', handleActionMenuButtonClick));
+    cleanupCallbacks.push(() => actionSaveButton?.removeEventListener('click', handleActionSaveClick));
+    cleanupCallbacks.push(() => actionRemoveButton?.removeEventListener('click', handleActionRemoveClick));
+    cleanupCallbacks.push(() => actionSelectAllButton?.removeEventListener('click', handleActionSelectAllClick));
+    cleanupCallbacks.push(() => actionUnselectAllButton?.removeEventListener('click', handleActionUnselectAllClick));
     cleanupCallbacks.push(() => actionExitButton?.removeEventListener('click', handleActionExitButtonClick));
-}
-
-/**
- * Ensure action menu exists.
- */
-function ensureActionMenu() {
-    if (actionMenu && actionMenu.isConnected) {
-        return;
-    }
-
-    actionMenu = document.createElement('div');
-    actionMenu.className = ACTION_MENU_CLASS;
-    actionMenu.setAttribute('role', 'menu');
-
-    actionMenuSaveButton = document.createElement('button');
-    actionMenuSaveButton.type = 'button';
-    actionMenuSaveButton.className = 'yt-commander-playlist-action-menu__item';
-    actionMenuSaveButton.setAttribute('role', 'menuitem');
-
-    const iconWrap = document.createElement('span');
-    iconWrap.className = 'yt-commander-playlist-action-menu__item-icon';
-    iconWrap.appendChild(createBookmarkIcon());
-
-    const text = document.createElement('span');
-    text.className = 'yt-commander-playlist-action-menu__item-text';
-    text.textContent = 'Save to playlist';
-
-    actionMenuSaveButton.appendChild(iconWrap);
-    actionMenuSaveButton.appendChild(text);
-    actionMenu.appendChild(actionMenuSaveButton);
-
-    actionMenuRemoveButton = document.createElement('button');
-    actionMenuRemoveButton.type = 'button';
-    actionMenuRemoveButton.className = 'yt-commander-playlist-action-menu__item';
-    actionMenuRemoveButton.setAttribute('role', 'menuitem');
-    actionMenuRemoveButton.setAttribute('data-action', ACTIONS.REMOVE_FROM_PLAYLIST);
-
-    const removeIconWrap = document.createElement('span');
-    removeIconWrap.className = 'yt-commander-playlist-action-menu__item-icon';
-    removeIconWrap.appendChild(createRemoveIcon());
-
-    const removeText = document.createElement('span');
-    removeText.className = 'yt-commander-playlist-action-menu__item-text';
-    removeText.textContent = getRemoveActionLabel();
-
-    actionMenuRemoveButton.appendChild(removeIconWrap);
-    actionMenuRemoveButton.appendChild(removeText);
-    actionMenu.appendChild(actionMenuRemoveButton);
-
-    document.body.appendChild(actionMenu);
-
-    actionMenuSaveButton.addEventListener('click', handleActionMenuSaveClick);
-    actionMenuRemoveButton.addEventListener('click', handleActionMenuRemoveClick);
-    cleanupCallbacks.push(() => actionMenuSaveButton?.removeEventListener('click', handleActionMenuSaveClick));
-    cleanupCallbacks.push(() => actionMenuRemoveButton?.removeEventListener('click', handleActionMenuRemoveClick));
-    syncRemoveActionMenuItem();
+    syncRemoveActionButton();
 }
 
 /**
@@ -541,7 +521,6 @@ function ensureCreateModal() {
  */
 function ensureActionUi() {
     ensureActionBar();
-    ensureActionMenu();
     ensurePlaylistPanel();
     ensureCreateModal();
 }
@@ -687,7 +666,6 @@ function syncActionBarVisibility() {
 
     if (!visible) {
         actionBarStatus?.classList.remove('is-visible', 'is-info', 'is-success', 'is-error');
-        closeActionMenu();
         closePlaylistPanel();
         closeCreateModal(true);
     }
@@ -746,20 +724,47 @@ function clearStatusMessage() {
 }
 
 /**
+ * Collect currently rendered selectable video ids.
+ * @returns {string[]}
+ */
+function collectRenderedVideoIds() {
+    const ids = new Set();
+    document.querySelectorAll(`.${HOST_CLASS}[data-yt-commander-video-id]`).forEach((host) => {
+        const videoId = host.getAttribute('data-yt-commander-video-id') || '';
+        if (VIDEO_ID_PATTERN.test(videoId)) {
+            ids.add(videoId);
+        }
+    });
+    return Array.from(ids);
+}
+
+/**
+ * Reset action-bar counters to zero.
+ */
+function resetActionCounters() {
+    if (actionCount) {
+        actionCount.textContent = '0';
+    }
+
+    if (actionTotalCount) {
+        actionTotalCount.textContent = '0';
+    }
+}
+
+/**
  * Sync remove-action visibility/label based on current route.
  */
-function syncRemoveActionMenuItem() {
-    if (!actionMenuRemoveButton) {
+function syncRemoveActionButton() {
+    const canRemove = isPlaylistCollectionPage();
+    if (!actionRemoveButton) {
         return;
     }
 
-    const canRemove = isPlaylistCollectionPage();
-    actionMenuRemoveButton.hidden = !canRemove;
-
-    const labelNode = actionMenuRemoveButton.querySelector('.yt-commander-playlist-action-menu__item-text');
-    if (labelNode) {
-        labelNode.textContent = getRemoveActionLabel();
-    }
+    const label = getRemoveActionLabel();
+    actionRemoveButton.hidden = !canRemove;
+    actionRemoveButton.setAttribute('aria-label', label);
+    actionRemoveButton.setAttribute('title', label);
+    actionRemoveButton.setAttribute('data-tooltip', label);
 }
 
 /**
@@ -767,26 +772,36 @@ function syncRemoveActionMenuItem() {
  */
 function updateActionUiState() {
     const selectedCount = selectedVideoIds.size;
+    const pageCount = collectRenderedVideoIds().length;
 
     if (actionCount) {
         actionCount.textContent = selectedCount > 999 ? '999+' : String(selectedCount);
+    }
+
+    if (actionTotalCount) {
+        actionTotalCount.textContent = pageCount > 9999 ? '9999+' : String(pageCount);
     }
 
     if (playlistPanelCount) {
         playlistPanelCount.textContent = `${selectedCount} selected`;
     }
 
-    if (actionMenuButton) {
-        actionMenuButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+    if (actionSaveButton) {
+        actionSaveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
 
-    if (actionMenuSaveButton) {
-        actionMenuSaveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+    if (actionSelectAllButton) {
+        actionSelectAllButton.disabled = pageCount === 0 || loadingPlaylists || submitting || createSubmitting;
+        actionSelectAllButton.classList.toggle('is-active', selectAllMode);
     }
 
-    syncRemoveActionMenuItem();
-    if (actionMenuRemoveButton) {
-        actionMenuRemoveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+    if (actionUnselectAllButton) {
+        actionUnselectAllButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+    }
+
+    syncRemoveActionButton();
+    if (actionRemoveButton) {
+        actionRemoveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
 
     if (playlistPanelCloseButton) {
@@ -800,55 +815,12 @@ function updateActionUiState() {
     playlistPanel?.classList.toggle('is-busy', loadingPlaylists || submitting);
 
     if (selectedCount === 0) {
-        closeActionMenu();
         closePlaylistPanel();
         closeCreateModal();
     }
 
     updateMastheadButtonState();
     updateCreateModalState();
-}
-
-/**
- * Open action menu.
- */
-function openActionMenu() {
-    if (!selectionMode || selectedVideoIds.size === 0 || createSubmitting) {
-        return;
-    }
-
-    ensureActionUi();
-    syncRemoveActionMenuItem();
-    closePlaylistPanel();
-
-    if (!actionMenu || !actionMenuButton) {
-        return;
-    }
-
-    actionMenu.classList.add('is-visible');
-    actionMenuVisible = true;
-    actionMenuButton.setAttribute('aria-expanded', 'true');
-    positionElementAboveAnchor(actionMenu, actionMenuButton);
-}
-
-/**
- * Close action menu.
- */
-function closeActionMenu() {
-    actionMenuVisible = false;
-    actionMenu?.classList.remove('is-visible');
-    actionMenuButton?.setAttribute('aria-expanded', 'false');
-}
-
-/**
- * Toggle action menu.
- */
-function toggleActionMenu() {
-    if (actionMenuVisible) {
-        closeActionMenu();
-    } else {
-        openActionMenu();
-    }
 }
 
 /**
@@ -860,16 +832,15 @@ async function openPlaylistPanel() {
     }
 
     ensureActionUi();
-    closeActionMenu();
 
-    if (!playlistPanel || !actionMenuButton) {
+    if (!playlistPanel || !actionSaveButton) {
         return;
     }
 
     playlistPanel.classList.add('is-visible');
     playlistPanelVisible = true;
     updateActionUiState();
-    positionElementAboveAnchor(playlistPanel, actionMenuButton);
+    positionElementAboveAnchor(playlistPanel, actionSaveButton);
     await loadPlaylistsForPanel();
 }
 
@@ -1208,7 +1179,6 @@ async function removeSelectionFromCurrentPlaylist() {
 
     submitting = true;
     updateActionUiState();
-    closeActionMenu();
 
     const playlistLabel = playlistId === 'WL' ? 'Watch later' : 'playlist';
     setStatusMessage(`Removing ${videoIds.length} video(s) from ${playlistLabel}...`, STATUS_KIND.INFO);
@@ -1534,6 +1504,10 @@ function handleVideoSelectionInteraction(options) {
         return;
     }
 
+    if (selectAllMode) {
+        selectAllMode = false;
+    }
+
     const host = options?.host instanceof Element ? options.host : null;
     const shiftKey = Boolean(options?.shiftKey);
 
@@ -1558,6 +1532,7 @@ function clearSelectedVideos() {
     selectedVideoIds.clear();
     selectedPlaylistIds.clear();
     selectionRangeController.reset();
+    selectAllMode = false;
 
     document.querySelectorAll(`.${HOST_CLASS}`).forEach((host) => {
         const videoId = host.getAttribute('data-yt-commander-video-id') || '';
@@ -1743,6 +1718,8 @@ function processPendingContainers() {
 
     const batch = [];
     let count = 0;
+    const autoSelectedIds = new Set();
+    let decoratedCount = 0;
 
     for (const container of pendingContainers) {
         pendingContainers.delete(container);
@@ -1757,6 +1734,14 @@ function processPendingContainers() {
     batch.forEach((container) => {
         const decorated = decorateContainer(container);
         if (decorated || !container?.isConnected) {
+            if (decorated) {
+                decoratedCount += 1;
+                const videoId = container.getAttribute('data-yt-commander-video-id') || '';
+                if (selectAllMode && VIDEO_ID_PATTERN.test(videoId) && !selectedVideoIds.has(videoId)) {
+                    selectedVideoIds.add(videoId);
+                    autoSelectedIds.add(videoId);
+                }
+            }
             decorateRetryCounts.delete(container);
             return;
         }
@@ -1771,6 +1756,12 @@ function processPendingContainers() {
 
         decorateRetryCounts.delete(container);
     });
+
+    if (autoSelectedIds.size > 0) {
+        commitSelectionMutation(Array.from(autoSelectedIds));
+    } else if (decoratedCount > 0) {
+        updateActionUiState();
+    }
 
     if (hasRetryableHydrationMiss) {
         scheduleDeferredRescan();
@@ -1826,11 +1817,11 @@ function setSelectionMode(active) {
     document.documentElement.classList.toggle(ROOT_SELECTION_CLASS, selectionMode);
 
     if (!selectionMode) {
-        closeActionMenu();
         closePlaylistPanel();
         closeCreateModal(true);
         clearSelectedVideos();
         cleanupDecorations();
+        resetActionCounters();
         clearStatusMessage();
         clearDeferredRescanTimer();
         pendingContainers.clear();
@@ -1840,13 +1831,17 @@ function setSelectionMode(active) {
         playlistMap.clear();
         selectedPlaylistIds.clear();
         lastPlaylistProbeVideoId = '';
+        selectAllMode = false;
     } else {
         queueFullRescan();
     }
 
     updateMastheadButtonState();
     syncActionBarVisibility();
-    updateActionUiState();
+
+    if (selectionMode) {
+        updateActionUiState();
+    }
 }
 
 /**
@@ -1865,17 +1860,6 @@ function handleMastheadButtonClick(event) {
 }
 
 /**
- * Handle action menu button click.
- * @param {MouseEvent} event
- */
-function handleActionMenuButtonClick(event) {
-    event.preventDefault();
-    event.stopPropagation();
-
-    toggleActionMenu();
-}
-
-/**
  * Handle action bar exit click.
  * @param {MouseEvent} event
  */
@@ -1886,10 +1870,10 @@ function handleActionExitButtonClick(event) {
 }
 
 /**
- * Handle "save to playlist" menu click.
+ * Handle "save to playlist" action click.
  * @param {MouseEvent} event
  */
-function handleActionMenuSaveClick(event) {
+function handleActionSaveClick(event) {
     event.preventDefault();
     event.stopPropagation();
     openPlaylistPanel().catch((error) => {
@@ -1898,15 +1882,40 @@ function handleActionMenuSaveClick(event) {
 }
 
 /**
- * Handle "remove from playlist" menu click.
+ * Handle "remove from playlist" action click.
  * @param {MouseEvent} event
  */
-function handleActionMenuRemoveClick(event) {
+function handleActionRemoveClick(event) {
     event.preventDefault();
     event.stopPropagation();
     removeSelectionFromCurrentPlaylist().catch((error) => {
         logger.warn('Failed to remove selected playlist videos', error);
     });
+}
+
+/**
+ * Select all rendered videos and keep selecting newly loaded cards.
+ * @param {MouseEvent} event
+ */
+function handleActionSelectAllClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    selectAllMode = true;
+    selectVideoIds(collectRenderedVideoIds());
+    updateActionUiState();
+}
+
+/**
+ * Clear selection and disable auto-select-all mode.
+ * @param {MouseEvent} event
+ */
+function handleActionUnselectAllClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    selectAllMode = false;
+    clearSelectedVideos();
 }
 
 /**
@@ -2056,7 +2065,6 @@ function handleDocumentMouseDown(event) {
     if (playlistPanelVisible) {
         if (
             playlistPanel?.contains(target)
-            || actionMenu?.contains(target)
             || actionBar?.contains(target)
             || mastheadButton?.contains(target)
         ) {
@@ -2064,15 +2072,6 @@ function handleDocumentMouseDown(event) {
         }
 
         closePlaylistPanel();
-        closeActionMenu();
-        return;
-    }
-
-    if (actionMenuVisible) {
-        if (actionMenu?.contains(target) || actionBar?.contains(target) || mastheadButton?.contains(target)) {
-            return;
-        }
-        closeActionMenu();
     }
 }
 
@@ -2092,7 +2091,6 @@ function handleSelectionClickCapture(event) {
 
     if (
         actionBar?.contains(target)
-        || actionMenu?.contains(target)
         || playlistPanel?.contains(target)
         || createModal?.contains(target)
         || mastheadButton?.contains(target)
@@ -2156,12 +2154,6 @@ function handleDocumentKeydown(event) {
         return;
     }
 
-    if (actionMenuVisible) {
-        event.preventDefault();
-        closeActionMenu();
-        return;
-    }
-
     if (selectionMode) {
         event.preventDefault();
         setSelectionMode(false);
@@ -2180,19 +2172,15 @@ function handleRouteChange() {
     setSelectionMode(false);
     updateMastheadVisibility();
     syncActionBarVisibility();
-    syncRemoveActionMenuItem();
+    syncRemoveActionButton();
 }
 
 /**
  * Handle viewport resize.
  */
 function handleResize() {
-    if (actionMenuVisible && actionMenu && actionMenuButton) {
-        positionElementAboveAnchor(actionMenu, actionMenuButton);
-    }
-
-    if (playlistPanelVisible && playlistPanel && actionMenuButton) {
-        positionElementAboveAnchor(playlistPanel, actionMenuButton);
+    if (playlistPanelVisible && playlistPanel && actionSaveButton) {
+        positionElementAboveAnchor(playlistPanel, actionSaveButton);
     }
 }
 
@@ -2353,9 +2341,6 @@ function cleanup() {
     if (actionBarStatus) {
         actionBarStatus.remove();
     }
-    if (actionMenu) {
-        actionMenu.remove();
-    }
     if (playlistPanel) {
         playlistPanel.remove();
     }
@@ -2365,13 +2350,13 @@ function cleanup() {
 
     actionBar = null;
     actionCount = null;
-    actionMenuButton = null;
+    actionTotalCount = null;
+    actionSaveButton = null;
+    actionRemoveButton = null;
+    actionSelectAllButton = null;
+    actionUnselectAllButton = null;
     actionExitButton = null;
     actionBarStatus = null;
-
-    actionMenu = null;
-    actionMenuSaveButton = null;
-    actionMenuRemoveButton = null;
 
     playlistPanel = null;
     playlistPanelCount = null;
@@ -2403,7 +2388,6 @@ function cleanup() {
     playlistMap.clear();
     playlistOptions = [];
 
-    actionMenuVisible = false;
     playlistPanelVisible = false;
     createModalVisible = false;
     createVisibilityMenuVisible = false;
@@ -2411,6 +2395,7 @@ function cleanup() {
     submitting = false;
     createSubmitting = false;
     createVisibility = 'PRIVATE';
+    selectAllMode = false;
 
     lastPlaylistProbeVideoId = '';
 

@@ -77,6 +77,20 @@ function createRemoveIcon() {
     return createSvgIcon('M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zm3.46-8.88L12 12.67l2.54-2.55 1.06 1.06L13.06 13.73l2.54 2.55-1.06 1.06L12 14.79l-2.54 2.55-1.06-1.06 2.54-2.55-2.54-2.55 1.06-1.06zM15.5 4l-1-1h-5l-1 1H5v2h14V4z');
 }
 
+/**
+ * @returns {SVGSVGElement}
+ */
+function createSelectAllIcon() {
+    return createSvgIcon('M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm11.3-1.3L16 13.4l4.3-4.3L22 10.8 16 16.8l-3.7-3.7z');
+}
+
+/**
+ * @returns {SVGSVGElement}
+ */
+function createUnselectAllIcon() {
+    return createSvgIcon('M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm11.4 0L16 14.6l1.6-1.6L19 14.4l1.4-1.4 1.6 1.6-1.4 1.4 1.4 1.4-1.6 1.6-1.4-1.4-1.4 1.4-1.6-1.6 1.4-1.4z');
+}
+
 export {
     createSvgIcon,
     createMastheadIcon,
@@ -86,5 +100,7 @@ export {
     createPlusIcon,
     createChevronDownIcon,
     createCheckIcon,
-    createRemoveIcon
+    createRemoveIcon,
+    createSelectAllIcon,
+    createUnselectAllIcon
 };
