@@ -175,9 +175,7 @@ function cleanupStaleLabels() {
         const resolved = resolveShortCardData(container);
         const shortId = resolved?.shortId || '';
         const labelShortId = label.getAttribute(LABEL_ATTR) || '';
-        const expectedHost = resolved ? findLabelHost(container).host : null;
-
-        if (!shortId || shortId !== labelShortId || !expectedHost || expectedHost !== host) {
+        if (!shortId || shortId !== labelShortId) {
             label.remove();
             host.classList.remove(INLINE_HOST_CLASS);
         }
@@ -222,6 +220,37 @@ function ensureCardLabel(card) {
 }
 
 /**
+ * Set label text only when changed to reduce unnecessary layout churn.
+ * @param {HTMLElement} label
+ * @param {string} text
+ */
+function setLabelText(label, text) {
+    if (!(label instanceof HTMLElement) || typeof text !== 'string') {
+        return;
+    }
+
+    if (label.textContent !== text) {
+        label.textContent = text;
+    }
+}
+
+/**
+ * Enable loading state only when label is currently empty.
+ * Keeps previously rendered value stable during background refreshes.
+ * @param {HTMLElement} label
+ */
+function setLoadingStateIfEmpty(label) {
+    if (!(label instanceof HTMLElement)) {
+        return;
+    }
+
+    const hasText = Boolean((label.textContent || '').trim());
+    if (!hasText) {
+        label.classList.add('is-loading');
+    }
+}
+
+/**
  * Derive an "x ago" value from visible card text when present.
  * @param {{container: Element, host: Element}} card
  * @returns {string}
@@ -258,7 +287,7 @@ function refreshRenderedLabels() {
 
         const text = formatRelativeAge(timestampMs, nowMs);
         if (text) {
-            label.textContent = text;
+            setLabelText(label, text);
             label.classList.remove('is-loading');
         }
     }
@@ -278,7 +307,7 @@ function renderCard(card, nowMs) {
 
     const visibleRelative = extractRelativeFromCard(card);
     if (visibleRelative) {
-        label.textContent = visibleRelative;
+        setLabelText(label, visibleRelative);
         label.classList.remove('is-loading');
         return null;
     }
@@ -287,13 +316,13 @@ function renderCard(card, nowMs) {
     if (Number.isFinite(cachedTimestampMs)) {
         const cachedText = formatRelativeAge(cachedTimestampMs, nowMs);
         if (cachedText) {
-            label.textContent = cachedText;
+            setLabelText(label, cachedText);
             label.classList.remove('is-loading');
             return null;
         }
     }
 
-    label.classList.add('is-loading');
+    setLoadingStateIfEmpty(label);
     return {
         shortId: card.shortId,
         label,
@@ -370,7 +399,7 @@ async function runRenderPass() {
                     return;
                 }
 
-                entry.label.textContent = text;
+                setLabelText(entry.label, text);
                 entry.label.classList.remove('is-loading');
             });
         }
