@@ -9,8 +9,7 @@ const TAB_RECEIVER_CHECK_DELAY_MS = 350;
 const CLOUDFLARE_SYNC_REQUEST_TIMEOUT_MS = 60000;
 
 const AUTO_SYNC_ALARM_NAME = 'ytCommanderCloudflareAutoSync';
-const AUTO_SYNC_SOON_ALARM_NAME = 'ytCommanderCloudflareAutoSyncSoon';
-const AUTO_SYNC_SOON_DELAY_MS = 2 * 60 * 1000;
+const AUTO_SYNC_CHECK_PERIOD_MINUTES = 1;
 const AUTO_SYNC_CHUNK_SIZE = 300;
 const AUTO_SYNC_MAX_IDS_PER_RUN = 1200;
 const MANUAL_SYNC_MAX_IDS_PER_RUN = 6000;
@@ -800,69 +799,58 @@ async function ensureAutoSyncAlarm() {
         return;
     }
 
-    // Recreate alarm explicitly so interval changes apply deterministically.
+    const existingAlarm = await getAlarm(AUTO_SYNC_ALARM_NAME);
+    const existingPeriod = Number(existingAlarm?.periodInMinutes) || 0;
+    if (existingAlarm && Math.abs(existingPeriod - AUTO_SYNC_CHECK_PERIOD_MINUTES) < 0.0001) {
+        return;
+    }
+
     await clearAlarm(AUTO_SYNC_ALARM_NAME);
     chrome.alarms.create(AUTO_SYNC_ALARM_NAME, {
-        delayInMinutes: state.intervalMinutes,
-        periodInMinutes: state.intervalMinutes
+        delayInMinutes: AUTO_SYNC_CHECK_PERIOD_MINUTES,
+        periodInMinutes: AUTO_SYNC_CHECK_PERIOD_MINUTES
     });
 }
 
 /**
- * Schedule a near-term one-shot auto sync.
+ * Compute the next due timestamp based on last successful sync + interval.
+ * If there was no successful sync yet, sync is considered immediately due.
+ * @param {{autoEnabled: boolean, endpointUrl: string, intervalMinutes: number, lastAt: number}} state
+ * @returns {number}
+ */
+function getNextSyncAt(state) {
+    if (!state.autoEnabled || !state.endpointUrl) {
+        return 0;
+    }
+
+    const intervalMs = normalizeSyncInterval(state.intervalMinutes) * 60 * 1000;
+    const lastAt = Number(state.lastAt) || 0;
+    if (lastAt <= 0) {
+        return Date.now();
+    }
+    return lastAt + intervalMs;
+}
+
+/**
+ * Run auto sync only when interval has elapsed since last successful sync.
+ * @param {string} source
  * @returns {Promise<void>}
  */
-async function scheduleSoonAutoSync() {
+async function runAutoSyncIfDue(source) {
     const state = await readCloudSyncState();
     if (!state.autoEnabled || !state.endpointUrl) {
         return;
     }
 
-    // Respect user-selected long intervals; avoid forcing rapid sync cadence.
-    if (state.intervalMinutes > 15) {
+    const nextSyncAt = getNextSyncAt(state);
+    if (nextSyncAt > Date.now()) {
         return;
     }
 
-    const targetWhen = Date.now() + AUTO_SYNC_SOON_DELAY_MS;
-    const existing = await getAlarm(AUTO_SYNC_SOON_ALARM_NAME);
-    if (existing && Number.isFinite(existing.scheduledTime) && existing.scheduledTime <= targetWhen) {
-        return;
-    }
-
-    chrome.alarms.create(AUTO_SYNC_SOON_ALARM_NAME, {
-        when: targetWhen
+    await performCloudflareSync({
+        manual: false,
+        source
     });
-}
-
-/**
- * Resolve next scheduled cloud-sync timestamp from active alarms.
- * @param {{autoEnabled: boolean, endpointUrl: string}} state
- * @returns {Promise<number>}
- */
-async function getNextSyncAt(state) {
-    if (!state?.autoEnabled || !state?.endpointUrl) {
-        return 0;
-    }
-
-    const [periodicAlarm, soonAlarm] = await Promise.all([
-        getAlarm(AUTO_SYNC_ALARM_NAME),
-        getAlarm(AUTO_SYNC_SOON_ALARM_NAME)
-    ]);
-    const now = Date.now();
-    const candidates = [];
-
-    [periodicAlarm, soonAlarm].forEach((alarm) => {
-        const scheduledAt = Number(alarm?.scheduledTime) || 0;
-        if (scheduledAt > now) {
-            candidates.push(scheduledAt);
-        }
-    });
-
-    if (candidates.length === 0) {
-        return 0;
-    }
-
-    return Math.min(...candidates);
 }
 
 /**
@@ -1306,7 +1294,7 @@ async function getCloudSyncStatus() {
     const state = await readCloudSyncState();
     const syncAccountKey = normalizeAccountKey(state.primaryAccountKey);
     const pendingCount = (await readPendingQueue(syncAccountKey)).length;
-    const nextSyncAt = await getNextSyncAt(state);
+    const nextSyncAt = getNextSyncAt(state);
 
     return {
         success: true,
@@ -1357,7 +1345,6 @@ async function updateCloudSyncConfig(config = {}) {
     }
 
     await ensureAutoSyncAlarm();
-    await scheduleSoonAutoSync();
     return getCloudSyncStatus();
 }
 
@@ -1383,24 +1370,27 @@ chrome.runtime.onInstalled.addListener(() => {
     ensureAutoSyncAlarm().catch((error) => {
         console.error('[YT-Commander][CloudSync] Failed to ensure alarm on install', error);
     });
+    runAutoSyncIfDue('install-check').catch((error) => {
+        console.error('[YT-Commander][CloudSync] Install due-check failed', error);
+    });
 });
 
 chrome.runtime.onStartup.addListener(() => {
     ensureAutoSyncAlarm().catch((error) => {
         console.error('[YT-Commander][CloudSync] Failed to ensure alarm on startup', error);
     });
+    runAutoSyncIfDue('startup-check').catch((error) => {
+        console.error('[YT-Commander][CloudSync] Startup due-check failed', error);
+    });
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-    if (!alarm || (alarm.name !== AUTO_SYNC_ALARM_NAME && alarm.name !== AUTO_SYNC_SOON_ALARM_NAME)) {
+    if (!alarm || alarm.name !== AUTO_SYNC_ALARM_NAME) {
         return;
     }
 
-    performCloudflareSync({
-        manual: false,
-        source: `alarm:${alarm.name}`
-    }).catch((error) => {
-        console.error('[YT-Commander][CloudSync] Alarm sync failed', error);
+    runAutoSyncIfDue(`alarm:${alarm.name}`).catch((error) => {
+        console.error('[YT-Commander][CloudSync] Alarm due-check failed', error);
     });
 });
 
@@ -1546,8 +1536,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             });
         });
 
-        scheduleSoonAutoSync().catch((error) => {
-            console.error('[YT-Commander][CloudSync] Failed to schedule auto sync', error);
+        runAutoSyncIfDue('history-updated').catch((error) => {
+            console.error('[YT-Commander][CloudSync] History due-check failed', error);
         });
 
         return false;
@@ -1602,4 +1592,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 ensureAutoSyncAlarm().catch((error) => {
     console.error('[YT-Commander][CloudSync] Failed to ensure startup alarm', error);
+});
+
+runAutoSyncIfDue('startup-bootstrap').catch((error) => {
+    console.error('[YT-Commander][CloudSync] Startup bootstrap due-check failed', error);
 });
