@@ -48,6 +48,10 @@ const CLOUDFLARE_STORAGE_KEYS = {
     AUTO_ENABLED: 'cloudflareSyncAutoEnabled',
     INTERVAL_MINUTES: 'cloudflareSyncIntervalMinutes'
 };
+const SQL_EXPORT_TABLE_NAME = 'watched_videos';
+const SQL_EXPORT_IDS_PER_FILE = 200000;
+const SQL_EXPORT_VALUES_PER_STATEMENT = 300;
+const SQL_EXPORT_DOWNLOAD_DELAY_MS = 250;
 
 // Feature toggle functionality (expand/collapse cards)
 function toggleFeature(featureName) {
@@ -727,6 +731,201 @@ async function exportHistory() {
 }
 
 /**
+ * Keep valid unique video IDs only.
+ * @param {string[]} videoIds
+ * @returns {string[]}
+ */
+function normalizeVideoIdList(videoIds) {
+    const unique = [];
+    const seen = new Set();
+
+    for (const rawId of videoIds || []) {
+        const videoId = typeof rawId === 'string' ? rawId.trim() : '';
+        if (!/^[A-Za-z0-9_-]{10,15}$/.test(videoId) || seen.has(videoId)) {
+            continue;
+        }
+
+        seen.add(videoId);
+        unique.push(videoId);
+    }
+
+    return unique;
+}
+
+/**
+ * Resolve a usable YouTube tab for watched-history operations.
+ * @returns {Promise<chrome.tabs.Tab>}
+ */
+async function resolveYouTubeTabForHistory() {
+    const [activeTab] = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+        url: '*://*.youtube.com/*'
+    });
+
+    if (activeTab?.id) {
+        return activeTab;
+    }
+
+    const tabs = await chrome.tabs.query({ url: '*://*.youtube.com/*' });
+    if (!tabs.length || !tabs[0]?.id) {
+        throw new Error('Open a YouTube tab first');
+    }
+
+    return tabs[0];
+}
+
+/**
+ * Read all watched video IDs from content script cache.
+ * @returns {Promise<string[]>}
+ */
+async function getAllWatchedVideoIdsForSqlExport() {
+    const targetTab = await resolveYouTubeTabForHistory();
+
+    try {
+        const response = await chrome.tabs.sendMessage(targetTab.id, {
+            type: 'GET_ALL_WATCHED_VIDEO_IDS'
+        });
+        if (response?.success && Array.isArray(response.videoIds)) {
+            return normalizeVideoIdList(response.videoIds);
+        }
+    } catch (_error) {
+        // Fallback to legacy shape below.
+    }
+
+    const legacy = await chrome.tabs.sendMessage(targetTab.id, {
+        type: 'GET_ALL_WATCHED_VIDEOS'
+    });
+    if (!legacy?.success || !Array.isArray(legacy.videos)) {
+        throw new Error(legacy?.error || 'Failed to read watched history from YouTube tab');
+    }
+
+    return normalizeVideoIdList(legacy.videos.map((entry) => entry?.videoId));
+}
+
+/**
+ * Build SQL insert statements for a list of video IDs.
+ * @param {string[]} videoIds
+ * @returns {string}
+ */
+function buildSqlInsertStatements(videoIds) {
+    const statements = [];
+    for (let index = 0; index < videoIds.length; index += SQL_EXPORT_VALUES_PER_STATEMENT) {
+        const chunk = videoIds.slice(index, index + SQL_EXPORT_VALUES_PER_STATEMENT);
+        if (!chunk.length) {
+            continue;
+        }
+
+        const values = chunk
+            .map((videoId) => `    ('${videoId}')`)
+            .join(',\n');
+
+        statements.push(
+            `INSERT OR IGNORE INTO ${SQL_EXPORT_TABLE_NAME} (video_id)\nVALUES\n${values};`
+        );
+    }
+
+    return statements.join('\n\n');
+}
+
+/**
+ * Build one SQL migration file for a chunk of IDs.
+ * @param {string[]} videoIds
+ * @param {number} partIndex
+ * @param {number} totalParts
+ * @returns {string}
+ */
+function buildSqlMigrationFile(videoIds, partIndex, totalParts) {
+    const header = [
+        '-- YouTube Commander D1 migration export',
+        `-- part: ${partIndex}/${totalParts}`,
+        `-- ids_in_part: ${videoIds.length}`,
+        '-- generated_at: ' + new Date().toISOString(),
+        '',
+        `CREATE TABLE IF NOT EXISTS ${SQL_EXPORT_TABLE_NAME} (`,
+        '    video_id TEXT PRIMARY KEY,',
+        '    created_at INTEGER NOT NULL DEFAULT (unixepoch())',
+        ');',
+        ''
+    ];
+
+    const body = buildSqlInsertStatements(videoIds);
+    const footer = ['', ''];
+
+    return `${header.join('\n')}${body}${footer.join('\n')}`;
+}
+
+/**
+ * Trigger browser download for text content.
+ * @param {string} content
+ * @param {string} filename
+ */
+function downloadTextFile(content, filename) {
+    const blob = new Blob([content], { type: 'application/sql;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+}
+
+/**
+ * Export watched IDs as chunked SQL migration files for Cloudflare D1.
+ */
+async function exportSqlMigration() {
+    const button = document.getElementById('exportSqlMigration');
+    if (!button) {
+        return;
+    }
+
+    const initialLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Generating...';
+
+    try {
+        showStatus('Reading watched IDs from local history...', 'info');
+        const allVideoIds = await getAllWatchedVideoIdsForSqlExport();
+
+        if (allVideoIds.length === 0) {
+            showStatus('No watched IDs found for SQL export', 'error');
+            return;
+        }
+
+        const totalParts = Math.max(1, Math.ceil(allVideoIds.length / SQL_EXPORT_IDS_PER_FILE));
+        let exportedIds = 0;
+
+        for (let part = 0; part < totalParts; part += 1) {
+            const start = part * SQL_EXPORT_IDS_PER_FILE;
+            const idsChunk = allVideoIds.slice(start, start + SQL_EXPORT_IDS_PER_FILE);
+            if (!idsChunk.length) {
+                continue;
+            }
+
+            const partIndex = part + 1;
+            const sqlContent = buildSqlMigrationFile(idsChunk, partIndex, totalParts);
+            const filename = totalParts === 1
+                ? 'youtube-watched-history-d1.sql'
+                : `youtube-watched-history-d1-part-${String(partIndex).padStart(3, '0')}-of-${String(totalParts).padStart(3, '0')}.sql`;
+
+            downloadTextFile(sqlContent, filename);
+            exportedIds += idsChunk.length;
+
+            if (partIndex < totalParts) {
+                await new Promise((resolve) => setTimeout(resolve, SQL_EXPORT_DOWNLOAD_DELAY_MS));
+            }
+        }
+
+        showStatus(`Exported ${exportedIds} IDs as ${totalParts} SQL file(s)`, 'success');
+    } catch (error) {
+        showStatus(error?.message || 'Failed to export SQL migration', 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = initialLabel;
+    }
+}
+
+/**
  * Sync watched history to Cloudflare worker endpoint.
  */
 async function syncToCloudflare() {
@@ -1028,6 +1227,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('exportHistory').addEventListener('click', exportHistory);
     document.getElementById('importHistory').addEventListener('click', importHistory);
+    document.getElementById('exportSqlMigration').addEventListener('click', exportSqlMigration);
     document.getElementById('syncToCloudflare').addEventListener('click', syncToCloudflare);
     document.getElementById('downloadFromCloudflare').addEventListener('click', downloadFromCloudflare);
     document.getElementById('lockPrimarySyncAccount').addEventListener('click', lockPrimarySyncAccount);
