@@ -52,6 +52,23 @@ const SQL_EXPORT_TABLE_NAME = 'watched_videos';
 const SQL_EXPORT_IDS_PER_FILE = 200000;
 const SQL_EXPORT_VALUES_PER_STATEMENT = 300;
 const SQL_EXPORT_DOWNLOAD_DELAY_MS = 250;
+const POPUP_UI_V2_STORAGE_KEY = 'popupUiRevampEnabled';
+const POPUP_UI_V2_DEFAULT = true;
+const POPUP_UI_V2_CLASS = 'yt-commander-popup-v2';
+const POPUP_UI_V2_DEFAULT_FEATURE = 'seek';
+const POPUP_UI_V2_TONES = ['red', 'cyan', 'green', 'amber'];
+const POPUP_UI_V2_NAV_ITEMS = [
+    { feature: 'seek', label: 'Seek' },
+    { feature: 'quality', label: 'Quality' },
+    { feature: 'audio', label: 'Audio' },
+    { feature: 'history', label: 'History' },
+    { feature: 'playlist', label: 'Multi' },
+    { feature: 'windowedFullscreen', label: 'Window' },
+    { feature: 'rotation', label: 'Rotate' },
+    { feature: 'shorts', label: 'Shorts' },
+    { feature: 'shortsUploadAge', label: 'Age' },
+    { feature: 'scroll', label: 'Top' }
+];
 
 // Feature toggle functionality (expand/collapse cards)
 function toggleFeature(featureName) {
@@ -84,6 +101,232 @@ function setupDeleteVideosToggle() {
             saveSyncSettings();
         });
     }
+}
+
+/**
+ * Resolve whether popup v2 redesign should be enabled.
+ * @returns {Promise<boolean>}
+ */
+async function resolvePopupUiV2Enabled() {
+    try {
+        const result = await chrome.storage.local.get([POPUP_UI_V2_STORAGE_KEY]);
+        const stored = result?.[POPUP_UI_V2_STORAGE_KEY];
+        if (typeof stored === 'boolean') {
+            return stored;
+        }
+    } catch (_error) {
+        // Fallback to default when storage read fails.
+    }
+    return POPUP_UI_V2_DEFAULT;
+}
+
+/**
+ * Apply popup design feature-flag class to body.
+ * @param {boolean} enabled
+ */
+function applyPopupUiFeatureFlag(enabled) {
+    document.body.classList.toggle(POPUP_UI_V2_CLASS, enabled === true);
+}
+
+/**
+ * Toggle feature card expanded state.
+ * @param {Element|null} card
+ * @param {boolean} expanded
+ */
+function setFeatureCardExpanded(card, expanded) {
+    const header = card?.querySelector('.feature-header');
+    const content = card?.querySelector('.feature-content');
+    header?.classList.toggle('expanded', expanded === true);
+    content?.classList.toggle('expanded', expanded === true);
+}
+
+/**
+ * Get feature card by internal name.
+ * @param {string} featureName
+ * @returns {Element|null}
+ */
+function findFeatureCard(featureName) {
+    return document.querySelector(`.feature-header[data-feature='${featureName}']`)?.closest('.feature-card') || null;
+}
+
+/**
+ * Activate one feature card in popup v2 and hide the rest.
+ * @param {string} featureName
+ */
+function setPopupUiV2ActiveFeature(featureName) {
+    const cards = Array.from(document.querySelectorAll('.feature-card'));
+    if (!cards.length) {
+        return;
+    }
+
+    let resolvedFeature = featureName;
+    if (!findFeatureCard(featureName)) {
+        resolvedFeature = POPUP_UI_V2_DEFAULT_FEATURE;
+    }
+    if (!findFeatureCard(resolvedFeature)) {
+        const firstFeature = cards[0].querySelector('.feature-header')?.dataset?.feature || '';
+        resolvedFeature = firstFeature;
+    }
+
+    cards.forEach((card) => {
+        const header = card.querySelector('.feature-header');
+        const featureName = header?.dataset?.feature || '';
+        const isActive = featureName === resolvedFeature;
+        card.classList.toggle('ytc-v2-feature-active', isActive);
+        setFeatureCardExpanded(card, isActive);
+    });
+
+    document.querySelectorAll('.ytc-v2-nav-button').forEach((button) => {
+        const isActive = button.getAttribute('data-feature') === resolvedFeature;
+        button.classList.toggle('active', isActive);
+    });
+}
+
+/**
+ * Build top feature switcher for popup v2.
+ */
+function initializePopupUiV2Navigator() {
+    const container = document.querySelector('.container');
+    const firstCard = container?.querySelector('.feature-card');
+    if (!container || !firstCard || container.querySelector('.ytc-v2-nav')) {
+        return;
+    }
+
+    const nav = document.createElement('div');
+    nav.className = 'ytc-v2-nav';
+
+    POPUP_UI_V2_NAV_ITEMS.forEach((item) => {
+        if (!findFeatureCard(item.feature)) {
+            return;
+        }
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'ytc-v2-nav-button';
+        button.setAttribute('data-feature', item.feature);
+        button.textContent = item.label;
+        button.title = item.label;
+        button.addEventListener('click', () => {
+            setPopupUiV2ActiveFeature(item.feature);
+        });
+        nav.appendChild(button);
+    });
+
+    container.insertBefore(nav, firstCard);
+    setPopupUiV2ActiveFeature(POPUP_UI_V2_DEFAULT_FEATURE);
+}
+
+/**
+ * Move node that contains selector match into pane.
+ * @param {Element} scope
+ * @param {string} selector
+ * @param {Element} pane
+ * @param {string} [extraClass]
+ */
+function moveHistoryNodeToPane(scope, selector, pane, extraClass = '') {
+    const source = scope.querySelector(selector);
+    if (!source) {
+        return;
+    }
+
+    const host = source.closest('.action-buttons, .setting-row, .stats-grid, .status') || source;
+    if (extraClass) {
+        host.classList.add(extraClass);
+    }
+    pane.appendChild(host);
+}
+
+/**
+ * Initialize Local/Cloud tabs inside history card for compact v2.
+ */
+function initializePopupUiV2HistoryTabs() {
+    const historyCard = findFeatureCard('history');
+    const historyContent = historyCard?.querySelector('.feature-content');
+    if (!historyContent || historyContent.querySelector('.ytc-v2-history-tabs')) {
+        return;
+    }
+
+    const tabs = document.createElement('div');
+    tabs.className = 'ytc-v2-history-tabs';
+
+    const localTab = document.createElement('button');
+    localTab.type = 'button';
+    localTab.className = 'ytc-v2-history-tab active';
+    localTab.setAttribute('data-pane', 'local');
+    localTab.textContent = 'Local';
+
+    const cloudTab = document.createElement('button');
+    cloudTab.type = 'button';
+    cloudTab.className = 'ytc-v2-history-tab';
+    cloudTab.setAttribute('data-pane', 'cloud');
+    cloudTab.textContent = 'Cloud';
+
+    tabs.appendChild(localTab);
+    tabs.appendChild(cloudTab);
+
+    const localPane = document.createElement('div');
+    localPane.className = 'ytc-v2-history-pane active';
+    localPane.setAttribute('data-pane', 'local');
+
+    const cloudPane = document.createElement('div');
+    cloudPane.className = 'ytc-v2-history-pane';
+    cloudPane.setAttribute('data-pane', 'cloud');
+
+    moveHistoryNodeToPane(historyContent, '.stats-grid', localPane);
+    moveHistoryNodeToPane(historyContent, '#exportHistory', localPane);
+    moveHistoryNodeToPane(historyContent, '#exportSqlMigration', localPane);
+    moveHistoryNodeToPane(historyContent, '#deleteVideosToggle', localPane);
+    moveHistoryNodeToPane(historyContent, '#historyStatus', localPane);
+
+    moveHistoryNodeToPane(historyContent, '#syncToCloudflare', cloudPane);
+    moveHistoryNodeToPane(historyContent, '#lockPrimarySyncAccount', cloudPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflareSyncEndpoint', cloudPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflareSyncToken', cloudPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflareAutoSyncToggle', cloudPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflareSyncInterval', cloudPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflarePendingCount', cloudPane, 'ytc-v2-cloud-meta');
+
+    const note = historyContent.querySelector('.note');
+
+    historyContent.insertBefore(tabs, historyContent.firstChild);
+    historyContent.appendChild(localPane);
+    historyContent.appendChild(cloudPane);
+    if (note) {
+        historyContent.appendChild(note);
+    }
+
+    tabs.addEventListener('click', (event) => {
+        const tab = event.target.closest('.ytc-v2-history-tab');
+        if (!tab) {
+            return;
+        }
+
+        const paneName = tab.getAttribute('data-pane');
+        tabs.querySelectorAll('.ytc-v2-history-tab').forEach((item) => {
+            item.classList.toggle('active', item === tab);
+        });
+        historyContent.querySelectorAll('.ytc-v2-history-pane').forEach((pane) => {
+            pane.classList.toggle('active', pane.getAttribute('data-pane') === paneName);
+        });
+    });
+}
+
+/**
+ * Prepare compact no-scroll layout for popup v2.
+ * @param {boolean} enabled
+ */
+function initializePopupUiV2Layout(enabled) {
+    if (!enabled) {
+        return;
+    }
+
+    const cards = document.querySelectorAll('.feature-card');
+    cards.forEach((card, index) => {
+        card.dataset.tone = POPUP_UI_V2_TONES[index % POPUP_UI_V2_TONES.length];
+    });
+
+    initializePopupUiV2HistoryTabs();
+    initializePopupUiV2Navigator();
 }
 
 /**
@@ -1215,7 +1458,11 @@ function setupFeatureHeaders() {
 }
 
 // Initialize popup
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    const popupUiV2Enabled = await resolvePopupUiV2Enabled();
+    applyPopupUiFeatureFlag(popupUiV2Enabled);
+    initializePopupUiV2Layout(popupUiV2Enabled);
+
     loadSettings();
 
     setupAudioSettingToggle();

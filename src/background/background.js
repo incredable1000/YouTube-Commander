@@ -42,6 +42,7 @@ const CLOUD_SYNC_DEFAULTS = {
 };
 
 let cloudSyncInProgress = false;
+let pendingQueueMutationChain = Promise.resolve();
 const DEFAULT_ACCOUNT_KEY = 'default';
 
 /**
@@ -544,6 +545,19 @@ function normalizeVideoIds(ids) {
 }
 
 /**
+ * Serialize pending-queue mutations to avoid lost updates from concurrent
+ * read-modify-write operations.
+ * @template T
+ * @param {() => Promise<T>} mutator
+ * @returns {Promise<T>}
+ */
+function runPendingQueueMutation(mutator) {
+    const run = pendingQueueMutationChain.then(() => mutator(), () => mutator());
+    pendingQueueMutationChain = run.catch(() => undefined);
+    return run;
+}
+
+/**
  * Normalize account key used for cloud-sync queue partitioning.
  * @param {any} rawAccountKey
  * @returns {string}
@@ -696,15 +710,17 @@ async function enqueuePendingVideoIds(incomingVideoIds, accountKey) {
     const incoming = normalizeVideoIds(incomingVideoIds);
     const scopedAccountKey = normalizeAccountKey(accountKey || await resolveSyncAccountKey());
 
-    if (incoming.length === 0) {
-        const current = await readPendingQueue(scopedAccountKey);
-        return current.length;
-    }
+    return runPendingQueueMutation(async () => {
+        if (incoming.length === 0) {
+            const current = await readPendingQueue(scopedAccountKey);
+            return current.length;
+        }
 
-    const current = await readPendingQueue(scopedAccountKey);
-    const merged = normalizeVideoIds(current.concat(incoming));
-    await writePendingQueue(merged, scopedAccountKey);
-    return merged.length;
+        const current = await readPendingQueue(scopedAccountKey);
+        const merged = normalizeVideoIds(current.concat(incoming));
+        await writePendingQueue(merged, scopedAccountKey);
+        return merged.length;
+    });
 }
 
 /**
@@ -716,15 +732,17 @@ async function enqueuePendingVideoIds(incomingVideoIds, accountKey) {
 async function removePendingVideoIds(syncedIds, accountKey) {
     const removeSet = new Set(normalizeVideoIds(syncedIds));
     const scopedAccountKey = normalizeAccountKey(accountKey || await resolveSyncAccountKey());
-    if (removeSet.size === 0) {
-        const current = await readPendingQueue(scopedAccountKey);
-        return current.length;
-    }
+    return runPendingQueueMutation(async () => {
+        if (removeSet.size === 0) {
+            const current = await readPendingQueue(scopedAccountKey);
+            return current.length;
+        }
 
-    const current = await readPendingQueue(scopedAccountKey);
-    const next = current.filter((videoId) => !removeSet.has(videoId));
-    await writePendingQueue(next, scopedAccountKey);
-    return next.length;
+        const current = await readPendingQueue(scopedAccountKey);
+        const next = current.filter((videoId) => !removeSet.has(videoId));
+        await writePendingQueue(next, scopedAccountKey);
+        return next.length;
+    });
 }
 
 /**
@@ -1517,30 +1535,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         pendingCount
                     });
                 }
+
+                chrome.tabs.query({ url: YOUTUBE_TAB_URL_PATTERN }, (tabs) => {
+                    tabs.forEach((tab) => {
+                        if (typeof tab.id !== 'number' || tab.id === sender.tab?.id) {
+                            return;
+                        }
+
+                        chrome.tabs.sendMessage(tab.id, { type: 'HISTORY_UPDATED' }, () => {
+                            if (chrome.runtime.lastError) {
+                                return;
+                            }
+                        });
+                    });
+                });
+
+                runAutoSyncIfDue('history-updated').catch((error) => {
+                    console.error('[YT-Commander][CloudSync] History due-check failed', error);
+                });
+
+                sendResponse({ success: true, pendingCount });
             })
             .catch((error) => {
                 console.error('[YT-Commander][CloudSync] Failed to enqueue history updates', error);
+                sendResponse({ success: false, error: error?.message || 'Failed to enqueue history update' });
             });
 
-        chrome.tabs.query({ url: YOUTUBE_TAB_URL_PATTERN }, (tabs) => {
-            tabs.forEach((tab) => {
-                if (typeof tab.id !== 'number' || tab.id === sender.tab?.id) {
-                    return;
-                }
-
-                chrome.tabs.sendMessage(tab.id, { type: 'HISTORY_UPDATED' }, () => {
-                    if (chrome.runtime.lastError) {
-                        return;
-                    }
-                });
-            });
-        });
-
-        runAutoSyncIfDue('history-updated').catch((error) => {
-            console.error('[YT-Commander][CloudSync] History due-check failed', error);
-        });
-
-        return false;
+        return true;
     }
 
     if (message.type === 'PROCESS_IMPORT_BATCH') {

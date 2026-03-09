@@ -158,6 +158,25 @@ async function persistPendingCloudSyncIds(videoIds) {
 }
 
 /**
+ * Notify background that watched history changed.
+ * Returns false only when runtime messaging fails or background rejects.
+ * @param {object} payload
+ * @returns {Promise<boolean>}
+ */
+async function notifyBackgroundHistoryUpdated(payload) {
+    try {
+        const response = await chrome.runtime.sendMessage(payload);
+        if (response && response.success === false) {
+            return false;
+        }
+        return true;
+    } catch (error) {
+        logger.debug('Could not send HISTORY_UPDATED message', error);
+        return false;
+    }
+}
+
+/**
  * Initialize IndexedDB for watched history.
  * @returns {Promise<void>}
  */
@@ -938,19 +957,16 @@ async function addToWatchedHistory(videoId) {
 
     await putWatchedRecordAndQueue(videoId, Date.now());
     watchedIds.add(videoId);
-    await persistPendingCloudSyncIds([videoId]);
+    const backgroundQueued = await notifyBackgroundHistoryUpdated({
+        type: 'HISTORY_UPDATED',
+        videoId,
+        accountKey: syncAccountKey || DEFAULT_SYNC_ACCOUNT_KEY
+    });
+    if (!backgroundQueued) {
+        await persistPendingCloudSyncIds([videoId]);
+    }
 
     decorateMatchingVisibleContainers(videoId);
-
-    try {
-        chrome.runtime.sendMessage({
-            type: 'HISTORY_UPDATED',
-            videoId,
-            accountKey: syncAccountKey || DEFAULT_SYNC_ACCOUNT_KEY
-        });
-    } catch (error) {
-        logger.debug('Could not send HISTORY_UPDATED message', error);
-    }
 }
 
 /**
@@ -1309,25 +1325,19 @@ async function importWatchedHistory(videoIds, options = {}) {
 
     uniqueToAdd.forEach((videoId) => watchedIds.add(videoId));
 
-    if (!skipSyncQueue) {
+    const historyUpdatedPayload = skipSyncQueue
+        ? { type: 'HISTORY_UPDATED' }
+        : {
+            type: 'HISTORY_UPDATED',
+            videoIds: uniqueToAdd,
+            accountKey: syncAccountKey || DEFAULT_SYNC_ACCOUNT_KEY
+        };
+    const backgroundQueued = await notifyBackgroundHistoryUpdated(historyUpdatedPayload);
+    if (!skipSyncQueue && !backgroundQueued) {
         await persistPendingCloudSyncIds(uniqueToAdd);
     }
 
     scheduleRender('import', true);
-
-    try {
-        chrome.runtime.sendMessage(
-            skipSyncQueue
-                ? { type: 'HISTORY_UPDATED' }
-                : {
-                    type: 'HISTORY_UPDATED',
-                    videoIds: uniqueToAdd,
-                    accountKey: syncAccountKey || DEFAULT_SYNC_ACCOUNT_KEY
-                }
-        );
-    } catch (error) {
-        logger.debug('Could not send HISTORY_UPDATED after import', error);
-    }
 
     return uniqueToAdd.length;
 }
