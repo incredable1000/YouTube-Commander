@@ -58,20 +58,23 @@ const POPUP_UI_V2_CLASS = 'yt-commander-popup-v2';
 const POPUP_UI_V2_DEFAULT_FEATURE = 'seek';
 const POPUP_UI_V2_TONES = ['red', 'cyan', 'green', 'amber'];
 const POPUP_UI_V2_NAV_ITEMS = [
-    { feature: 'seek', label: 'Seek' },
+    { feature: 'seek', label: 'Seek controls' },
     { feature: 'quality', label: 'Quality' },
     { feature: 'audio', label: 'Audio' },
-    { feature: 'history', label: 'History' },
-    { feature: 'playlist', label: 'Multi' },
-    { feature: 'windowedFullscreen', label: 'Window' },
-    { feature: 'rotation', label: 'Rotate' },
-    { feature: 'shorts', label: 'Shorts' },
-    { feature: 'shortsUploadAge', label: 'Age' },
-    { feature: 'scroll', label: 'Top' }
+    { feature: 'history', label: 'Watched history' },
+    { feature: 'playlist', label: 'Multi select' },
+    { feature: 'windowedFullscreen', label: 'Windowed fullscreen' },
+    { feature: 'rotation', label: 'Rotate video' },
+    { feature: 'shorts', label: 'Shorts counter' },
+    { feature: 'shortsUploadAge', label: 'Shorts upload age' },
+    { feature: 'scroll', label: 'Scroll to top' }
 ];
 
 // Feature toggle functionality (expand/collapse cards)
 function toggleFeature(featureName) {
+    if (document.body.classList.contains(POPUP_UI_V2_CLASS)) {
+        return;
+    }
     const content = document.getElementById(`${featureName}Content`);
     const header = content.previousElementSibling; // Get the header element
     
@@ -192,6 +195,26 @@ function initializePopupUiV2Navigator() {
         return;
     }
 
+    const navWrap = document.createElement('div');
+    navWrap.className = 'ytc-v2-nav-wrap';
+
+    const prevButton = document.createElement('button');
+    prevButton.type = 'button';
+    prevButton.className = 'ytc-v2-nav-arrow';
+    prevButton.setAttribute('data-direction', 'prev');
+    prevButton.setAttribute('aria-label', 'Scroll left');
+    prevButton.innerHTML = '<span class="ytc-v2-nav-arrow-icon" aria-hidden="true">◀</span>';
+
+    const nextButton = document.createElement('button');
+    nextButton.type = 'button';
+    nextButton.className = 'ytc-v2-nav-arrow';
+    nextButton.setAttribute('data-direction', 'next');
+    nextButton.setAttribute('aria-label', 'Scroll right');
+    nextButton.innerHTML = '<span class="ytc-v2-nav-arrow-icon" aria-hidden="true">▶</span>';
+
+    const scrollArea = document.createElement('div');
+    scrollArea.className = 'ytc-v2-nav-scroll';
+
     const nav = document.createElement('div');
     nav.className = 'ytc-v2-nav';
 
@@ -204,15 +227,77 @@ function initializePopupUiV2Navigator() {
         button.type = 'button';
         button.className = 'ytc-v2-nav-button';
         button.setAttribute('data-feature', item.feature);
-        button.textContent = item.label;
-        button.title = item.label;
+        button.setAttribute('data-label', item.label);
+        button.setAttribute('aria-label', item.label);
+        button.innerHTML = buildV2NavIcon(item.feature);
+        const label = document.createElement('span');
+        label.className = 'ytc-v2-nav-label';
+        label.textContent = item.label;
+        button.appendChild(label);
         button.addEventListener('click', () => {
             setPopupUiV2ActiveFeature(item.feature);
         });
         nav.appendChild(button);
     });
 
-    container.insertBefore(nav, firstCard);
+    scrollArea.appendChild(nav);
+    navWrap.appendChild(prevButton);
+    navWrap.appendChild(scrollArea);
+    navWrap.appendChild(nextButton);
+    container.insertBefore(navWrap, firstCard);
+
+    const tooltip = ensurePopupUiV2Tooltip();
+
+    const showTooltip = (button) => {
+        if (!tooltip || !button) {
+            return;
+        }
+        const label = button.getAttribute('data-label') || '';
+        if (!label) {
+            return;
+        }
+        tooltip.textContent = label;
+        tooltip.classList.add('visible');
+        const rect = button.getBoundingClientRect();
+        const tooltipRect = tooltip.getBoundingClientRect();
+        const left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+        const top = rect.top - tooltipRect.height - 8;
+        tooltip.style.left = `${Math.max(8, left)}px`;
+        tooltip.style.top = `${Math.max(8, top)}px`;
+    };
+
+    const hideTooltip = () => {
+        if (!tooltip) {
+            return;
+        }
+        tooltip.classList.remove('visible');
+    };
+
+    nav.querySelectorAll('.ytc-v2-nav-button').forEach((button) => {
+        button.addEventListener('mouseenter', () => showTooltip(button));
+        button.addEventListener('focus', () => showTooltip(button));
+        button.addEventListener('mouseleave', hideTooltip);
+        button.addEventListener('blur', hideTooltip);
+    });
+
+    scrollArea.addEventListener('scroll', hideTooltip);
+
+    const scrollByAmount = (direction) => {
+        const delta = direction === 'prev' ? -120 : 120;
+        scrollArea.scrollBy({ left: delta, behavior: 'smooth' });
+    };
+
+    prevButton.addEventListener('click', () => scrollByAmount('prev'));
+    nextButton.addEventListener('click', () => scrollByAmount('next'));
+
+    const updateArrows = () => {
+        const maxScroll = scrollArea.scrollWidth - scrollArea.clientWidth;
+        prevButton.disabled = scrollArea.scrollLeft <= 2;
+        nextButton.disabled = scrollArea.scrollLeft >= maxScroll - 2;
+    };
+
+    scrollArea.addEventListener('scroll', updateArrows);
+    window.requestAnimationFrame(updateArrows);
     setPopupUiV2ActiveFeature(POPUP_UI_V2_DEFAULT_FEATURE);
 }
 
@@ -261,8 +346,15 @@ function initializePopupUiV2HistoryTabs() {
     cloudTab.setAttribute('data-pane', 'cloud');
     cloudTab.textContent = 'Cloud';
 
+    const settingsTab = document.createElement('button');
+    settingsTab.type = 'button';
+    settingsTab.className = 'ytc-v2-history-tab';
+    settingsTab.setAttribute('data-pane', 'settings');
+    settingsTab.textContent = 'Settings';
+
     tabs.appendChild(localTab);
     tabs.appendChild(cloudTab);
+    tabs.appendChild(settingsTab);
 
     const localPane = document.createElement('div');
     localPane.className = 'ytc-v2-history-pane active';
@@ -272,25 +364,33 @@ function initializePopupUiV2HistoryTabs() {
     cloudPane.className = 'ytc-v2-history-pane';
     cloudPane.setAttribute('data-pane', 'cloud');
 
+    const settingsPane = document.createElement('div');
+    settingsPane.className = 'ytc-v2-history-pane';
+    settingsPane.setAttribute('data-pane', 'settings');
+
     moveHistoryNodeToPane(historyContent, '.stats-grid', localPane);
     moveHistoryNodeToPane(historyContent, '#exportHistory', localPane);
     moveHistoryNodeToPane(historyContent, '#exportSqlMigration', localPane);
+    moveHistoryNodeToPane(historyContent, '#importHistory', localPane);
     moveHistoryNodeToPane(historyContent, '#deleteVideosToggle', localPane);
     moveHistoryNodeToPane(historyContent, '#historyStatus', localPane);
 
     moveHistoryNodeToPane(historyContent, '#syncToCloudflare', cloudPane);
-    moveHistoryNodeToPane(historyContent, '#lockPrimarySyncAccount', cloudPane);
-    moveHistoryNodeToPane(historyContent, '#cloudflareSyncEndpoint', cloudPane);
-    moveHistoryNodeToPane(historyContent, '#cloudflareSyncToken', cloudPane);
+    moveHistoryNodeToPane(historyContent, '#downloadFromCloudflare', cloudPane);
     moveHistoryNodeToPane(historyContent, '#cloudflareAutoSyncToggle', cloudPane);
     moveHistoryNodeToPane(historyContent, '#cloudflareSyncInterval', cloudPane);
     moveHistoryNodeToPane(historyContent, '#cloudflarePendingCount', cloudPane, 'ytc-v2-cloud-meta');
+
+    moveHistoryNodeToPane(historyContent, '#lockPrimarySyncAccount', settingsPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflareSyncEndpoint', settingsPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflareSyncToken', settingsPane);
 
     const note = historyContent.querySelector('.note');
 
     historyContent.insertBefore(tabs, historyContent.firstChild);
     historyContent.appendChild(localPane);
     historyContent.appendChild(cloudPane);
+    historyContent.appendChild(settingsPane);
     if (note) {
         historyContent.appendChild(note);
     }
@@ -309,6 +409,55 @@ function initializePopupUiV2HistoryTabs() {
             pane.classList.toggle('active', pane.getAttribute('data-pane') === paneName);
         });
     });
+}
+
+/**
+ * Build icon SVG for popup v2 navigator.
+ * @param {string} feature
+ * @returns {string}
+ */
+function buildV2NavIcon(feature) {
+    const icons = {
+        seek: 'M5 6v12l8-6zM15 6v12l8-6z',
+        quality: 'M4 7h16v2H4V7zm0 8h16v2H4v-2zM7 4h10v2H7V4zm0 14h10v2H7v-2z',
+        audio: 'M5 9v6h4l5 4V5l-5 4H5zm12 0a4 4 0 010 6',
+        history: 'M12 4a8 8 0 108 8h-2a6 6 0 11-6-6V4zm-1 4h2v5l4 2-1 1.7-5-2.7V8z',
+        playlist: 'M4 6h10v2H4V6zm0 5h10v2H4v-2zm0 5h6v2H4v-2zm13-8h3v3h-3v-3zm0 5h3v3h-3v-3z',
+        windowedFullscreen: 'M5 6h14v12H5V6zm2 2v8h10V8H7z',
+        rotation: 'M12 6V3l4 4-4 4V8a4 4 0 104 4h2a6 6 0 11-6-6z',
+        shorts: 'M8 4h8v16H8V4zm2 3l5 2.5L10 12V7z',
+        shortsUploadAge: 'M6 4h12v3H6V4zm0 5h12v9H6V9zm3 2h2v2H9v-2zm4 0h2v2h-2v-2z',
+        scroll: 'M12 5l-6 6h4v8h4v-8h4l-6-6z'
+    };
+    const path = icons[feature] || icons.seek;
+    return `
+        <span class="ytc-v2-nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true">
+                <path d="${path}"></path>
+            </svg>
+        </span>
+    `;
+}
+
+/**
+ * Ensure popup v2 tooltip element exists.
+ * @returns {HTMLElement|null}
+ */
+function ensurePopupUiV2Tooltip() {
+    if (!document.body.classList.contains(POPUP_UI_V2_CLASS)) {
+        return null;
+    }
+
+    let tooltip = document.querySelector('.ytc-v2-tooltip');
+    if (tooltip) {
+        return tooltip;
+    }
+
+    tooltip = document.createElement('div');
+    tooltip.className = 'ytc-v2-tooltip';
+    tooltip.setAttribute('role', 'tooltip');
+    document.body.appendChild(tooltip);
+    return tooltip;
 }
 
 /**
