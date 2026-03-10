@@ -52,8 +52,6 @@ const SQL_EXPORT_TABLE_NAME = 'watched_videos';
 const SQL_EXPORT_IDS_PER_FILE = 200000;
 const SQL_EXPORT_VALUES_PER_STATEMENT = 300;
 const SQL_EXPORT_DOWNLOAD_DELAY_MS = 250;
-const POPUP_UI_V2_STORAGE_KEY = 'popupUiRevampEnabled';
-const POPUP_UI_V2_DEFAULT = true;
 const POPUP_UI_V2_CLASS = 'yt-commander-popup-v2';
 const POPUP_UI_V2_DEFAULT_FEATURE = 'seek';
 const POPUP_UI_V2_TONES = ['red', 'cyan', 'green', 'amber'];
@@ -69,23 +67,6 @@ const POPUP_UI_V2_NAV_ITEMS = [
     { feature: 'shortsUploadAge', label: 'Shorts upload age' },
     { feature: 'scroll', label: 'Scroll to top' }
 ];
-
-// Feature toggle functionality (expand/collapse cards)
-function toggleFeature(featureName) {
-    if (document.body.classList.contains(POPUP_UI_V2_CLASS)) {
-        return;
-    }
-    const content = document.getElementById(`${featureName}Content`);
-    const header = content.previousElementSibling; // Get the header element
-    
-    if (content.classList.contains('expanded')) {
-        content.classList.remove('expanded');
-        header.classList.remove('expanded');
-    } else {
-        content.classList.add('expanded');
-        header.classList.add('expanded');
-    }
-}
 
 // Setup delete videos toggle
 function setupDeleteVideosToggle() {
@@ -104,31 +85,6 @@ function setupDeleteVideosToggle() {
             saveSyncSettings();
         });
     }
-}
-
-/**
- * Resolve whether popup v2 redesign should be enabled.
- * @returns {Promise<boolean>}
- */
-async function resolvePopupUiV2Enabled() {
-    try {
-        const result = await chrome.storage.local.get([POPUP_UI_V2_STORAGE_KEY]);
-        const stored = result?.[POPUP_UI_V2_STORAGE_KEY];
-        if (typeof stored === 'boolean') {
-            return stored;
-        }
-    } catch (_error) {
-        // Fallback to default when storage read fails.
-    }
-    return POPUP_UI_V2_DEFAULT;
-}
-
-/**
- * Apply popup design feature-flag class to body.
- * @param {boolean} enabled
- */
-function applyPopupUiFeatureFlag(enabled) {
-    document.body.classList.toggle(POPUP_UI_V2_CLASS, enabled === true);
 }
 
 /**
@@ -464,11 +420,7 @@ function ensurePopupUiV2Tooltip() {
  * Prepare compact no-scroll layout for popup v2.
  * @param {boolean} enabled
  */
-function initializePopupUiV2Layout(enabled) {
-    if (!enabled) {
-        return;
-    }
-
+function initializePopupUiV2Layout() {
     const cards = document.querySelectorAll('.feature-card');
     cards.forEach((card, index) => {
         card.dataset.tone = POPUP_UI_V2_TONES[index % POPUP_UI_V2_TONES.length];
@@ -1590,27 +1542,10 @@ async function handleFileImport(event) {
 }
 
 
-// Setup feature header click handlers
-function setupFeatureHeaders() {
-    document.addEventListener('click', (e) => {
-        const toggleSwitch = e.target.closest('.toggle-switch');
-        if (toggleSwitch) {
-            return;
-        }
-
-        const header = e.target.closest('.feature-header');
-        if (header && header.dataset.feature) {
-            const featureName = header.dataset.feature;
-            toggleFeature(featureName);
-        }
-    });
-}
-
 // Initialize popup
-document.addEventListener('DOMContentLoaded', async () => {
-    const popupUiV2Enabled = await resolvePopupUiV2Enabled();
-    applyPopupUiFeatureFlag(popupUiV2Enabled);
-    initializePopupUiV2Layout(popupUiV2Enabled);
+document.addEventListener('DOMContentLoaded', () => {
+    document.body.classList.add(POPUP_UI_V2_CLASS);
+    initializePopupUiV2Layout();
 
     loadSettings();
 
@@ -1619,8 +1554,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupDeleteVideosToggle();
     setupCloudflareSyncControls();
     setupAutoSave();
-    setupFeatureHeaders();
-
     document.getElementById('exportHistory').addEventListener('click', exportHistory);
     document.getElementById('importHistory').addEventListener('click', importHistory);
     document.getElementById('exportSqlMigration').addEventListener('click', exportSqlMigration);
@@ -1633,7 +1566,4 @@ document.addEventListener('DOMContentLoaded', async () => {
     setInterval(refreshCloudflareSyncStatus, 30000);
     setInterval(renderNextSyncCountdown, 1000);
 });
-
-// Make functions globally available
-window.toggleFeature = toggleFeature;
 
