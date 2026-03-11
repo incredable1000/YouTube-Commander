@@ -105,7 +105,7 @@ async function initializeModules() {
             import('./playlistControls.js').catch(e => { logger.warn('Failed to import playlistControls:', e); throw e; }),
             import('./playlistMultiSelect.js').catch(e => { logger.warn('Failed to import playlistMultiSelect:', e); throw e; }),
             import('./qualityControls-wrapper.js').catch(e => { logger.warn('Failed to import qualityControls-wrapper:', e); throw e; }),
-            import('./watchedHistory.js').catch(e => { logger.warn('Failed to import watchedHistory:', e); throw e; }),
+            import('./watchedHistory.js').catch(e => { logger.warn('Failed to import watchedHistory:', e); throw e; })
         ]);
         
         // Initialize successfully imported modules
@@ -147,6 +147,19 @@ async function initializeModules() {
                 if (module.initWatchedHistory) initPromises.push(module.initWatchedHistory());
             } else {
                 logger.error(`Failed to load module:`, result.reason);
+                const moduleNames = [
+                    'seekControls', 
+                    'scrollToTop', 
+                    'shortsCounter',
+                    'shortsUploadAge',
+                    'videoRotation',
+                    'windowedFullscreen',
+                    'playlistControls',
+                    'playlistMultiSelect',
+                    'qualityControlsWrapper',
+                    'watchedHistory'
+                ];
+                const failedName = moduleNames[index];
             }
         });
         

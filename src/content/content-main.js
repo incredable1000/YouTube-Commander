@@ -95,18 +95,23 @@ async function initializeMainWorldModules() {
         const modules = await Promise.allSettled([
             import('./qualityControls.js').catch(e => { logger.warn('Failed to import qualityControls:', e); throw e; }),
             import('./audioTrackControls.js').catch(e => { logger.warn('Failed to import audioTrackControls:', e); throw e; }),
-            import('./playlistApi.js').catch(e => { logger.warn('Failed to import playlistApi:', e); throw e; })
+            import('./playlistApi.js').catch(e => { logger.warn('Failed to import playlistApi:', e); throw e; }),
+            import('./subscriptionLabels.js').catch(e => { logger.warn('Failed to import subscriptionLabels:', e); throw e; })
         ]);
         
         // Initialize successfully imported modules
         modules.forEach((result, index) => {
-            const moduleName = ['qualityControls', 'audioTrackControls', 'playlistApi'][index];
+            const moduleName = ['qualityControls', 'audioTrackControls', 'playlistApi', 'subscriptionLabels'][index];
             
             if (result.status === 'fulfilled') {
                 logger.info(`${moduleName} module loaded successfully`);
                 
-                // These modules auto-initialize when loaded
-                // No explicit init call needed as they run immediately
+                const module = result.value;
+                if (moduleName === 'subscriptionLabels' && module.initSubscriptionLabels) {
+                    module.initSubscriptionLabels().catch(error => {
+                        logger.error('Failed to init subscriptionLabels', error);
+                    });
+                }
             } else {
                 logger.error(`Failed to load ${moduleName} module`, result.reason);
             }

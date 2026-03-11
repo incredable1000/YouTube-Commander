@@ -53,18 +53,19 @@ const SQL_EXPORT_IDS_PER_FILE = 200000;
 const SQL_EXPORT_VALUES_PER_STATEMENT = 300;
 const SQL_EXPORT_DOWNLOAD_DELAY_MS = 250;
 const POPUP_UI_V2_CLASS = 'yt-commander-popup-v2';
-const POPUP_UI_V2_DEFAULT_FEATURE = 'seek';
+const POPUP_UI_V2_DEFAULT_FEATURE = 'history';
 const POPUP_UI_V2_TONES = ['red', 'cyan', 'green', 'amber'];
 const POPUP_UI_V2_NAV_ITEMS = [
+    { feature: 'history', label: 'Watched history' },
     { feature: 'seek', label: 'Seek controls' },
     { feature: 'quality', label: 'Quality' },
     { feature: 'audio', label: 'Audio' },
-    { feature: 'history', label: 'Watched history' },
     { feature: 'playlist', label: 'Multi select' },
     { feature: 'windowedFullscreen', label: 'Windowed fullscreen' },
     { feature: 'rotation', label: 'Rotate video' },
     { feature: 'shorts', label: 'Shorts counter' },
     { feature: 'shortsUploadAge', label: 'Shorts upload age' },
+    { feature: 'subscriptions', label: 'Subscriptions label' },
     { feature: 'scroll', label: 'Scroll to top' }
 ];
 
@@ -383,6 +384,7 @@ function buildV2NavIcon(feature) {
         rotation: 'M12 6V3l4 4-4 4V8a4 4 0 104 4h2a6 6 0 11-6-6z',
         shorts: 'M8 4h8v16H8V4zm2 3l5 2.5L10 12V7z',
         shortsUploadAge: 'M6 4h12v3H6V4zm0 5h12v9H6V9zm3 2h2v2H9v-2zm4 0h2v2h-2v-2z',
+        subscriptions: 'M16 11c1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3 1.3 3 3 3zm-8 0c1.7 0 3-1.3 3-3S9.7 5 8 5 5 6.3 5 8s1.3 3 3 3zm0 2c-2.7 0-8 1.3-8 4v2h10v-2c0-1.1.4-2.1 1.1-2.9C10.3 13.6 9 13 8 13zm8 0c-1.1 0-2.4.3-3.5 1 1 .9 1.5 2 1.5 3v2h10v-2c0-2.7-5.3-4-8-4z',
         scroll: 'M12 5l-6 6h4v8h4v-8h4l-6-6z'
     };
     const path = icons[feature] || icons.seek;
