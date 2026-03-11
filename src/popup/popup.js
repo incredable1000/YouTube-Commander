@@ -148,7 +148,7 @@ function setPopupUiV2ActiveFeature(featureName) {
 function initializePopupUiV2Navigator() {
     const container = document.querySelector('.container');
     const firstCard = container?.querySelector('.feature-card');
-    if (!container || !firstCard || container.querySelector('.ytc-v2-nav')) {
+    if (!container || !firstCard || document.querySelector('.ytc-v2-nav')) {
         return;
     }
 
@@ -201,7 +201,7 @@ function initializePopupUiV2Navigator() {
     navWrap.appendChild(prevButton);
     navWrap.appendChild(scrollArea);
     navWrap.appendChild(nextButton);
-    container.insertBefore(navWrap, firstCard);
+    document.body.insertBefore(navWrap, container);
 
     const tooltip = ensurePopupUiV2Tooltip();
 
@@ -428,8 +428,32 @@ function initializePopupUiV2Layout() {
         card.dataset.tone = POPUP_UI_V2_TONES[index % POPUP_UI_V2_TONES.length];
     });
 
-    initializePopupUiV2HistoryTabs();
     initializePopupUiV2Navigator();
+    ensurePopupUiV2ContentWrapper();
+    initializePopupUiV2HistoryTabs();
+}
+
+/**
+ * Wrap feature cards in a scrollable container for popup v2.
+ */
+function ensurePopupUiV2ContentWrapper() {
+    const container = document.querySelector('.container');
+    if (!container || container.querySelector('.ytc-v2-content')) {
+        return;
+    }
+
+    const content = document.createElement('div');
+    content.className = 'ytc-v2-content';
+
+    const cards = Array.from(container.querySelectorAll('.feature-card'));
+    cards.forEach((card) => content.appendChild(card));
+
+    const status = container.querySelector('#status');
+    if (status) {
+        container.insertBefore(content, status);
+    } else {
+        container.appendChild(content);
+    }
 }
 
 /**
