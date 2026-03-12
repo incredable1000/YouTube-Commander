@@ -40,8 +40,35 @@ const CLOUD_SYNC_DEFAULTS = {
     queueSeeded: false,
     pendingCount: 0
 };
+const SUBSCRIPTION_SYNC_ALARM_NAME = 'ytCommanderSubscriptionAutoSync';
+const SUBSCRIPTION_SYNC_CHECK_PERIOD_MINUTES = 1;
+
+const SUBSCRIPTION_SYNC_STORAGE_KEYS = {
+    ENDPOINT: 'subscriptionSyncEndpoint',
+    API_TOKEN: 'subscriptionSyncApiToken',
+    AUTO_ENABLED: 'subscriptionSyncAutoEnabled',
+    INTERVAL_MINUTES: 'subscriptionSyncIntervalMinutes',
+    LAST_AT: 'subscriptionSyncLastAt',
+    STATUS: 'subscriptionSyncStatus',
+    ERROR: 'subscriptionSyncError',
+    COUNT: 'subscriptionSyncCount',
+    PENDING_COUNT: 'subscriptionSyncPendingCount',
+    PENDING_KEYS: 'subscriptionSyncPendingKeys',
+    PRIMARY_ACCOUNT_KEY: 'subscriptionSyncPrimaryAccountKey',
+    FAILURE_COUNT: 'subscriptionSyncFailureCount',
+    BACKOFF_UNTIL: 'subscriptionSyncBackoffUntil'
+};
+
+const SUBSCRIPTION_SYNC_DEFAULTS = {
+    autoEnabled: true,
+    intervalMinutes: 60,
+    failureCount: 0,
+    backoffUntil: 0,
+    pendingCount: 0
+};
 
 let cloudSyncInProgress = false;
+let subscriptionSyncInProgress = false;
 let pendingQueueMutationChain = Promise.resolve();
 const DEFAULT_ACCOUNT_KEY = 'default';
 
@@ -459,6 +486,67 @@ function parseCloudflareEndpoint(rawEndpoint) {
 
     return url;
 }
+/**
+ * Parse subscription sync endpoint.
+ * @param {string} rawEndpoint
+ * @returns {URL}
+ */
+function parseSubscriptionEndpoint(rawEndpoint) {
+    const value = typeof rawEndpoint === 'string' ? rawEndpoint.trim() : '';
+    if (!value) {
+        throw new Error('Subscription sync endpoint is required');
+    }
+
+    let url = null;
+    try {
+        url = new URL(value);
+    } catch (_error) {
+        throw new Error('Subscription sync endpoint URL is invalid');
+    }
+
+    if (!['https:', 'http:'].includes(url.protocol)) {
+        throw new Error('Subscription sync endpoint must use http/https');
+    }
+
+    return url;
+}
+
+/**
+ * Normalize subscription sync endpoint path.
+ * @param {string} rawEndpoint
+ * @returns {URL}
+ */
+function buildSubscriptionEndpoint(rawEndpoint) {
+    const endpoint = parseSubscriptionEndpoint(rawEndpoint);
+    const pathname = endpoint.pathname || '/';
+
+    if (pathname.endsWith('/subscriptions')) {
+        return endpoint;
+    }
+
+    if (pathname.endsWith('/subscriptions/')) {
+        endpoint.pathname = pathname.slice(0, -1);
+        return endpoint;
+    }
+
+    if (pathname.endsWith('/sync')) {
+        endpoint.pathname = `${pathname.slice(0, -5)}/subscriptions`;
+        return endpoint;
+    }
+
+    if (pathname.endsWith('/sync/')) {
+        endpoint.pathname = `${pathname.slice(0, -6)}/subscriptions`;
+        return endpoint;
+    }
+
+    if (pathname === '/' || pathname === '') {
+        endpoint.pathname = '/subscriptions';
+        return endpoint;
+    }
+
+    endpoint.pathname = pathname.endsWith('/') ? `${pathname}subscriptions` : `${pathname}/subscriptions`;
+    return endpoint;
+}
 
 /**
  * Build pull endpoint URL from sync endpoint.
@@ -505,6 +593,31 @@ function normalizeSyncInterval(raw) {
     const parsed = Number.parseInt(raw, 10);
     if (!Number.isFinite(parsed)) {
         return CLOUD_SYNC_DEFAULTS.intervalMinutes;
+    }
+
+    if (parsed <= 1) {
+        return 1;
+    }
+    if (parsed <= 15) {
+        return 15;
+    }
+    if (parsed <= 30) {
+        return 30;
+    }
+    if (parsed <= 60) {
+        return 60;
+    }
+    return 120;
+}
+/**
+ * Normalize subscription sync interval.
+ * @param {number|string} raw
+ * @returns {number}
+ */
+function normalizeSubscriptionInterval(raw) {
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) {
+        return SUBSCRIPTION_SYNC_DEFAULTS.intervalMinutes;
     }
 
     if (parsed <= 1) {
@@ -804,6 +917,65 @@ async function readCloudSyncState() {
         queueSeeded: result[CLOUD_SYNC_STORAGE_KEYS.QUEUE_SEEDED] === true
     };
 }
+/**
+ * Read current subscription sync settings/state.
+ * @returns {Promise<object>}
+ */
+async function readSubscriptionSyncState() {
+    const result = await storageLocalGet([
+        SUBSCRIPTION_SYNC_STORAGE_KEYS.ENDPOINT,
+        SUBSCRIPTION_SYNC_STORAGE_KEYS.API_TOKEN,
+        SUBSCRIPTION_SYNC_STORAGE_KEYS.AUTO_ENABLED,
+        SUBSCRIPTION_SYNC_STORAGE_KEYS.INTERVAL_MINUTES,
+        SUBSCRIPTION_SYNC_STORAGE_KEYS.LAST_AT,
+        SUBSCRIPTION_SYNC_STORAGE_KEYS.STATUS,
+        SUBSCRIPTION_SYNC_STORAGE_KEYS.ERROR,
+        SUBSCRIPTION_SYNC_STORAGE_KEYS.COUNT,
+        SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_COUNT,
+        SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_KEYS,
+        SUBSCRIPTION_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY,
+        SUBSCRIPTION_SYNC_STORAGE_KEYS.FAILURE_COUNT,
+        SUBSCRIPTION_SYNC_STORAGE_KEYS.BACKOFF_UNTIL
+    ]);
+
+    return {
+        endpointUrl: typeof result[SUBSCRIPTION_SYNC_STORAGE_KEYS.ENDPOINT] === 'string'
+            ? result[SUBSCRIPTION_SYNC_STORAGE_KEYS.ENDPOINT].trim()
+            : '',
+        apiToken: typeof result[SUBSCRIPTION_SYNC_STORAGE_KEYS.API_TOKEN] === 'string'
+            ? result[SUBSCRIPTION_SYNC_STORAGE_KEYS.API_TOKEN].trim()
+            : '',
+        autoEnabled: result[SUBSCRIPTION_SYNC_STORAGE_KEYS.AUTO_ENABLED] !== false,
+        intervalMinutes: normalizeSubscriptionInterval(result[SUBSCRIPTION_SYNC_STORAGE_KEYS.INTERVAL_MINUTES]),
+        lastAt: Number(result[SUBSCRIPTION_SYNC_STORAGE_KEYS.LAST_AT]) || 0,
+        status: typeof result[SUBSCRIPTION_SYNC_STORAGE_KEYS.STATUS] === 'string'
+            ? result[SUBSCRIPTION_SYNC_STORAGE_KEYS.STATUS]
+            : '',
+        error: typeof result[SUBSCRIPTION_SYNC_STORAGE_KEYS.ERROR] === 'string'
+            ? result[SUBSCRIPTION_SYNC_STORAGE_KEYS.ERROR]
+            : '',
+        count: Number(result[SUBSCRIPTION_SYNC_STORAGE_KEYS.COUNT]) || 0,
+        pendingCount: Number(result[SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_COUNT]) || 0,
+        pendingKeys: Array.isArray(result[SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_KEYS])
+            ? result[SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_KEYS]
+            : [],
+        primaryAccountKey: normalizeAccountKey(result[SUBSCRIPTION_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]),
+        failureCount: Number(result[SUBSCRIPTION_SYNC_STORAGE_KEYS.FAILURE_COUNT]) || SUBSCRIPTION_SYNC_DEFAULTS.failureCount,
+        backoffUntil: Number(result[SUBSCRIPTION_SYNC_STORAGE_KEYS.BACKOFF_UNTIL]) || SUBSCRIPTION_SYNC_DEFAULTS.backoffUntil
+    };
+}
+
+/**
+ * Read subscription pending sync keys.
+ * @returns {Promise<string[]>}
+ */
+async function readSubscriptionPendingKeys() {
+    const result = await storageLocalGet([SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_KEYS]);
+    const pending = Array.isArray(result[SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_KEYS])
+        ? result[SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_KEYS]
+        : [];
+    return pending.filter((key) => typeof key === 'string' && key.trim());
+}
 
 /**
  * Ensure periodic auto-sync alarm matches configured settings.
@@ -827,6 +999,30 @@ async function ensureAutoSyncAlarm() {
     chrome.alarms.create(AUTO_SYNC_ALARM_NAME, {
         delayInMinutes: AUTO_SYNC_CHECK_PERIOD_MINUTES,
         periodInMinutes: AUTO_SYNC_CHECK_PERIOD_MINUTES
+    });
+}
+/**
+ * Ensure periodic subscription auto-sync alarm matches configured settings.
+ * @returns {Promise<void>}
+ */
+async function ensureSubscriptionAutoSyncAlarm() {
+    const state = await readSubscriptionSyncState();
+
+    if (!state.autoEnabled || !state.endpointUrl) {
+        await clearAlarm(SUBSCRIPTION_SYNC_ALARM_NAME);
+        return;
+    }
+
+    const existingAlarm = await getAlarm(SUBSCRIPTION_SYNC_ALARM_NAME);
+    const existingPeriod = Number(existingAlarm?.periodInMinutes) || 0;
+    if (existingAlarm && Math.abs(existingPeriod - SUBSCRIPTION_SYNC_CHECK_PERIOD_MINUTES) < 0.0001) {
+        return;
+    }
+
+    await clearAlarm(SUBSCRIPTION_SYNC_ALARM_NAME);
+    chrome.alarms.create(SUBSCRIPTION_SYNC_ALARM_NAME, {
+        delayInMinutes: SUBSCRIPTION_SYNC_CHECK_PERIOD_MINUTES,
+        periodInMinutes: SUBSCRIPTION_SYNC_CHECK_PERIOD_MINUTES
     });
 }
 
@@ -866,6 +1062,27 @@ async function runAutoSyncIfDue(source) {
     }
 
     await performCloudflareSync({
+        manual: false,
+        source
+    });
+}
+/**
+ * Run subscription auto sync only when interval has elapsed since last successful sync.
+ * @param {string} source
+ * @returns {Promise<void>}
+ */
+async function runSubscriptionAutoSyncIfDue(source) {
+    const state = await readSubscriptionSyncState();
+    if (!state.autoEnabled || !state.endpointUrl) {
+        return;
+    }
+
+    const nextSyncAt = getNextSyncAt(state);
+    if (nextSyncAt > Date.now()) {
+        return;
+    }
+
+    await performSubscriptionSync({
         manual: false,
         source
     });
@@ -933,6 +1150,23 @@ async function seedSyncQueueFromHistoryInTab(tabId) {
         throw new Error(response?.error || 'Failed to seed sync queue');
     }
     return Number(response.seededCount) || 0;
+}
+/**
+ * Get subscription snapshot from content script.
+ * @param {number} tabId
+ * @returns {Promise<{channels: object[], fetchedAt: number, hash: string}>}
+ */
+async function getSubscriptionSnapshotFromTab(tabId) {
+    const response = await sendMessageToTab(tabId, { type: 'GET_SUBSCRIPTION_SNAPSHOT' }, 60000);
+    if (!response?.success) {
+        throw new Error(response?.error || 'Failed to read subscription snapshot');
+    }
+
+    return {
+        channels: Array.isArray(response.channels) ? response.channels : [],
+        fetchedAt: Number(response.fetchedAt) || 0,
+        hash: typeof response.hash === 'string' ? response.hash : ''
+    };
 }
 
 /**
@@ -1013,6 +1247,42 @@ async function postCloudflareSyncBatch(endpoint, apiToken, videoIds, accountKey)
     });
 
     return parsedBody || rawBody || null;
+}
+/**
+ * Post subscription sync payload to Cloudflare worker.
+ * @param {URL} endpoint
+ * @param {string} apiToken
+ * @param {object} payload
+ * @returns {Promise<any>}
+ */
+async function postSubscriptionSyncPayload(endpoint, apiToken, payload) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'X-YT-Commander-Client': 'chrome-extension'
+    };
+
+    if (apiToken) {
+        headers.Authorization = `Bearer ${apiToken}`;
+        headers['X-YT-Commander-Key'] = apiToken;
+    }
+
+    const response = await fetch(endpoint.toString(), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload)
+    });
+
+    const rawBody = await response.text();
+    const parsedBody = parseJsonSafe(rawBody);
+
+    if (!response.ok) {
+        const message = typeof parsedBody?.error === 'string'
+            ? parsedBody.error
+            : (rawBody.replace(/\s+/g, ' ').trim().slice(0, 220) || 'Unknown error');
+        throw new Error(`Subscription sync failed (${response.status}): ${message}`);
+    }
+
+    return parsedBody || { ok: true };
 }
 
 /**
@@ -1303,6 +1573,207 @@ async function performCloudflareSync(options = {}) {
         cloudSyncInProgress = false;
     }
 }
+/**
+ * Perform subscription sync.
+ * @param {{manual?: boolean, endpointUrl?: string, apiToken?: string, source?: string, activeTabId?: number}} options
+ * @returns {Promise<object>}
+ */
+async function performSubscriptionSync(options = {}) {
+    if (subscriptionSyncInProgress) {
+        return {
+            success: true,
+            skipped: true,
+            reason: 'Sync already in progress',
+            syncedCount: 0
+        };
+    }
+
+    const manual = options.manual === true;
+    const source = typeof options.source === 'string' ? options.source : 'subscription-sync';
+
+    const state = await readSubscriptionSyncState();
+    const endpointRaw = typeof options.endpointUrl === 'string' && options.endpointUrl.trim()
+        ? options.endpointUrl.trim()
+        : state.endpointUrl;
+    const apiToken = typeof options.apiToken === 'string'
+        ? options.apiToken.trim()
+        : state.apiToken;
+
+    const endpoint = buildSubscriptionEndpoint(endpointRaw);
+
+    if (!manual && !state.autoEnabled) {
+        return {
+            success: true,
+            skipped: true,
+            reason: 'Auto sync disabled',
+            syncedCount: 0
+        };
+    }
+
+    if (!manual && state.backoffUntil > Date.now()) {
+        return {
+            success: true,
+            skipped: true,
+            reason: 'Backoff active',
+            syncedCount: 0,
+            retryAt: state.backoffUntil
+        };
+    }
+
+    const pendingBefore = await readSubscriptionPendingKeys();
+    if (pendingBefore.length === 0) {
+        await storageLocalSet({
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.STATUS]: 'idle',
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.ERROR]: '',
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_COUNT]: 0
+        });
+
+        return {
+            success: true,
+            skipped: true,
+            reason: 'No changes to sync',
+            pendingCount: 0
+        };
+    }
+
+    subscriptionSyncInProgress = true;
+
+    console.info('[YT-Commander][SubscriptionSync] Sync started', {
+        endpoint: endpoint.origin + endpoint.pathname,
+        manual,
+        source
+    });
+
+    let createdTab = false;
+    let tabId = 0;
+
+    try {
+        const requestedTabId = Number.isFinite(options.activeTabId) ? Number(options.activeTabId) : 0;
+        if (requestedTabId) {
+            const hasReceiver = await hasWatchedHistoryReceiver(requestedTabId, 1);
+            if (hasReceiver) {
+                tabId = requestedTabId;
+            }
+        }
+
+        if (!tabId) {
+            const tabInfo = await resolveYouTubeTabForHistory();
+            createdTab = tabInfo.created;
+            tabId = tabInfo.tabId;
+        }
+
+        let accountKey = normalizeAccountKey(state.primaryAccountKey) || DEFAULT_ACCOUNT_KEY;
+        try {
+            const identity = await getSyncIdentityFromTab(tabId);
+            accountKey = normalizeAccountKey(identity.accountKey) || DEFAULT_ACCOUNT_KEY;
+        } catch (_error) {
+            // Keep fallback account key when identity is unavailable.
+        }
+
+        const snapshot = await getSubscriptionSnapshotFromTab(tabId);
+        const pendingKeys = await readSubscriptionPendingKeys();
+
+        const local = await storageLocalGet([
+            'subscriptionManagerCategories',
+            'subscriptionManagerAssignments'
+        ]);
+
+        const categories = Array.isArray(local.subscriptionManagerCategories)
+            ? local.subscriptionManagerCategories
+                .map((item) => {
+                    if (!item || typeof item !== 'object') {
+                        return null;
+                    }
+                    const id = typeof item.id === 'string' ? item.id.trim() : '';
+                    const name = typeof item.name === 'string' ? item.name.trim() : '';
+                    const color = typeof item.color === 'string' ? item.color : '';
+                    if (!id || !name) {
+                        return null;
+                    }
+                    return { id, name, color };
+                })
+                .filter(Boolean)
+            : [];
+
+        const categoryIds = new Set(categories.map((item) => item.id));
+        const assignments = {};
+        const rawAssignments = local.subscriptionManagerAssignments;
+        if (rawAssignments && typeof rawAssignments === 'object') {
+            Object.entries(rawAssignments).forEach(([channelId, list]) => {
+                if (typeof channelId !== 'string' || !channelId) {
+                    return;
+                }
+                const next = Array.isArray(list)
+                    ? list.filter((id) => typeof id === 'string' && id && categoryIds.has(id))
+                    : [];
+                if (next.length > 0) {
+                    assignments[channelId] = Array.from(new Set(next));
+                }
+            });
+        }
+
+        const payload = {
+            accountKey,
+            syncedAt: Date.now(),
+            pendingKeys,
+            snapshot: {
+                hash: typeof snapshot.hash === 'string' ? snapshot.hash : '',
+                fetchedAt: Number(snapshot.fetchedAt) || Date.now(),
+                total: Array.isArray(snapshot.channels) ? snapshot.channels.length : 0,
+                channels: Array.isArray(snapshot.channels) ? snapshot.channels : []
+            },
+            categories,
+            assignments
+        };
+
+        const serverResult = await postSubscriptionSyncPayload(endpoint, apiToken, payload);
+
+        await storageLocalSet({
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.ENDPOINT]: endpoint.toString(),
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.API_TOKEN]: apiToken,
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.LAST_AT]: Date.now(),
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.STATUS]: 'success',
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.ERROR]: '',
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.COUNT]: payload.snapshot.total,
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_COUNT]: 0,
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_KEYS]: [],
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]: accountKey,
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.FAILURE_COUNT]: 0,
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.BACKOFF_UNTIL]: 0
+        });
+
+        return {
+            success: true,
+            accountKey,
+            syncedCount: payload.snapshot.total,
+            pendingCount: 0,
+            endpointHost: endpoint.host,
+            endpointPath: endpoint.pathname || '/',
+            serverResult
+        };
+    } catch (error) {
+        const failureCount = (state.failureCount || 0) + 1;
+        const backoffMinutes = manual ? 0 : computeBackoffMinutes(failureCount);
+        const backoffUntil = backoffMinutes > 0
+            ? Date.now() + (backoffMinutes * 60 * 1000)
+            : 0;
+
+        await storageLocalSet({
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.STATUS]: 'error',
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.ERROR]: error?.message || 'Subscription sync failed',
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.FAILURE_COUNT]: failureCount,
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.BACKOFF_UNTIL]: backoffUntil
+        });
+
+        console.error('[YT-Commander][SubscriptionSync] Sync failed', error);
+        throw error;
+    } finally {
+        if (createdTab && tabId) {
+            await removeTab(tabId);
+        }
+        subscriptionSyncInProgress = false;
+    }
+}
 
 /**
  * Read cloud sync status and refresh pending count when possible.
@@ -1325,6 +1796,31 @@ async function getCloudSyncStatus() {
         syncedCount: state.count,
         pendingCount,
         primaryAccountKey: syncAccountKey,
+        nextSyncAt,
+        backoffUntil: state.backoffUntil
+    };
+}
+/**
+ * Read subscription sync status and refresh pending count when possible.
+ * @returns {Promise<object>}
+ */
+async function getSubscriptionSyncStatus() {
+    const state = await readSubscriptionSyncState();
+    const pendingKeys = await readSubscriptionPendingKeys();
+    const pendingCount = pendingKeys.length;
+    const nextSyncAt = getNextSyncAt(state);
+
+    return {
+        success: true,
+        endpointUrl: state.endpointUrl,
+        autoEnabled: state.autoEnabled,
+        intervalMinutes: state.intervalMinutes,
+        lastAt: state.lastAt,
+        status: state.status,
+        error: state.error,
+        syncedCount: state.count,
+        pendingCount,
+        primaryAccountKey: normalizeAccountKey(state.primaryAccountKey),
         nextSyncAt,
         backoffUntil: state.backoffUntil
     };
@@ -1365,6 +1861,37 @@ async function updateCloudSyncConfig(config = {}) {
     await ensureAutoSyncAlarm();
     return getCloudSyncStatus();
 }
+/**
+ * Update subscription sync config and re-arm alarms.
+ * @param {{endpointUrl?: string, apiToken?: string, autoEnabled?: boolean, intervalMinutes?: number}} config
+ * @returns {Promise<object>}
+ */
+async function updateSubscriptionSyncConfig(config = {}) {
+    const nextValues = {};
+
+    if (typeof config.endpointUrl === 'string') {
+        nextValues[SUBSCRIPTION_SYNC_STORAGE_KEYS.ENDPOINT] = config.endpointUrl.trim();
+    }
+
+    if (typeof config.apiToken === 'string') {
+        nextValues[SUBSCRIPTION_SYNC_STORAGE_KEYS.API_TOKEN] = config.apiToken.trim();
+    }
+
+    if (typeof config.autoEnabled === 'boolean') {
+        nextValues[SUBSCRIPTION_SYNC_STORAGE_KEYS.AUTO_ENABLED] = config.autoEnabled;
+    }
+
+    if (config.intervalMinutes !== undefined) {
+        nextValues[SUBSCRIPTION_SYNC_STORAGE_KEYS.INTERVAL_MINUTES] = normalizeSubscriptionInterval(config.intervalMinutes);
+    }
+
+    if (Object.keys(nextValues).length > 0) {
+        await storageLocalSet(nextValues);
+    }
+
+    await ensureSubscriptionAutoSyncAlarm();
+    return getSubscriptionSyncStatus();
+}
 
 /**
  * Proxy watched videos from first available YouTube tab.
@@ -1388,8 +1915,14 @@ chrome.runtime.onInstalled.addListener(() => {
     ensureAutoSyncAlarm().catch((error) => {
         console.error('[YT-Commander][CloudSync] Failed to ensure alarm on install', error);
     });
+    ensureSubscriptionAutoSyncAlarm().catch((error) => {
+        console.error('[YT-Commander][SubscriptionSync] Failed to ensure alarm on install', error);
+    });
     runAutoSyncIfDue('install-check').catch((error) => {
         console.error('[YT-Commander][CloudSync] Install due-check failed', error);
+    });
+    runSubscriptionAutoSyncIfDue('install-check').catch((error) => {
+        console.error('[YT-Commander][SubscriptionSync] Install due-check failed', error);
     });
 });
 
@@ -1397,19 +1930,34 @@ chrome.runtime.onStartup.addListener(() => {
     ensureAutoSyncAlarm().catch((error) => {
         console.error('[YT-Commander][CloudSync] Failed to ensure alarm on startup', error);
     });
+    ensureSubscriptionAutoSyncAlarm().catch((error) => {
+        console.error('[YT-Commander][SubscriptionSync] Failed to ensure alarm on startup', error);
+    });
     runAutoSyncIfDue('startup-check').catch((error) => {
         console.error('[YT-Commander][CloudSync] Startup due-check failed', error);
+    });
+    runSubscriptionAutoSyncIfDue('startup-check').catch((error) => {
+        console.error('[YT-Commander][SubscriptionSync] Startup due-check failed', error);
     });
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-    if (!alarm || alarm.name !== AUTO_SYNC_ALARM_NAME) {
+    if (!alarm) {
         return;
     }
 
-    runAutoSyncIfDue(`alarm:${alarm.name}`).catch((error) => {
-        console.error('[YT-Commander][CloudSync] Alarm due-check failed', error);
-    });
+    if (alarm.name === AUTO_SYNC_ALARM_NAME) {
+        runAutoSyncIfDue(`alarm:${alarm.name}`).catch((error) => {
+            console.error('[YT-Commander][CloudSync] Alarm due-check failed', error);
+        });
+        return;
+    }
+
+    if (alarm.name === SUBSCRIPTION_SYNC_ALARM_NAME) {
+        runSubscriptionAutoSyncIfDue(`alarm:${alarm.name}`).catch((error) => {
+            console.error('[YT-Commander][SubscriptionSync] Alarm due-check failed', error);
+        });
+    }
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -1479,6 +2027,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 
+    if (message.type === 'UPDATE_SUBSCRIPTION_SYNC_CONFIG') {
+        updateSubscriptionSyncConfig({
+            endpointUrl: message.endpointUrl,
+            apiToken: message.apiToken,
+            autoEnabled: message.autoEnabled,
+            intervalMinutes: message.intervalMinutes
+        })
+            .then((status) => sendResponse({ success: true, ...status }))
+            .catch((error) => sendResponse({ success: false, error: error.message }));
+        return true;
+    }
+
+    if (message.type === 'GET_SUBSCRIPTION_SYNC_STATUS') {
+        getSubscriptionSyncStatus()
+            .then((status) => sendResponse(status))
+            .catch((error) => sendResponse({ success: false, error: error.message }));
+        return true;
+    }
+
+    if (message.type === 'SYNC_SUBSCRIPTIONS_TO_CLOUDFLARE') {
+        performSubscriptionSync({
+            manual: true,
+            endpointUrl: message.endpointUrl,
+            apiToken: message.apiToken,
+            source: 'popup-manual-sync',
+            activeTabId: Number.isFinite(message.activeTabId) ? Number(message.activeTabId) : undefined
+        })
+            .then((result) => sendResponse({ success: true, ...result }))
+            .catch((error) => sendResponse({ success: false, error: error.message }));
+        return true;
+    }
     if (message.type === 'LOCK_PRIMARY_SYNC_ACCOUNT') {
         const tabId = Number.isFinite(message.tabId) ? Number(message.tabId) : 0;
         if (!tabId) {
@@ -1512,6 +2091,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (message.type === 'GET_ALL_WATCHED_VIDEOS') {
         proxyGetAllWatchedVideos().then(sendResponse);
+        return true;
+    }
+
+    
+    if (message.type === 'SUBSCRIPTION_MANAGER_UPDATED') {
+        const pendingCount = Number.isFinite(message.pendingCount) ? Number(message.pendingCount) : 0;
+        storageLocalSet({
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_COUNT]: pendingCount
+        }).catch((error) => {
+            console.warn('[YT-Commander][SubscriptionSync] Failed to update pending count', error);
+        });
+
+        runSubscriptionAutoSyncIfDue('subscription-updated').catch((error) => {
+            console.error('[YT-Commander][SubscriptionSync] Update due-check failed', error);
+        });
+
+        sendResponse({ success: true, pendingCount });
         return true;
     }
 
@@ -1617,4 +2213,11 @@ ensureAutoSyncAlarm().catch((error) => {
 
 runAutoSyncIfDue('startup-bootstrap').catch((error) => {
     console.error('[YT-Commander][CloudSync] Startup bootstrap due-check failed', error);
+});
+ensureSubscriptionAutoSyncAlarm().catch((error) => {
+    console.error('[YT-Commander][SubscriptionSync] Failed to ensure startup alarm', error);
+});
+
+runSubscriptionAutoSyncIfDue('startup-bootstrap').catch((error) => {
+    console.error('[YT-Commander][SubscriptionSync] Startup bootstrap due-check failed', error);
 });

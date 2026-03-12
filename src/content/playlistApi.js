@@ -16,7 +16,9 @@ const ACTIONS = {
     ADD_TO_PLAYLISTS: 'ADD_TO_PLAYLISTS',
     CREATE_PLAYLIST_AND_ADD: 'CREATE_PLAYLIST_AND_ADD',
     REMOVE_FROM_PLAYLIST: 'REMOVE_FROM_PLAYLIST',
-    GET_SHORTS_UPLOAD_TIMESTAMPS: 'GET_SHORTS_UPLOAD_TIMESTAMPS'
+    GET_SHORTS_UPLOAD_TIMESTAMPS: 'GET_SHORTS_UPLOAD_TIMESTAMPS',
+    GET_SUBSCRIPTIONS: 'GET_SUBSCRIPTIONS',
+    UNSUBSCRIBE_CHANNELS: 'UNSUBSCRIBE_CHANNELS'
 };
 
 const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{10,15}$/;
@@ -28,6 +30,9 @@ const EDIT_PLAYLIST_RETRY_DELAY_MS = 420;
 const SHORTS_TIMESTAMP_BATCH_SIZE = 60;
 const SHORTS_TIMESTAMP_SCAN_DEPTH_LIMIT = 10;
 const SHORTS_TIMESTAMP_PLAYER_FALLBACK_CONCURRENCY = 3;
+const SUBSCRIPTION_BROWSE_ID = 'FEchannels';
+const SUBSCRIPTION_PAGE_LIMIT = 600;
+const SUBSCRIPTION_BATCH_SIZE = 50;
 
 let isInitialized = false;
 let cachedAuthHeader = null;
@@ -573,6 +578,31 @@ function sanitizeVideoIds(rawVideoIds) {
 
         const trimmed = value.trim();
         if (VIDEO_ID_PATTERN.test(trimmed)) {
+            unique.add(trimmed);
+        }
+    });
+
+    return Array.from(unique);
+}
+
+/**
+ * Validate and dedupe channel IDs.
+ * @param {string[]} rawChannelIds
+ * @returns {string[]}
+ */
+function sanitizeChannelIds(rawChannelIds) {
+    if (!Array.isArray(rawChannelIds)) {
+        return [];
+    }
+
+    const unique = new Set();
+    rawChannelIds.forEach((value) => {
+        if (typeof value !== 'string') {
+            return;
+        }
+
+        const trimmed = value.trim();
+        if (trimmed.startsWith('UC') && trimmed.length >= 22) {
             unique.add(trimmed);
         }
     });
@@ -1784,6 +1814,208 @@ async function getShortsUploadTimestamps(payload) {
 }
 
 /**
+ * Pick best thumbnail URL from a list.
+ * @param {any} thumbnails
+ * @returns {string}
+ */
+function pickThumbnailUrl(thumbnails) {
+    if (!Array.isArray(thumbnails) || thumbnails.length === 0) {
+        return '';
+    }
+    const sorted = [...thumbnails].sort((a, b) => (a?.width || 0) - (b?.width || 0));
+    const best = sorted[sorted.length - 1];
+    return typeof best?.url === 'string' ? best.url : '';
+}
+
+/**
+ * Normalize channel URL/handle path.
+ * @param {string} url
+ * @returns {string}
+ */
+function normalizeChannelPath(url) {
+    if (!url || typeof url !== 'string') {
+        return '';
+    }
+    let path = url;
+    try {
+        if (path.startsWith('http')) {
+            const parsed = new URL(path);
+            path = parsed.pathname;
+        }
+    } catch (_error) {
+        // ignore
+    }
+    return path.split('?')[0].split('#')[0];
+}
+
+/**
+ * Collect continuation tokens from response tree.
+ * @param {any} node
+ * @param {Set<string>} tokens
+ */
+function collectContinuationTokens(node, tokens) {
+    if (!node || typeof node !== 'object') {
+        return;
+    }
+
+    const token = node?.continuationCommand?.token || node?.continuationEndpoint?.continuationCommand?.token;
+    if (typeof token === 'string' && token) {
+        tokens.add(token);
+    }
+
+    Object.values(node).forEach((value) => {
+        if (Array.isArray(value)) {
+            value.forEach((item) => collectContinuationTokens(item, tokens));
+        } else if (value && typeof value === 'object') {
+            collectContinuationTokens(value, tokens);
+        }
+    });
+}
+
+/**
+ * Collect channel renderer objects from response tree.
+ * @param {any} node
+ * @param {Array<object>} renderers
+ */
+function collectChannelRenderers(node, renderers) {
+    if (!node || typeof node !== 'object') {
+        return;
+    }
+
+    Object.entries(node).forEach(([key, value]) => {
+        if (key.toLowerCase().endsWith('channelrenderer') && value && typeof value === 'object') {
+            renderers.push(value);
+            return;
+        }
+
+        if (Array.isArray(value)) {
+            value.forEach((item) => collectChannelRenderers(item, renderers));
+        } else if (value && typeof value === 'object') {
+            collectChannelRenderers(value, renderers);
+        }
+    });
+}
+
+/**
+ * Normalize channel renderer data.
+ * @param {any} renderer
+ * @returns {object|null}
+ */
+function normalizeChannelRenderer(renderer) {
+    if (!renderer || typeof renderer !== 'object') {
+        return null;
+    }
+
+    const channelId = typeof renderer.channelId === 'string' ? renderer.channelId : '';
+    if (!channelId || !channelId.startsWith('UC')) {
+        return null;
+    }
+
+    const title = readText(renderer.title) || 'Untitled channel';
+    const url = normalizeChannelPath(renderer?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url
+        || renderer?.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl
+        || renderer?.channelUrl
+        || '');
+    const handle = url.startsWith('/@') ? url.split('/')[1] : '';
+    const subscriberCount = readText(renderer.subscriberCountText);
+    const videoCount = readText(renderer.videoCountText);
+    const avatar = pickThumbnailUrl(renderer?.thumbnail?.thumbnails);
+
+    return {
+        channelId,
+        title,
+        handle,
+        url,
+        avatar,
+        subscriberCount,
+        videoCount
+    };
+}
+
+/**
+ * Fetch all subscription channels via browse API.
+ * @param {{limit?: number}} payload
+ * @returns {Promise<{channels: object[], total: number}>}
+ */
+async function getSubscriptions(payload) {
+    const config = await getInnertubeConfig();
+    const limit = Number.isFinite(payload?.limit) ? Number(payload.limit) : SUBSCRIPTION_PAGE_LIMIT * 100;
+
+    const channelsById = new Map();
+    const seenTokens = new Set();
+    let continuations = [];
+    let pageCount = 0;
+
+    const first = await postInnertube('browse', { context: config.context, browseId: SUBSCRIPTION_BROWSE_ID }, config);
+    const renderers = [];
+    collectChannelRenderers(first.body, renderers);
+    renderers.forEach((renderer) => {
+        const normalized = normalizeChannelRenderer(renderer);
+        if (normalized && !channelsById.has(normalized.channelId)) {
+            channelsById.set(normalized.channelId, normalized);
+        }
+    });
+    const firstTokens = new Set();
+    collectContinuationTokens(first.body, firstTokens);
+    continuations = Array.from(firstTokens);
+
+    while (continuations.length > 0 && channelsById.size < limit && pageCount < SUBSCRIPTION_PAGE_LIMIT) {
+        const token = continuations.shift();
+        if (!token || seenTokens.has(token)) {
+            continue;
+        }
+        seenTokens.add(token);
+        pageCount += 1;
+
+        const response = await postInnertube('browse', { context: config.context, continuation: token }, config);
+        const batchRenderers = [];
+        collectChannelRenderers(response.body, batchRenderers);
+        batchRenderers.forEach((renderer) => {
+            const normalized = normalizeChannelRenderer(renderer);
+            if (normalized && !channelsById.has(normalized.channelId)) {
+                channelsById.set(normalized.channelId, normalized);
+            }
+        });
+
+        const nextTokens = new Set();
+        collectContinuationTokens(response.body, nextTokens);
+        nextTokens.forEach((next) => {
+            if (!seenTokens.has(next)) {
+                continuations.push(next);
+            }
+        });
+    }
+
+    return {
+        channels: Array.from(channelsById.values()),
+        total: channelsById.size
+    };
+}
+
+/**
+ * Unsubscribe from multiple channels.
+ * @param {{channelIds: string[]}} payload
+ * @returns {Promise<{unsubscribedCount: number}>}
+ */
+async function unsubscribeChannels(payload) {
+    const channelIds = sanitizeChannelIds(payload?.channelIds);
+    if (channelIds.length === 0) {
+        return { unsubscribedCount: 0 };
+    }
+
+    const config = await getInnertubeConfig();
+    const chunks = chunk(channelIds, SUBSCRIPTION_BATCH_SIZE);
+    let unsubscribedCount = 0;
+
+    for (const channelChunk of chunks) {
+        await postInnertube('subscription/unsubscribe', { context: config.context, channelIds: channelChunk }, config);
+        unsubscribedCount += channelChunk.length;
+    }
+
+    return { unsubscribedCount };
+}
+
+/**
  * Post bridge response.
  * @param {string} requestId
  * @param {boolean} success
@@ -1823,6 +2055,10 @@ async function handleBridgeRequest(message) {
             result = await createPlaylistAndAdd(payload);
         } else if (action === ACTIONS.GET_SHORTS_UPLOAD_TIMESTAMPS) {
             result = await getShortsUploadTimestamps(payload);
+        } else if (action === ACTIONS.GET_SUBSCRIPTIONS) {
+            result = await getSubscriptions(payload);
+        } else if (action === ACTIONS.UNSUBSCRIBE_CHANNELS) {
+            result = await unsubscribeChannels(payload);
         } else {
             throw new Error('Unsupported playlist action.');
         }
@@ -1874,3 +2110,14 @@ initPlaylistApiBridge();
 export {
     initPlaylistApiBridge
 };
+
+
+
+
+
+
+
+
+
+
+

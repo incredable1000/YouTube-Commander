@@ -48,6 +48,14 @@ const CLOUDFLARE_STORAGE_KEYS = {
     AUTO_ENABLED: 'cloudflareSyncAutoEnabled',
     INTERVAL_MINUTES: 'cloudflareSyncIntervalMinutes'
 };
+let subscriptionNextSyncAt = 0;
+let subscriptionAutoEnabled = true;
+const SUBSCRIPTION_STORAGE_KEYS = {
+    ENDPOINT: 'subscriptionSyncEndpoint',
+    API_TOKEN: 'subscriptionSyncApiToken',
+    AUTO_ENABLED: 'subscriptionSyncAutoEnabled',
+    INTERVAL_MINUTES: 'subscriptionSyncIntervalMinutes'
+};
 const SQL_EXPORT_TABLE_NAME = 'watched_videos';
 const SQL_EXPORT_IDS_PER_FILE = 200000;
 const SQL_EXPORT_VALUES_PER_STATEMENT = 300;
@@ -57,6 +65,7 @@ const POPUP_UI_V2_DEFAULT_FEATURE = 'history';
 const POPUP_UI_V2_TONES = ['red', 'cyan', 'green', 'amber'];
 const POPUP_UI_V2_NAV_ITEMS = [
     { feature: 'history', label: 'Watched history' },
+    { feature: 'subscriptionManager', label: 'Subscription manager' },
     { feature: 'seek', label: 'Seek controls' },
     { feature: 'quality', label: 'Quality' },
     { feature: 'audio', label: 'Audio' },
@@ -86,6 +95,35 @@ function setupDeleteVideosToggle() {
             saveSyncSettings();
         });
     }
+}
+/**
+ * Setup show/hide toggle for sensitive token inputs.
+ * @param {string} inputId
+ * @param {string} buttonId
+ */
+function setupTokenVisibilityToggle(inputId, buttonId) {
+    const input = document.getElementById(inputId);
+    const button = document.getElementById(buttonId);
+    if (!input || !button) {
+        return;
+    }
+
+    const updateState = () => {
+        const isVisible = input.type === 'text';
+        button.classList.toggle('active', isVisible);
+        button.setAttribute('aria-pressed', isVisible ? 'true' : 'false');
+        const label = isVisible ? 'Hide token' : 'Show token';
+        button.setAttribute('aria-label', label);
+        button.setAttribute('title', label);
+    };
+
+    button.addEventListener('click', (event) => {
+        event.preventDefault();
+        input.type = input.type === 'password' ? 'text' : 'password';
+        updateState();
+    });
+
+    updateState();
 }
 
 /**
@@ -379,6 +417,7 @@ function buildV2NavIcon(feature) {
         quality: 'M4 7h16v2H4V7zm0 8h16v2H4v-2zM7 4h10v2H7V4zm0 14h10v2H7v-2z',
         audio: 'M5 9v6h4l5 4V5l-5 4H5zm12 0a4 4 0 010 6',
         history: 'M12 4a8 8 0 108 8h-2a6 6 0 11-6-6V4zm-1 4h2v5l4 2-1 1.7-5-2.7V8z',
+        subscriptionManager: 'M4 5h11v2H4V5zm0 4h11v2H4V9zm0 4h11v2H4v-2zm13-7h3v9h-3V6zm-1 10H4v2h12v-2z',
         playlist: 'M4 6h10v2H4V6zm0 5h10v2H4v-2zm0 5h6v2H4v-2zm13-8h3v3h-3v-3zm0 5h3v3h-3v-3z',
         windowedFullscreen: 'M5 6h14v12H5V6zm2 2v8h10V8H7z',
         rotation: 'M12 6V3l4 4-4 4V8a4 4 0 104 4h2a6 6 0 11-6-6z',
@@ -566,6 +605,9 @@ function loadSettings() {
         loadWatchedHistoryStats();
         loadCloudflareSyncSettings().catch((error) => {
             showStatus(error?.message || 'Failed to load Cloudflare sync settings', 'error');
+        });
+        loadSubscriptionSyncSettings().catch((error) => {
+            showStatus(error?.message || 'Failed to load subscription sync settings', 'error');
         });
         cleanupLegacyFeatureFlags();
     });
@@ -825,6 +867,28 @@ function renderNextSyncCountdown() {
     const remainingMs = cloudflareNextSyncAt - Date.now();
     nextSyncEl.textContent = formatRemainingMinSec(remainingMs);
 }
+/**
+ * Render live subscription "Next Sync In" countdown.
+ */
+function renderSubscriptionNextSyncCountdown() {
+    const nextSyncEl = document.getElementById('subscriptionNextSyncIn');
+    if (!nextSyncEl) {
+        return;
+    }
+
+    if (!subscriptionAutoEnabled) {
+        nextSyncEl.textContent = 'Off';
+        return;
+    }
+
+    if (!Number.isFinite(subscriptionNextSyncAt) || subscriptionNextSyncAt <= 0) {
+        nextSyncEl.textContent = '--:--';
+        return;
+    }
+
+    const remainingMs = subscriptionNextSyncAt - Date.now();
+    nextSyncEl.textContent = formatRemainingMinSec(remainingMs);
+}
 
 /**
  * Send runtime message with timeout and callback error handling.
@@ -906,6 +970,43 @@ async function loadCloudflareSyncSettings() {
 
     await refreshCloudflareSyncStatus();
 }
+/**
+ * Load subscription sync settings from local storage.
+ */
+async function loadSubscriptionSyncSettings() {
+    const result = await chrome.storage.local.get([
+        SUBSCRIPTION_STORAGE_KEYS.ENDPOINT,
+        SUBSCRIPTION_STORAGE_KEYS.API_TOKEN,
+        SUBSCRIPTION_STORAGE_KEYS.AUTO_ENABLED,
+        SUBSCRIPTION_STORAGE_KEYS.INTERVAL_MINUTES
+    ]);
+
+    const endpointInput = document.getElementById('subscriptionSyncEndpoint');
+    const tokenInput = document.getElementById('subscriptionSyncToken');
+    const intervalSelect = document.getElementById('subscriptionSyncInterval');
+    const autoToggle = document.getElementById('subscriptionAutoSyncToggle');
+
+    if (endpointInput) {
+        endpointInput.value = typeof result[SUBSCRIPTION_STORAGE_KEYS.ENDPOINT] === 'string'
+            ? result[SUBSCRIPTION_STORAGE_KEYS.ENDPOINT]
+            : '';
+    }
+
+    if (tokenInput) {
+        tokenInput.value = typeof result[SUBSCRIPTION_STORAGE_KEYS.API_TOKEN] === 'string'
+            ? result[SUBSCRIPTION_STORAGE_KEYS.API_TOKEN]
+            : '';
+    }
+
+    if (intervalSelect) {
+        const interval = Number.parseInt(result[SUBSCRIPTION_STORAGE_KEYS.INTERVAL_MINUTES], 10);
+        intervalSelect.value = Number.isFinite(interval) ? String(interval) : '60';
+    }
+
+    setToggleState(autoToggle, result[SUBSCRIPTION_STORAGE_KEYS.AUTO_ENABLED] !== false);
+
+    await refreshSubscriptionSyncStatus();
+}
 
 /**
  * Persist Cloudflare sync settings from inputs.
@@ -940,6 +1041,43 @@ async function saveCloudflareSyncSettings() {
 
     if (!updateResponse?.success) {
         throw new Error(updateResponse?.error || 'Failed to update Cloudflare sync config');
+    }
+
+    return { endpointUrl, apiToken, autoEnabled, intervalMinutes };
+}
+/**
+ * Persist subscription sync settings from inputs.
+ * @returns {Promise<{ endpointUrl: string, apiToken: string, autoEnabled: boolean, intervalMinutes: number }>}
+ */
+async function saveSubscriptionSyncSettings() {
+    const endpointInput = document.getElementById('subscriptionSyncEndpoint');
+    const tokenInput = document.getElementById('subscriptionSyncToken');
+    const autoToggle = document.getElementById('subscriptionAutoSyncToggle');
+    const intervalSelect = document.getElementById('subscriptionSyncInterval');
+
+    const endpointUrl = typeof endpointInput?.value === 'string' ? endpointInput.value.trim() : '';
+    const apiToken = typeof tokenInput?.value === 'string' ? tokenInput.value.trim() : '';
+    const autoEnabled = !autoToggle || autoToggle.classList.contains('active');
+    const intervalValue = Number.parseInt(intervalSelect?.value || '60', 10);
+    const intervalMinutes = Number.isFinite(intervalValue) ? intervalValue : 60;
+
+    await chrome.storage.local.set({
+        [SUBSCRIPTION_STORAGE_KEYS.ENDPOINT]: endpointUrl,
+        [SUBSCRIPTION_STORAGE_KEYS.API_TOKEN]: apiToken,
+        [SUBSCRIPTION_STORAGE_KEYS.AUTO_ENABLED]: autoEnabled,
+        [SUBSCRIPTION_STORAGE_KEYS.INTERVAL_MINUTES]: intervalMinutes
+    });
+
+    const updateResponse = await sendRuntimeMessage({
+        type: 'UPDATE_SUBSCRIPTION_SYNC_CONFIG',
+        endpointUrl,
+        apiToken,
+        autoEnabled,
+        intervalMinutes
+    }, 20000);
+
+    if (!updateResponse?.success) {
+        throw new Error(updateResponse?.error || 'Failed to update subscription sync config');
     }
 
     return { endpointUrl, apiToken, autoEnabled, intervalMinutes };
@@ -988,6 +1126,49 @@ function renderCloudflareSyncStatus(status = {}) {
 
     renderNextSyncCountdown();
 }
+/**
+ * Render subscription sync status in popup.
+ * @param {object} status
+ */
+function renderSubscriptionSyncStatus(status = {}) {
+    const pendingEl = document.getElementById('subscriptionPendingCount');
+    const lastSyncEl = document.getElementById('subscriptionLastSyncAt');
+    const infoEl = document.getElementById('subscriptionLastSyncInfo');
+    const primaryAccountEl = document.getElementById('subscriptionPrimaryAccount');
+    subscriptionAutoEnabled = status.autoEnabled !== false;
+    subscriptionNextSyncAt = Number(status.nextSyncAt) || 0;
+
+    if (pendingEl) {
+        pendingEl.textContent = String(Number(status.pendingCount) || 0);
+    }
+
+    if (primaryAccountEl) {
+        primaryAccountEl.textContent = formatAccountKey(status.primaryAccountKey);
+    }
+
+    if (lastSyncEl) {
+        const timestamp = Number(status.lastAt) || 0;
+        lastSyncEl.textContent = timestamp > 0
+            ? new Date(timestamp).toLocaleString()
+            : 'Never';
+    }
+
+    if (infoEl) {
+        if (status.status === 'error') {
+            infoEl.textContent = status.error || 'Error';
+            return;
+        }
+
+        if (status.status === 'success') {
+            infoEl.textContent = `Success (${Number(status.syncedCount) || 0} channels)`;
+            return;
+        }
+
+        infoEl.textContent = status.status || 'Idle';
+    }
+
+    renderSubscriptionNextSyncCountdown();
+}
 
 /**
  * Refresh cloud sync status from background.
@@ -1000,6 +1181,22 @@ async function refreshCloudflareSyncStatus() {
 
         if (status?.success) {
             renderCloudflareSyncStatus(status);
+        }
+    } catch (_error) {
+        // Keep existing UI values when background status is unavailable.
+    }
+}
+/**
+ * Refresh subscription sync status from background.
+ */
+async function refreshSubscriptionSyncStatus() {
+    try {
+        const status = await sendRuntimeMessage({
+            type: 'GET_SUBSCRIPTION_SYNC_STATUS'
+        }, 30000);
+
+        if (status?.success) {
+            renderSubscriptionSyncStatus(status);
         }
     } catch (_error) {
         // Keep existing UI values when background status is unavailable.
@@ -1045,6 +1242,51 @@ function setupCloudflareSyncControls() {
             await refreshCloudflareSyncStatus();
         } catch (error) {
             showStatus(error?.message || 'Failed to update Cloudflare settings', 'error');
+        }
+    };
+
+    endpointInput?.addEventListener('blur', saveOnBlur);
+    tokenInput?.addEventListener('blur', saveOnBlur);
+}
+/**
+ * Setup subscription auto-sync controls.
+ */
+function setupSubscriptionSyncControls() {
+    const autoToggle = document.getElementById('subscriptionAutoSyncToggle');
+    const intervalSelect = document.getElementById('subscriptionSyncInterval');
+    const endpointInput = document.getElementById('subscriptionSyncEndpoint');
+    const tokenInput = document.getElementById('subscriptionSyncToken');
+
+    if (autoToggle) {
+        autoToggle.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            setToggleState(autoToggle, !autoToggle.classList.contains('active'));
+            try {
+                await saveSubscriptionSyncSettings();
+                await refreshSubscriptionSyncStatus();
+            } catch (error) {
+                showStatus(error?.message || 'Failed to save subscription settings', 'error');
+            }
+        });
+    }
+
+    if (intervalSelect) {
+        intervalSelect.addEventListener('change', async () => {
+            try {
+                await saveSubscriptionSyncSettings();
+                await refreshSubscriptionSyncStatus();
+            } catch (error) {
+                showStatus(error?.message || 'Failed to update subscription sync interval', 'error');
+            }
+        });
+    }
+
+    const saveOnBlur = async () => {
+        try {
+            await saveSubscriptionSyncSettings();
+            await refreshSubscriptionSyncStatus();
+        } catch (error) {
+            showStatus(error?.message || 'Failed to update subscription settings', 'error');
         }
     };
 
@@ -1345,6 +1587,92 @@ async function syncToCloudflare() {
         syncButton.textContent = initialLabel;
     }
 }
+/**
+ * Sync subscription manager data to Cloudflare worker endpoint.
+ */
+async function syncSubscriptionsNow() {
+    const syncButton = document.getElementById('syncSubscriptionsNow');
+    if (!syncButton) {
+        return;
+    }
+
+    const initialLabel = syncButton.textContent;
+    syncButton.disabled = true;
+    syncButton.textContent = 'Syncing...';
+
+    try {
+        showStatus('Syncing subscriptions to Cloudflare...', 'info');
+        const { endpointUrl, apiToken } = await saveSubscriptionSyncSettings();
+
+        if (!endpointUrl) {
+            throw new Error('Subscription Worker URL is required');
+        }
+
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true, url: '*://*.youtube.com/*' });
+        const response = await sendRuntimeMessage({
+            type: 'SYNC_SUBSCRIPTIONS_TO_CLOUDFLARE',
+            endpointUrl,
+            apiToken,
+            activeTabId: activeTab?.id
+        }, 120000);
+
+        if (!response?.success) {
+            throw new Error(response?.error || 'Subscription sync failed');
+        }
+
+        const syncedCount = Number.isFinite(response.syncedCount) ? response.syncedCount : 0;
+        const host = typeof response.endpointHost === 'string' && response.endpointHost
+            ? response.endpointHost
+            : 'Cloudflare';
+        showStatus(
+            `Synced ${syncedCount} channels to ${host}. Pending: ${Number(response.pendingCount) || 0}`,
+            'success'
+        );
+        await refreshSubscriptionSyncStatus();
+    } catch (error) {
+        showStatus(error?.message || 'Failed to sync subscriptions', 'error');
+    } finally {
+        syncButton.disabled = false;
+        syncButton.textContent = initialLabel;
+    }
+}
+
+/**
+ * Open subscription manager modal from popup.
+ */
+async function openSubscriptionManagerFromPopup() {
+    const button = document.getElementById('openSubscriptionManager');
+    if (!button) {
+        return;
+    }
+
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!activeTab?.id || !activeTab.url || !activeTab.url.includes('youtube.com')) {
+        showStatus('Open a YouTube tab first to launch the subscription manager', 'error');
+        return;
+    }
+
+    const initialLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Opening...';
+
+    try {
+        const response = await chrome.tabs.sendMessage(activeTab.id, {
+            type: 'OPEN_SUBSCRIPTION_MANAGER'
+        });
+
+        if (!response?.success) {
+            throw new Error(response?.error || 'Failed to open subscription manager');
+        }
+
+        showStatus('Subscription manager opened in current tab', 'success');
+    } catch (error) {
+        showStatus(error?.message || 'Failed to open subscription manager', 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = initialLabel;
+    }
+}
 
 /**
  * Lock cloud sync to currently active YouTube account context.
@@ -1579,6 +1907,9 @@ document.addEventListener('DOMContentLoaded', () => {
     setupWindowedAutoToggle();
     setupDeleteVideosToggle();
     setupCloudflareSyncControls();
+    setupSubscriptionSyncControls();
+    setupTokenVisibilityToggle('cloudflareSyncToken', 'cloudflareTokenToggle');
+    setupTokenVisibilityToggle('subscriptionSyncToken', 'subscriptionTokenToggle');
     setupAutoSave();
     document.getElementById('exportHistory').addEventListener('click', exportHistory);
     document.getElementById('importHistory').addEventListener('click', importHistory);
@@ -1587,9 +1918,13 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('downloadFromCloudflare').addEventListener('click', downloadFromCloudflare);
     document.getElementById('lockPrimarySyncAccount').addEventListener('click', lockPrimarySyncAccount);
     document.getElementById('historyFileInput').addEventListener('change', handleFileImport);
+    document.getElementById('openSubscriptionManager').addEventListener('click', openSubscriptionManagerFromPopup);
+    document.getElementById('syncSubscriptionsNow').addEventListener('click', syncSubscriptionsNow);
 
     setInterval(loadWatchedHistoryStats, 5000);
     setInterval(refreshCloudflareSyncStatus, 30000);
+    setInterval(refreshSubscriptionSyncStatus, 30000);
     setInterval(renderNextSyncCountdown, 1000);
+    setInterval(renderSubscriptionNextSyncCountdown, 1000);
 });
 

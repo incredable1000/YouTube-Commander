@@ -15,6 +15,9 @@
             margin: 0;
             height: 100%;
             overflow: hidden;
+            min-width: 420px;
+            background: #0b0f17;
+            color: #e8edf5;
         }
 
         .hidden {
@@ -22,6 +25,7 @@
         }
 
         /* ===== Popup V2 (feature-flagged) ===== */
+
         body.yt-commander-popup-v2 {
             --ytc-v2-bg: #090d14;
             --ytc-v2-surface: #121826;
@@ -34,12 +38,13 @@
             --ytc-v2-amber: #f6bd45;
             --ytc-v2-radius: 14px;
 
-            width: 448px;
+            width: 420px;
             min-height: 0;
-            height: 640px;
-            max-height: 640px;
-            display: flex;
-            flex-direction: column;
+            height: 600px;
+            max-height: 600px;
+            max-width: 100%;
+            display: grid;
+            grid-template-rows: auto auto 1fr auto;
             font-family: 'Segoe UI', 'SF Pro Text', 'Roboto', sans-serif;
             background:
                 radial-gradient(120% 75% at 15% -10%, rgba(63, 208, 255, 0.2), transparent 40%),
@@ -73,8 +78,8 @@
 
         body.yt-commander-popup-v2 .container {
             padding: 10px;
-            display: flex;
-            flex-direction: column;
+            display: grid;
+            grid-template-rows: auto auto 1fr auto;
             gap: 10px;
             flex: 1 1 auto;
             min-height: 0;
@@ -82,6 +87,7 @@
         }
 
         body.yt-commander-popup-v2 .ytc-v2-nav-wrap {
+            max-width: 100%;
             display: grid;
             grid-template-columns: auto 1fr auto;
             align-items: center;
@@ -94,7 +100,7 @@
             border-radius: 14px;
             background: rgba(10, 15, 25, 0.94);
             border: 1px solid rgba(39, 49, 75, 0.7);
-            margin: 0 10px 10px;
+            margin: 0 0 10px;
         }
 
         body.yt-commander-popup-v2 .ytc-v2-nav-scroll {
@@ -214,6 +220,8 @@
         }
 
         body.yt-commander-popup-v2 .feature-card {
+            max-width: 100%;
+            overflow-x: hidden;
             display: none;
             position: relative;
             margin: 0;
@@ -222,28 +230,40 @@
             background: linear-gradient(160deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0) 60%), var(--ytc-v2-surface);
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 8px 24px rgba(0, 0, 0, 0.24);
             flex: 0 0 auto;
-            overflow: visible;
+            overflow-y: visible;
         }
 
-        body.yt-commander-popup-v2 .ytc-v2-content {
+                body.yt-commander-popup-v2 .ytc-v2-content {
             display: flex;
-            flex-direction: column;
+            grid-template-rows: auto auto 1fr auto;
             gap: 10px;
             flex: 1 1 auto;
             min-height: 0;
             overflow-y: auto;
+            overflow-x: hidden;
             overscroll-behavior: contain;
-            padding: 0 2px 6px 0;
+            padding: 0 0 6px 0;
             scrollbar-width: thin;
+            scrollbar-color: rgba(63, 208, 255, 0.5) rgba(9, 13, 20, 0.6);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-content::-webkit-scrollbar {
-            width: 8px;
+            width: 6px;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-content::-webkit-scrollbar-track {
+            background: rgba(9, 13, 20, 0.6);
+            border-radius: 999px;
         }
 
         body.yt-commander-popup-v2 .ytc-v2-content::-webkit-scrollbar-thumb {
-            background: rgba(63, 208, 255, 0.25);
-            border-radius: 8px;
+            background: linear-gradient(180deg, rgba(63, 208, 255, 0.55), rgba(63, 208, 255, 0.25));
+            border-radius: 999px;
+            border: 1px solid rgba(8, 12, 20, 0.7);
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-content::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, rgba(63, 208, 255, 0.7), rgba(63, 208, 255, 0.35));
         }
 
         body.yt-commander-popup-v2 .feature-card.ytc-v2-feature-active {
@@ -286,7 +306,7 @@
 
         body.yt-commander-popup-v2 .feature-title {
             display: flex;
-            flex-direction: column;
+            grid-template-rows: auto auto 1fr auto;
             align-items: flex-start;
         }
 
@@ -307,9 +327,11 @@
         }
 
         body.yt-commander-popup-v2 .feature-content {
+            max-width: 100%;
+            overflow-x: hidden;
             border-top: 1px solid var(--ytc-v2-border);
             padding: 12px 14px 14px;
-            overflow: visible;
+            overflow-y: visible;
         }
 
         body.yt-commander-popup-v2 .setting-row {
@@ -344,6 +366,72 @@
 
         body.yt-commander-popup-v2 .setting-input.setting-input-wide {
             width: 100%;
+        }
+        body.yt-commander-popup-v2 .yt-commander-input-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        body.yt-commander-popup-v2 .yt-commander-input-row .setting-input {
+            width: 100%;
+            flex: 1;
+            min-width: 0;
+        }
+
+        body.yt-commander-popup-v2 .yt-commander-token-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            border: 1px solid var(--ytc-v2-border);
+            background: rgba(16, 21, 33, 0.94);
+            color: var(--ytc-v2-muted);
+            cursor: pointer;
+            transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+        }
+
+        body.yt-commander-popup-v2 .yt-commander-token-btn:hover {
+            color: var(--ytc-v2-text);
+            border-color: var(--card-accent, var(--ytc-v2-cyan));
+            background: rgba(20, 27, 41, 0.98);
+            transform: translateY(-1px);
+        }
+
+        body.yt-commander-popup-v2 .yt-commander-token-btn:focus-visible {
+            outline: none;
+            border-color: var(--card-accent, var(--ytc-v2-cyan));
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--card-accent, var(--ytc-v2-cyan)) 30%, transparent);
+        }
+
+        body.yt-commander-popup-v2 .yt-commander-token-btn.active {
+            color: var(--card-accent, var(--ytc-v2-cyan));
+            border-color: var(--card-accent, var(--ytc-v2-cyan));
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--card-accent, var(--ytc-v2-cyan)) 25%, transparent);
+        }
+
+        body.yt-commander-popup-v2 .yt-commander-token-btn svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.6;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        body.yt-commander-popup-v2 .yt-commander-token-btn .yt-commander-icon-eye-off {
+            display: none;
+        }
+
+        body.yt-commander-popup-v2 .yt-commander-token-btn.active .yt-commander-icon-eye {
+            display: none;
+        }
+
+        body.yt-commander-popup-v2 .yt-commander-token-btn.active .yt-commander-icon-eye-off {
+            display: block;
         }
 
         body.yt-commander-popup-v2 .quality-select {
@@ -596,7 +684,7 @@
         }
     </style>
 </head>
-<body>
+<body class="yt-commander-popup-v2">
     <div class="header">
         <div class="subtitle">Enhanced YouTube Experience</div>
     </div>
@@ -715,7 +803,20 @@
                 </div>
                 <div class="setting-row" style="display: block; margin-top: 8px;">
                     <div class="setting-label" style="margin-bottom: 6px;">Cloudflare API Token (optional)</div>
-                    <input type="password" id="cloudflareSyncToken" class="setting-input setting-input-wide" placeholder="Bearer token (if your worker requires auth)" autocomplete="off">
+                                        <div class="yt-commander-input-row">
+                        <input type="password" id="cloudflareSyncToken" class="setting-input setting-input-wide" placeholder="Bearer token (if your worker requires auth)" autocomplete="off">
+                        <button type="button" class="yt-commander-token-btn" id="cloudflareTokenToggle" aria-label="Show token" title="Show token" aria-pressed="false">
+                            <svg class="yt-commander-icon-eye" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+                                <circle cx="12" cy="12" r="3.5"></circle>
+                            </svg>
+                            <svg class="yt-commander-icon-eye-off" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+                                <path d="M4 4l16 16"></path>
+                                <path d="M9.5 9.5a3 3 0 0 0 4.2 4.2"></path>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
                 <div class="setting-row" style="margin-top: 12px;">
                     <div class="setting-label" style="font-size: 13px;">Auto Sync</div>
@@ -751,6 +852,66 @@
             </div>
         </div>
 
+        <!-- Subscription Manager Feature -->
+        <div class="feature-card">
+            <div class="feature-header expanded" data-feature="subscriptionManager">
+                <div class="feature-title">
+                    <div class="feature-name">Subscription Manager</div>
+                    <div class="feature-description">Bulk manage subscriptions with categories</div>
+                </div>
+            </div>
+            <div class="feature-content expanded" id="subscriptionManagerContent">
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" id="openSubscriptionManager">Open Manager</button>
+                    <button class="btn btn-secondary" id="syncSubscriptionsNow">Manual Sync</button>
+                </div>
+                <div class="setting-row" style="display: block; margin-top: 12px;">
+                    <div class="setting-label" style="margin-bottom: 6px;">Subscription Worker URL</div>
+                    <input type="url" id="subscriptionSyncEndpoint" class="setting-input setting-input-wide" placeholder="https://your-worker.workers.dev/subscriptions">
+                </div>
+                <div class="setting-row" style="display: block; margin-top: 8px;">
+                    <div class="setting-label" style="margin-bottom: 6px;">Subscription API Token (optional)</div>
+                                        <div class="yt-commander-input-row">
+                        <input type="password" id="subscriptionSyncToken" class="setting-input setting-input-wide" placeholder="Bearer token (if your worker requires auth)" autocomplete="off">
+                        <button type="button" class="yt-commander-token-btn" id="subscriptionTokenToggle" aria-label="Show token" title="Show token" aria-pressed="false">
+                            <svg class="yt-commander-icon-eye" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+                                <circle cx="12" cy="12" r="3.5"></circle>
+                            </svg>
+                            <svg class="yt-commander-icon-eye-off" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+                                <path d="M4 4l16 16"></path>
+                                <path d="M9.5 9.5a3 3 0 0 0 4.2 4.2"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="setting-row" style="margin-top: 12px;">
+                    <div class="setting-label" style="font-size: 13px;">Auto Sync</div>
+                    <div class="toggle-switch small-toggle active" id="subscriptionAutoSyncToggle">
+                        <div class="toggle-slider"></div>
+                    </div>
+                </div>
+                <div class="setting-row" style="margin-top: 8px;">
+                    <div class="setting-label">Sync Every</div>
+                    <select id="subscriptionSyncInterval" class="setting-select">
+                        <option value="15">15 min</option>
+                        <option value="30">30 min</option>
+                        <option value="60" selected>1 hour</option>
+                        <option value="120">2 hours</option>
+                    </select>
+                </div>
+                <div class="setting-row" style="display: block; margin-top: 8px; gap: 4px;">
+                    <div class="setting-label" style="font-size: 12px;">Pending IDs: <span id="subscriptionPendingCount">0</span></div>
+                    <div class="setting-label" style="font-size: 12px;">Sync Account: <span id="subscriptionPrimaryAccount">Not locked</span></div>
+                    <div class="setting-label" style="font-size: 12px;">Next Sync In: <span id="subscriptionNextSyncIn">--:--</span></div>
+                    <div class="setting-label" style="font-size: 12px;">Last Sync: <span id="subscriptionLastSyncAt">Never</span></div>
+                    <div class="setting-label" style="font-size: 12px;">Status: <span id="subscriptionLastSyncInfo">Idle</span></div>
+                </div>
+                <div id="subscriptionStatus" class="status"></div>
+                <div class="note">Auto sync runs hourly and only when changes are pending. Manual sync is available if auto sync fails.</div>
+            </div>
+        </div>
         <!-- Scroll to Top Feature -->
         <div class="feature-card">
             <div class="feature-header expanded" data-feature="scroll">
@@ -869,4 +1030,18 @@
     <script type="module" src="popup.js"></script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

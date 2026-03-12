@@ -49,6 +49,12 @@ Expected response:
 - `Authorization: Bearer <token>` (if configured)
 - `X-YT-Commander-Key: <token>` (if configured)
 
+## Subscription Sync
+
+Subscription Manager uses a separate endpoint (`POST /subscriptions`) and D1
+tables for channels/categories. See `docs/cloudflare-subscription-sync.md`
+for the worker script and schema.
+
 ## SQL Export Workflow (No API Calls)
 
 Use popup button: `Watched History -> Export SQL`

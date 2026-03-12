@@ -105,7 +105,8 @@ async function initializeModules() {
             import('./playlistControls.js').catch(e => { logger.warn('Failed to import playlistControls:', e); throw e; }),
             import('./playlistMultiSelect.js').catch(e => { logger.warn('Failed to import playlistMultiSelect:', e); throw e; }),
             import('./qualityControls-wrapper.js').catch(e => { logger.warn('Failed to import qualityControls-wrapper:', e); throw e; }),
-            import('./watchedHistory.js').catch(e => { logger.warn('Failed to import watchedHistory:', e); throw e; })
+            import('./watchedHistory.js').catch(e => { logger.warn('Failed to import watchedHistory:', e); throw e; }),
+            import('./subscriptionManager.js').catch(e => { logger.warn('Failed to import subscriptionManager:', e); throw e; })
         ]);
         
         // Initialize successfully imported modules
@@ -123,7 +124,8 @@ async function initializeModules() {
                     'playlistControls',
                     'playlistMultiSelect',
                     'qualityControlsWrapper',
-                    'watchedHistory'
+                    'watchedHistory',
+                    'subscriptionManager'
                 ];
                 const moduleName = moduleNames[index];
                 
@@ -145,6 +147,7 @@ async function initializeModules() {
                 if (module.initPlaylistMultiSelect) initPromises.push(module.initPlaylistMultiSelect());
                 if (module.initQualityWrapper) initPromises.push(module.initQualityWrapper());
                 if (module.initWatchedHistory) initPromises.push(module.initWatchedHistory());
+                if (module.initSubscriptionManager) initPromises.push(module.initSubscriptionManager());
             } else {
                 logger.error(`Failed to load module:`, result.reason);
                 const moduleNames = [
@@ -157,7 +160,8 @@ async function initializeModules() {
                     'playlistControls',
                     'playlistMultiSelect',
                     'qualityControlsWrapper',
-                    'watchedHistory'
+                    'watchedHistory',
+                    'subscriptionManager'
                 ];
                 const failedName = moduleNames[index];
             }
@@ -256,6 +260,7 @@ try {
     if (chrome && chrome.runtime && chrome.runtime.onMessage) {
         chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             try {
+                const watchedModule = moduleInstances['watchedHistory'];
                 if (message.type === 'SETTINGS_UPDATED') {
                     logger.info('Settings updated from popup:', message.settings);
                     currentSettings = message.settings;
@@ -263,7 +268,6 @@ try {
                     sendResponse({ success: true });
                 } else if (message.type === 'GET_WATCHED_COUNT') {
                     // Handle watched count requests from background script
-                    const watchedModule = moduleInstances['watchedHistory'];
                     if (watchedModule && watchedModule.getWatchedCount) {
                         const count = watchedModule.getWatchedCount();
                         sendResponse({ count });
@@ -272,7 +276,6 @@ try {
                     }
                 } else if (message.type === 'GET_ALL_WATCHED_VIDEOS') {
                     // Handle watched videos export requests
-                    const watchedModule = moduleInstances['watchedHistory'];
                     if (watchedModule && watchedModule.getAllWatchedVideos) {
                         watchedModule.getAllWatchedVideos().then(videos => {
                             sendResponse({ success: true, videos });
@@ -284,7 +287,6 @@ try {
                         sendResponse({ success: false, error: 'Watched history module not available' });
                     }
                 } else if (message.type === 'GET_PENDING_SYNC_VIDEO_IDS') {
-                    const watchedModule = moduleInstances['watchedHistory'];
                     if (watchedModule && watchedModule.getPendingSyncVideoIds) {
                         watchedModule.getPendingSyncVideoIds(message.limit).then(videoIds => {
                             sendResponse({ success: true, videoIds });
@@ -296,7 +298,6 @@ try {
                     }
                     sendResponse({ success: false, error: 'Watched history module not available' });
                 } else if (message.type === 'ACK_SYNCED_VIDEO_IDS') {
-                    const watchedModule = moduleInstances['watchedHistory'];
                     if (watchedModule && watchedModule.ackSyncedVideoIds) {
                         watchedModule.ackSyncedVideoIds(message.videoIds).then(removedCount => {
                             sendResponse({ success: true, removedCount });
@@ -308,7 +309,6 @@ try {
                     }
                     sendResponse({ success: false, error: 'Watched history module not available' });
                 } else if (message.type === 'GET_PENDING_SYNC_COUNT') {
-                    const watchedModule = moduleInstances['watchedHistory'];
                     if (watchedModule && watchedModule.getPendingSyncCount) {
                         watchedModule.getPendingSyncCount().then(count => {
                             sendResponse({ success: true, count });
@@ -320,7 +320,6 @@ try {
                     }
                     sendResponse({ success: false, error: 'Watched history module not available' });
                 } else if (message.type === 'SEED_SYNC_QUEUE_FROM_HISTORY') {
-                    const watchedModule = moduleInstances['watchedHistory'];
                     if (watchedModule && watchedModule.seedSyncQueueFromHistory) {
                         watchedModule.seedSyncQueueFromHistory().then(seededCount => {
                             sendResponse({ success: true, seededCount });
@@ -332,7 +331,6 @@ try {
                     }
                     sendResponse({ success: false, error: 'Watched history module not available' });
                 } else if (message.type === 'GET_SYNC_ACCOUNT_IDENTITY') {
-                    const watchedModule = moduleInstances['watchedHistory'];
                     if (watchedModule && watchedModule.getSyncAccountIdentity) {
                         const identity = watchedModule.getSyncAccountIdentity();
                         sendResponse({ success: true, ...identity });
@@ -345,37 +343,18 @@ try {
                         });
                     }
                 } else if (message.type === 'IMPORT_WATCHED_VIDEOS') {
-                    // Handle watched videos import requests
-                    console.log('🚀 Content script received IMPORT_WATCHED_VIDEOS message with', message.videoIds?.length, 'IDs');
-                    console.log('🚀 Available modules:', Object.keys(moduleInstances));
-                    
-                    const watchedModule = moduleInstances['watchedHistory'];
-                    console.log('🚀 Watched module:', !!watchedModule);
-                    console.log('🚀 importWatchedHistory function:', !!(watchedModule && watchedModule.importWatchedHistory));
-                    
                     if (watchedModule && watchedModule.importWatchedHistory) {
-                        console.log('🚀 Calling importWatchedHistory function...');
-                        watchedModule.importWatchedHistory(message.videoIds, message.options || {}).then(count => {
-                            console.log('🚀 Import completed successfully, count:', count);
+                        watchedModule.importWatchedHistory(message.videoIds, message.options).then((count) => {
                             sendResponse({ success: true, count });
-                        }).catch(error => {
-                            console.error('🚀 Import failed with error:', error);
+                        }).catch((error) => {
                             logger.error('Failed to import watched videos:', error);
                             sendResponse({ success: false, error: error.message });
                         });
                         return true; // Keep message channel open for async response
-                    } else {
-                        console.error('🚀 Watched history module not available');
-                        console.log('🚀 Module details:', {
-                            moduleExists: !!watchedModule,
-                            functionExists: !!(watchedModule && watchedModule.importWatchedHistory),
-                            moduleKeys: watchedModule ? Object.keys(watchedModule) : 'N/A'
-                        });
-                        sendResponse({ success: false, error: 'Watched history module not available' });
                     }
+                    sendResponse({ success: false, error: 'Watched history module not available' });
                 } else if (message.type === 'GET_WATCHED_STATS') {
                     // Handle watched history stats requests
-                    const watchedModule = moduleInstances['watchedHistory'];
                     if (watchedModule && watchedModule.getAllWatchedVideos) {
                         watchedModule.getAllWatchedVideos().then(videos => {
                             const today = new Date();
@@ -394,6 +373,30 @@ try {
                     } else {
                         sendResponse({ success: false, error: 'Watched history module not available' });
                     }
+                } else if (message.type === 'OPEN_SUBSCRIPTION_MANAGER') {
+                    const subscriptionModule = moduleInstances['subscriptionManager'];
+                    if (subscriptionModule && subscriptionModule.openSubscriptionManager) {
+                        subscriptionModule.openSubscriptionManager().then(() => {
+                            sendResponse({ success: true });
+                        }).catch(error => {
+                            logger.error('Failed to open subscription manager:', error);
+                            sendResponse({ success: false, error: error.message });
+                        });
+                        return true;
+                    }
+                    sendResponse({ success: false, error: 'Subscription manager module not available' });
+                } else if (message.type === 'GET_SUBSCRIPTION_SNAPSHOT') {
+                    const subscriptionModule = moduleInstances['subscriptionManager'];
+                    if (subscriptionModule && subscriptionModule.getSubscriptionSnapshot) {
+                        subscriptionModule.getSubscriptionSnapshot().then(snapshot => {
+                            sendResponse({ success: true, ...snapshot });
+                        }).catch(error => {
+                            logger.error('Failed to load subscription snapshot:', error);
+                            sendResponse({ success: false, error: error.message });
+                        });
+                        return true;
+                    }
+                    sendResponse({ success: false, error: 'Subscription manager module not available' });
                 }
             } catch (error) {
                 logger.warn('Error handling message:', error);
@@ -417,4 +420,7 @@ window.testYTCommanderContentScript = function() {
     console.log('🎯 Available modules:', Object.keys(moduleInstances));
     return 'Content script is working';
 };
+
+
+
 

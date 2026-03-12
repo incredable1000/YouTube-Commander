@@ -1,4 +1,4 @@
-﻿.custom-seek-buttons {
+.custom-seek-buttons {
     display: inline-flex !important;
     gap: 6px;
     margin-left: 10px;
@@ -1841,3 +1841,410 @@ body.yt-commander-windowed-lock {
 }
 
 
+
+/* Subscription Manager */
+.yt-commander-playlist-masthead-slot {
+    gap: 8px;
+}
+
+.yt-commander-subscription-masthead-button {
+    color: #f4c16d;
+}
+
+.yt-commander-sub-manager-overlay {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 8, 12, 0.62);
+    z-index: 9999;
+}
+
+.yt-commander-sub-manager-overlay.is-visible {
+    display: flex;
+}
+
+.yt-commander-sub-manager-modal {
+    width: min(1040px, 96vw);
+    max-height: 90vh;
+    background: #151a24;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+    display: flex;
+    flex-direction: column;
+    color: #e8edf5;
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.45);
+}
+
+.yt-commander-sub-manager-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 18px 20px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: #1a2230;
+}
+
+.yt-commander-sub-manager-title-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.yt-commander-sub-manager-title {
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.yt-commander-sub-manager-subtitle {
+    font-size: 14px;
+    color: #b3bccb;
+}
+
+.yt-commander-sub-manager-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.yt-commander-sub-manager-toggle {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: inherit;
+    border-radius: 12px;
+    padding: 7px 14px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.yt-commander-sub-manager-toggle.active {
+    background: rgba(244, 193, 109, 0.18);
+    border-color: rgba(244, 193, 109, 0.6);
+    color: #f4c16d;
+}
+
+.yt-commander-sub-manager-filter {
+    background: rgba(20, 26, 38, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: inherit;
+    border-radius: 12px;
+    padding: 7px 12px;
+    font-size: 13px;
+}
+
+.yt-commander-sub-manager-btn {
+    background: linear-gradient(135deg, #f4c16d, #f09b63);
+    border: none;
+    color: #1b1f2a;
+    border-radius: 12px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.yt-commander-sub-manager-btn.secondary {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e8edf5;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.yt-commander-sub-manager-btn.danger {
+    background: linear-gradient(135deg, #ff6b6f, #ff9d6c);
+    color: #fff;
+}
+
+.yt-commander-sub-manager-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.yt-commander-sub-manager-close {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: inherit;
+    border-radius: 12px;
+    padding: 7px 14px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.yt-commander-sub-manager-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: #19202c;
+}
+
+.yt-commander-sub-manager-selection {
+    font-size: 13px;
+    color: #b3bccb;
+    margin-right: auto;
+}
+
+.yt-commander-sub-manager-content {
+    flex: 1;
+    overflow: auto;
+    padding: 12px 16px 18px;
+}
+
+.yt-commander-sub-manager-table {
+    display: block;
+}
+
+.yt-commander-sub-manager-row {
+    display: grid;
+    grid-template-columns: 30px minmax(240px, 2.2fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(100px, 0.8fr) minmax(200px, 1.4fr);
+    gap: 14px;
+    align-items: center;
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: #171f2b;
+    font-size: 14px;
+}
+
+.yt-commander-sub-manager-row:not(.header):nth-child(even) {
+    background: #192231;
+}
+
+.yt-commander-sub-manager-row.header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #141b26;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #9aa4b6;
+}
+
+.yt-commander-sub-manager-cell {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
+}
+
+.yt-commander-sub-manager-cell.header {
+    font-weight: 600;
+}
+
+.yt-commander-sub-manager-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.yt-commander-sub-manager-avatar.large {
+    width: 56px;
+    height: 56px;
+}
+
+.yt-commander-sub-manager-name-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.yt-commander-sub-manager-name {
+    font-weight: 600;
+}
+
+.yt-commander-sub-manager-handle {
+    font-size: 13px;
+    color: #b1bac8;
+}
+
+.yt-commander-sub-manager-cards {
+    display: none;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+}
+
+.yt-commander-sub-manager-card {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    background: #1b2332;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.25);
+}
+
+.yt-commander-sub-manager-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.yt-commander-sub-manager-card-title {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.yt-commander-sub-manager-card-meta {
+    font-size: 13px;
+    color: #b1bac8;
+}
+
+.yt-commander-sub-manager-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.yt-commander-sub-manager-categories {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.yt-commander-sub-manager-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: #111520;
+    font-weight: 600;
+}
+
+.yt-commander-sub-manager-badge-remove {
+    border: none;
+    background: transparent;
+    color: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.yt-commander-sub-manager-category-add {
+    border: 1px dashed rgba(255, 255, 255, 0.3);
+    background: transparent;
+    color: #c5cedd;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.yt-commander-sub-manager-checkbox {
+    width: 18px;
+    height: 18px;
+    accent-color: #f4c16d;
+}
+
+.yt-commander-sub-manager-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: #1a2230;
+}
+
+.yt-commander-sub-manager-page-info {
+    font-size: 13px;
+    color: #b3bccb;
+}
+
+.yt-commander-sub-manager-status {
+    padding: 10px 20px 0;
+    font-size: 13px;
+    color: #b3bccb;
+}
+
+.yt-commander-sub-manager-status[data-status='success'] {
+    color: #9be2b0;
+}
+
+.yt-commander-sub-manager-status[data-status='error'] {
+    color: #f4a3a3;
+}
+
+.yt-commander-sub-manager-empty {
+    padding: 24px;
+    text-align: center;
+    color: #9aa4b6;
+}
+
+.yt-commander-sub-manager-picker {
+    position: fixed;
+    min-width: 220px;
+    background: #1b2332;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 14px;
+    padding: 12px;
+    z-index: 10000;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
+}
+
+.yt-commander-sub-manager-picker-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #b3bccb;
+    margin-bottom: 8px;
+}
+
+.yt-commander-sub-manager-picker-list {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.yt-commander-sub-manager-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    padding: 8px 10px;
+    color: #e8edf5;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.yt-commander-sub-manager-picker-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.yt-commander-sub-manager-picker-empty {
+    font-size: 13px;
+    color: #9aa4b6;
+}
+
+.yt-commander-sub-manager-picker-footer {
+    display: flex;
+    justify-content: flex-end;
+}
+
+@media (max-width: 720px) {
+    .yt-commander-sub-manager-modal {
+        width: 96vw;
+        max-height: 94vh;
+    }
+
+    .yt-commander-sub-manager-row {
+        grid-template-columns: 26px minmax(180px, 1.6fr) minmax(100px, 1fr) minmax(100px, 1fr) minmax(80px, 0.8fr) minmax(160px, 1fr);
+        font-size: 13px;
+    }
+
+    .yt-commander-sub-manager-header-actions {
+        justify-content: flex-end;
+    }
+}
