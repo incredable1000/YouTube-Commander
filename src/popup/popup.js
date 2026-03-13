@@ -67,6 +67,7 @@ const POPUP_UI_V2_DEFAULT_FEATURE = 'history';
 const POPUP_UI_V2_TONES = ['red', 'cyan', 'green', 'amber'];
 const POPUP_UI_V2_NAV_ITEMS = [
     { feature: 'history', label: 'Watched history' },
+    { feature: 'cloudflare', label: 'Cloudflare' },
     { feature: 'subscriptionManager', label: 'Subscription manager' },
     { feature: 'seek', label: 'Seek controls' },
     { feature: 'quality', label: 'Quality' },
@@ -471,7 +472,6 @@ function initializePopupUiV2Layout() {
 
     initializePopupUiV2Navigator();
     ensurePopupUiV2ContentWrapper();
-    initializePopupUiV2HistoryTabs();
 }
 
 /**
@@ -939,6 +939,15 @@ function sendRuntimeMessage(message, timeoutMs = 20000) {
 }
 
 /**
+ * Read shared Cloudflare API token from unified input.
+ * @returns {string}
+ */
+function getUnifiedApiToken() {
+    const tokenInput = document.getElementById('cloudflareSyncToken') || document.getElementById('subscriptionSyncToken');
+    return typeof tokenInput?.value === 'string' ? tokenInput.value.trim() : '';
+}
+
+/**
  * Load Cloudflare sync settings from local storage.
  */
 async function loadCloudflareSyncSettings() {
@@ -946,7 +955,8 @@ async function loadCloudflareSyncSettings() {
         CLOUDFLARE_STORAGE_KEYS.ENDPOINT,
         CLOUDFLARE_STORAGE_KEYS.API_TOKEN,
         CLOUDFLARE_STORAGE_KEYS.AUTO_ENABLED,
-        CLOUDFLARE_STORAGE_KEYS.INTERVAL_MINUTES
+        CLOUDFLARE_STORAGE_KEYS.INTERVAL_MINUTES,
+        SUBSCRIPTION_STORAGE_KEYS.API_TOKEN
     ]);
 
     const endpointInput = document.getElementById('cloudflareSyncEndpoint');
@@ -961,14 +971,18 @@ async function loadCloudflareSyncSettings() {
     }
 
     if (tokenInput) {
-        tokenInput.value = typeof result[CLOUDFLARE_STORAGE_KEYS.API_TOKEN] === 'string'
+        const cloudToken = typeof result[CLOUDFLARE_STORAGE_KEYS.API_TOKEN] === 'string'
             ? result[CLOUDFLARE_STORAGE_KEYS.API_TOKEN]
             : '';
+        const subscriptionToken = typeof result[SUBSCRIPTION_STORAGE_KEYS.API_TOKEN] === 'string'
+            ? result[SUBSCRIPTION_STORAGE_KEYS.API_TOKEN]
+            : '';
+        tokenInput.value = cloudToken || subscriptionToken || '';
     }
 
     if (intervalSelect) {
-        const interval = Number.parseInt(result[CLOUDFLARE_STORAGE_KEYS.INTERVAL_MINUTES], 10);
-        intervalSelect.value = Number.isFinite(interval) ? String(interval) : '30';
+        const interval = normalizeSyncIntervalMinutes(result[CLOUDFLARE_STORAGE_KEYS.INTERVAL_MINUTES], 30);
+        intervalSelect.value = String(interval);
     }
 
     setToggleState(autoToggle, result[CLOUDFLARE_STORAGE_KEYS.AUTO_ENABLED] !== false);
@@ -987,7 +1001,6 @@ async function loadSubscriptionSyncSettings() {
     ]);
 
     const endpointInput = document.getElementById('subscriptionSyncEndpoint');
-    const tokenInput = document.getElementById('subscriptionSyncToken');
     const intervalSelect = document.getElementById('subscriptionSyncInterval');
     const autoToggle = document.getElementById('subscriptionAutoSyncToggle');
 
@@ -997,15 +1010,9 @@ async function loadSubscriptionSyncSettings() {
             : '';
     }
 
-    if (tokenInput) {
-        tokenInput.value = typeof result[SUBSCRIPTION_STORAGE_KEYS.API_TOKEN] === 'string'
-            ? result[SUBSCRIPTION_STORAGE_KEYS.API_TOKEN]
-            : '';
-    }
-
     if (intervalSelect) {
-        const interval = Number.parseInt(result[SUBSCRIPTION_STORAGE_KEYS.INTERVAL_MINUTES], 10);
-        intervalSelect.value = Number.isFinite(interval) ? String(interval) : '60';
+        const interval = normalizeSyncIntervalMinutes(result[SUBSCRIPTION_STORAGE_KEYS.INTERVAL_MINUTES], 60);
+        intervalSelect.value = String(interval);
     }
 
     setToggleState(autoToggle, result[SUBSCRIPTION_STORAGE_KEYS.AUTO_ENABLED] !== false);
@@ -1019,19 +1026,18 @@ async function loadSubscriptionSyncSettings() {
  */
 async function saveCloudflareSyncSettings() {
     const endpointInput = document.getElementById('cloudflareSyncEndpoint');
-    const tokenInput = document.getElementById('cloudflareSyncToken');
     const autoToggle = document.getElementById('cloudflareAutoSyncToggle');
     const intervalSelect = document.getElementById('cloudflareSyncInterval');
 
     const endpointUrl = typeof endpointInput?.value === 'string' ? endpointInput.value.trim() : '';
-    const apiToken = typeof tokenInput?.value === 'string' ? tokenInput.value.trim() : '';
+    const apiToken = getUnifiedApiToken();
     const autoEnabled = !autoToggle || autoToggle.classList.contains('active');
-    const intervalValue = Number.parseInt(intervalSelect?.value || '30', 10);
-    const intervalMinutes = Number.isFinite(intervalValue) ? intervalValue : 30;
+    const intervalMinutes = normalizeSyncIntervalMinutes(intervalSelect?.value || '30', 30);
 
     await chrome.storage.local.set({
         [CLOUDFLARE_STORAGE_KEYS.ENDPOINT]: endpointUrl,
         [CLOUDFLARE_STORAGE_KEYS.API_TOKEN]: apiToken,
+        [SUBSCRIPTION_STORAGE_KEYS.API_TOKEN]: apiToken,
         [CLOUDFLARE_STORAGE_KEYS.AUTO_ENABLED]: autoEnabled,
         [CLOUDFLARE_STORAGE_KEYS.INTERVAL_MINUTES]: intervalMinutes
     });
@@ -1056,19 +1062,18 @@ async function saveCloudflareSyncSettings() {
  */
 async function saveSubscriptionSyncSettings() {
     const endpointInput = document.getElementById('subscriptionSyncEndpoint');
-    const tokenInput = document.getElementById('subscriptionSyncToken');
     const autoToggle = document.getElementById('subscriptionAutoSyncToggle');
     const intervalSelect = document.getElementById('subscriptionSyncInterval');
 
     const endpointUrl = typeof endpointInput?.value === 'string' ? endpointInput.value.trim() : '';
-    const apiToken = typeof tokenInput?.value === 'string' ? tokenInput.value.trim() : '';
+    const apiToken = getUnifiedApiToken();
     const autoEnabled = !autoToggle || autoToggle.classList.contains('active');
-    const intervalValue = Number.parseInt(intervalSelect?.value || '60', 10);
-    const intervalMinutes = Number.isFinite(intervalValue) ? intervalValue : 60;
+    const intervalMinutes = normalizeSyncIntervalMinutes(intervalSelect?.value || '60', 60);
 
     await chrome.storage.local.set({
         [SUBSCRIPTION_STORAGE_KEYS.ENDPOINT]: endpointUrl,
         [SUBSCRIPTION_STORAGE_KEYS.API_TOKEN]: apiToken,
+        [CLOUDFLARE_STORAGE_KEYS.API_TOKEN]: apiToken,
         [SUBSCRIPTION_STORAGE_KEYS.AUTO_ENABLED]: autoEnabled,
         [SUBSCRIPTION_STORAGE_KEYS.INTERVAL_MINUTES]: intervalMinutes
     });
@@ -1086,6 +1091,20 @@ async function saveSubscriptionSyncSettings() {
     }
 
     return { endpointUrl, apiToken, autoEnabled, intervalMinutes };
+}
+
+/**
+ * Normalize sync interval minutes to allowed options.
+ * @param {number|string} raw
+ * @param {number} fallback
+ * @returns {number}
+ */
+function normalizeSyncIntervalMinutes(raw, fallback) {
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) {
+        return fallback;
+    }
+    return SUBSCRIPTION_COOLDOWN_OPTIONS.includes(parsed) ? parsed : fallback;
 }
 
 /**
@@ -1278,8 +1297,19 @@ function setupCloudflareSyncControls() {
         }
     };
 
+    const saveTokenOnBlur = async () => {
+        try {
+            await saveCloudflareSyncSettings();
+            await saveSubscriptionSyncSettings();
+            await refreshCloudflareSyncStatus();
+            await refreshSubscriptionSyncStatus();
+        } catch (error) {
+            showStatus(error?.message || 'Failed to update Cloudflare settings', 'error');
+        }
+    };
+
     endpointInput?.addEventListener('blur', saveOnBlur);
-    tokenInput?.addEventListener('blur', saveOnBlur);
+    tokenInput?.addEventListener('blur', saveTokenOnBlur);
 }
 /**
  * Setup subscription auto-sync controls.
@@ -1288,7 +1318,6 @@ function setupSubscriptionSyncControls() {
     const autoToggle = document.getElementById('subscriptionAutoSyncToggle');
     const intervalSelect = document.getElementById('subscriptionSyncInterval');
     const endpointInput = document.getElementById('subscriptionSyncEndpoint');
-    const tokenInput = document.getElementById('subscriptionSyncToken');
 
     if (autoToggle) {
         autoToggle.addEventListener('click', async (event) => {
@@ -1324,7 +1353,6 @@ function setupSubscriptionSyncControls() {
     };
 
     endpointInput?.addEventListener('blur', saveOnBlur);
-    tokenInput?.addEventListener('blur', saveOnBlur);
 }
 
 /**
@@ -2016,7 +2044,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setupSubscriptionSyncControls();
     setupSubscriptionCooldownControl();
     setupTokenVisibilityToggle('cloudflareSyncToken', 'cloudflareTokenToggle');
-    setupTokenVisibilityToggle('subscriptionSyncToken', 'subscriptionTokenToggle');
     setupAutoSave();
     document.getElementById('exportHistory').addEventListener('click', exportHistory);
     document.getElementById('importHistory').addEventListener('click', importHistory);
@@ -2028,6 +2055,18 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('openSubscriptionManager').addEventListener('click', openSubscriptionManagerFromPopup);
     document.getElementById('syncSubscriptionsNow').addEventListener('click', syncSubscriptionsNow);
     document.getElementById('restoreSubscriptions').addEventListener('click', restoreSubscriptionsFromCloudflare);
+    const settingsButton = document.getElementById('popupSettingsButton');
+    if (settingsButton) {
+        settingsButton.addEventListener('click', () => {
+            const targetFeature = findFeatureCard('cloudflare')
+                ? 'cloudflare'
+                : POPUP_UI_V2_DEFAULT_FEATURE;
+            setPopupUiV2ActiveFeature(targetFeature);
+            const navButton = document.querySelector(`.ytc-v2-nav-button[data-feature='${targetFeature}']`);
+            navButton?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+            navButton?.focus();
+        });
+    }
 
     setInterval(loadWatchedHistoryStats, 5000);
     setInterval(refreshCloudflareSyncStatus, 30000);

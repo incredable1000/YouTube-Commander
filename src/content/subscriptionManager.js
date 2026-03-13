@@ -41,7 +41,7 @@ const FILTER_ITEM_CLASS = 'yt-commander-sub-manager-filter-item';
 const FILTER_DOT_CLASS = 'yt-commander-sub-manager-filter-dot';
 const FILTER_COUNT_CLASS = 'yt-commander-sub-manager-filter-count';
 const QUICK_ADD_CLASS = 'yt-commander-sub-manager-quick-add';
-const MODAL_VERSION = '2026-03-13-1';
+const MODAL_VERSION = '2026-03-13-2';
 
 const ITEMS_PER_PAGE = 100;
 const SNAPSHOT_TTL_MS = 30 * 60 * 1000;
@@ -84,6 +84,11 @@ let pickerMode = 'toggle';
 let pickerTargetIds = [];
 let pickerAnchorEl = null;
 let sidebarCollapsed = false;
+let sidebarEditingId = '';
+let sidebarEditingName = '';
+let sidebarCreating = false;
+let sidebarDraftName = '';
+let sidebarDraftColor = '';
 
 let channels = [];
 let channelsFetchedAt = 0;
@@ -128,6 +133,41 @@ function setTooltip(el, label) {
     el.classList.add('yt-commander-sub-manager-tooltip');
 }
 
+/**
+ * Normalize color to hex for color input controls.
+ * @param {string} value
+ * @returns {string}
+ */
+function normalizeColorToHex(value) {
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (!trimmed) {
+        return '#64748b';
+    }
+    if (/^#([0-9a-f]{3}){1,2}$/i.test(trimmed)) {
+        if (trimmed.length === 4) {
+            return `#${trimmed[1]}${trimmed[1]}${trimmed[2]}${trimmed[2]}${trimmed[3]}${trimmed[3]}`;
+        }
+        return trimmed.toLowerCase();
+    }
+    if (!document?.body) {
+        return '#64748b';
+    }
+    const sample = document.createElement('span');
+    sample.style.color = trimmed;
+    sample.style.position = 'absolute';
+    sample.style.opacity = '0';
+    sample.style.pointerEvents = 'none';
+    document.body.appendChild(sample);
+    const computed = getComputedStyle(sample).color || '';
+    sample.remove();
+    const match = computed.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (!match) {
+        return '#64748b';
+    }
+    const [r, g, b] = match.slice(1, 4).map((part) => Math.max(0, Math.min(255, Number(part))));
+    return `#${[r, g, b].map((part) => part.toString(16).padStart(2, '0')).join('')}`;
+}
+
 function resetModalElements() {
     const existingOverlay = document.querySelector(`.${OVERLAY_CLASS}`);
     if (existingOverlay) {
@@ -169,6 +209,7 @@ function resetModalElements() {
     pickerMode = 'toggle';
     tableRowById.clear();
     cardById.clear();
+    resetSidebarDraftState();
 }
 
 /**
@@ -420,6 +461,102 @@ function pickCategoryColor(name) {
     }
     const hue = Math.abs(hash) % 360;
     return `hsl(${hue} 65% 42%)`;
+}
+
+/**
+ * Parse hex color to RGB.
+ * @param {string} hex
+ * @returns {{r: number, g: number, b: number} | null}
+ */
+function parseHexColor(hex) {
+    if (typeof hex !== 'string') {
+        return null;
+    }
+    const clean = hex.replace('#', '');
+    if (clean.length !== 6 || !/^[0-9a-f]{6}$/i.test(clean)) {
+        return null;
+    }
+    const value = parseInt(clean, 16);
+    return {
+        r: (value >> 16) & 255,
+        g: (value >> 8) & 255,
+        b: value & 255
+    };
+}
+
+/**
+ * Compute relative luminance for contrast.
+ * @param {{r: number, g: number, b: number}} rgb
+ * @returns {number}
+ */
+function computeLuminance(rgb) {
+    const toLinear = (channel) => {
+        const normalized = channel / 255;
+        return normalized <= 0.03928
+            ? normalized / 12.92
+            : Math.pow((normalized + 0.055) / 1.055, 2.4);
+    };
+    const r = toLinear(rgb.r);
+    const g = toLinear(rgb.g);
+    const b = toLinear(rgb.b);
+    return (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
+}
+
+/**
+ * Build readable colors for category backgrounds.
+ * @param {string} color
+ * @returns {{text: string, pillBg: string, pillBorder: string}}
+ */
+function computeCategoryContrast(color) {
+    const hex = normalizeColorToHex(color);
+    const rgb = parseHexColor(hex);
+    if (!rgb) {
+        return {
+            text: '#e8edf5',
+            pillBg: 'rgba(255, 255, 255, 0.18)',
+            pillBorder: 'rgba(255, 255, 255, 0.32)'
+        };
+    }
+    const luminance = computeLuminance(rgb);
+    const isLight = luminance >= 0.6;
+    return {
+        text: isLight ? '#0f141d' : '#f7f9ff',
+        pillBg: isLight ? 'rgba(15, 20, 29, 0.2)' : 'rgba(255, 255, 255, 0.22)',
+        pillBorder: isLight ? 'rgba(15, 20, 29, 0.32)' : 'rgba(255, 255, 255, 0.38)'
+    };
+}
+
+/**
+ * Apply category background + contrast colors to an item.
+ * @param {HTMLElement} item
+ * @param {string} color
+ */
+function applyCategoryItemColors(item, color) {
+    if (!item || !color) {
+        return;
+    }
+    const contrast = computeCategoryContrast(color);
+    item.classList.add('is-colored');
+    item.style.setProperty('--ytc-category-bg', color);
+    item.style.setProperty('--ytc-category-text', contrast.text);
+    item.style.setProperty('--ytc-category-pill-bg', contrast.pillBg);
+    item.style.setProperty('--ytc-category-pill-border', contrast.pillBorder);
+}
+
+/**
+ * Pick a random color that differs from existing categories.
+ * @returns {string}
+ */
+function generateRandomCategoryColor() {
+    const existing = new Set(categories.map((item) => normalizeColorToHex(item.color)));
+    for (let i = 0; i < 12; i += 1) {
+        const hue = Math.floor(Math.random() * 360);
+        const color = `hsl(${hue} 65% 45%)`;
+        if (!existing.has(normalizeColorToHex(color))) {
+            return color;
+        }
+    }
+    return `hsl(${Math.floor(Math.random() * 360)} 65% 45%)`;
 }
 /**
  * Normalize handle for lookups.
@@ -1139,6 +1276,15 @@ function ensureModal() {
     const footer = document.createElement('div');
     footer.className = 'yt-commander-sub-manager-footer';
 
+    const footerLeft = document.createElement('div');
+    footerLeft.className = 'yt-commander-sub-manager-footer-left';
+
+    const footerCenter = document.createElement('div');
+    footerCenter.className = 'yt-commander-sub-manager-footer-center';
+
+    const footerRight = document.createElement('div');
+    footerRight.className = 'yt-commander-sub-manager-footer-right';
+
     pagePrevButton = document.createElement('button');
     pagePrevButton.type = 'button';
     pagePrevButton.className = 'yt-commander-sub-manager-btn secondary';
@@ -1155,9 +1301,13 @@ function ensureModal() {
     pageNextButton.setAttribute('data-action', 'page-next');
     setIconButton(pageNextButton, ICONS.next, 'Next page');
 
-    footer.appendChild(pagePrevButton);
-    footer.appendChild(pageInfoEl);
-    footer.appendChild(pageNextButton);
+    footerRight.appendChild(pagePrevButton);
+    footerRight.appendChild(pageInfoEl);
+    footerRight.appendChild(pageNextButton);
+
+    footer.appendChild(footerLeft);
+    footer.appendChild(footerCenter);
+    footer.appendChild(footerRight);
 
     modal.appendChild(header);
     modal.appendChild(content);
@@ -1170,6 +1320,8 @@ function ensureModal() {
     overlay.addEventListener('click', handleOverlayClick);
     modal.addEventListener('click', handleModalClick);
     modal.addEventListener('change', handleModalChange);
+    modal.addEventListener('input', handleModalInput);
+    modal.addEventListener('keydown', handleModalKeydown);
 
     ensurePicker();
 }
@@ -1303,15 +1455,19 @@ function positionPicker() {
 /**
  * Create a category.
  * @param {string} name
+ * @param {string} [colorOverride]
  * @returns {{id: string, name: string, color: string}}
  */
-function createCategory(name) {
+function createCategory(name, colorOverride = '') {
     const trimmed = name.trim();
     const id = `cat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const color = typeof colorOverride === 'string' && colorOverride.trim()
+        ? colorOverride.trim()
+        : generateRandomCategoryColor();
     return {
         id,
         name: trimmed,
-        color: pickCategoryColor(trimmed)
+        color
     };
 }
 
@@ -1342,6 +1498,167 @@ function applySidebarState() {
     updateSidebarToggleButton();
 }
 
+function resetSidebarDraftState() {
+    sidebarEditingId = '';
+    sidebarEditingName = '';
+    sidebarCreating = false;
+    sidebarDraftName = '';
+    sidebarDraftColor = '';
+}
+
+function captureSidebarDraftState() {
+    if (!sidebarList) {
+        return;
+    }
+    const input = sidebarList.querySelector('.yt-commander-sub-manager-sidebar-input');
+    if (!input) {
+        return;
+    }
+    if (sidebarCreating) {
+        sidebarDraftName = input.value;
+        return;
+    }
+    if (sidebarEditingId) {
+        sidebarEditingName = input.value;
+    }
+}
+
+function focusSidebarInput() {
+    if (!sidebarList) {
+        return;
+    }
+    const input = sidebarList.querySelector('.yt-commander-sub-manager-sidebar-input');
+    if (!input) {
+        return;
+    }
+    input.focus();
+    input.select();
+    input.scrollIntoView({ block: 'nearest' });
+}
+
+function ensureSidebarExpanded() {
+    if (!sidebarCollapsed) {
+        return;
+    }
+    sidebarCollapsed = false;
+    applySidebarState();
+    persistSidebarState().catch(() => undefined);
+}
+
+function startSidebarCreate() {
+    ensureSidebarExpanded();
+    sidebarCreating = true;
+    sidebarEditingId = '';
+    sidebarEditingName = '';
+    sidebarDraftName = '';
+    sidebarDraftColor = generateRandomCategoryColor();
+    renderSidebarCategories();
+    focusSidebarInput();
+}
+
+function startSidebarEdit(categoryId) {
+    const category = categories.find((item) => item.id === categoryId);
+    if (!category) {
+        return;
+    }
+    ensureSidebarExpanded();
+    sidebarEditingId = categoryId;
+    sidebarEditingName = category.name;
+    sidebarCreating = false;
+    sidebarDraftName = '';
+    sidebarDraftColor = '';
+    renderSidebarCategories();
+    focusSidebarInput();
+}
+
+async function commitSidebarCreate(name) {
+    const trimmed = name.trim();
+    if (!trimmed) {
+        resetSidebarDraftState();
+        renderSidebarCategories();
+        return false;
+    }
+    if (categories.some((item) => item.name.toLowerCase() === trimmed.toLowerCase())) {
+        setStatus('Category already exists.', 'error');
+        focusSidebarInput();
+        return false;
+    }
+    const category = createCategory(trimmed, sidebarDraftColor);
+    categories.push(category);
+    markCategoriesDirty();
+    await persistLocalState();
+    await markPending([`category:${category.id}`]);
+    resetSidebarDraftState();
+    renderList();
+    return true;
+}
+
+async function commitSidebarRename(categoryId, name) {
+    const category = categories.find((item) => item.id === categoryId);
+    if (!category) {
+        resetSidebarDraftState();
+        renderSidebarCategories();
+        return false;
+    }
+    const trimmed = name.trim();
+    if (!trimmed) {
+        setStatus('Category name required.', 'error');
+        focusSidebarInput();
+        return false;
+    }
+    if (categories.some((item) => item.id !== categoryId && item.name.toLowerCase() === trimmed.toLowerCase())) {
+        setStatus('Category already exists.', 'error');
+        focusSidebarInput();
+        return false;
+    }
+    if (category.name !== trimmed) {
+        category.name = trimmed;
+        markCategoriesDirty();
+        await persistLocalState();
+        await markPending([`category:${categoryId}`]);
+    }
+    resetSidebarDraftState();
+    renderList();
+    return true;
+}
+
+async function commitSidebarInput(input, reason) {
+    if (!input) {
+        return false;
+    }
+    const mode = input.getAttribute('data-mode');
+    if (mode === 'create') {
+        if (reason === 'blur' && !input.value.trim()) {
+            resetSidebarDraftState();
+            renderSidebarCategories();
+            return false;
+        }
+        return commitSidebarCreate(input.value);
+    }
+    const categoryId = input.getAttribute('data-category-id') || '';
+    if (reason === 'blur' && !input.value.trim()) {
+        resetSidebarDraftState();
+        renderSidebarCategories();
+        return false;
+    }
+    return commitSidebarRename(categoryId, input.value);
+}
+
+async function updateCategoryColor(categoryId, nextColor) {
+    const category = categories.find((item) => item.id === categoryId);
+    if (!category || !nextColor) {
+        return;
+    }
+    if (category.color === nextColor) {
+        return;
+    }
+    category.color = nextColor;
+    markCategoriesDirty();
+    await persistLocalState();
+    await markPending([`category:${categoryId}`]);
+    renderList();
+}
+
 function renderSidebarCategories() {
     if (!sidebarList) {
         return;
@@ -1356,12 +1673,33 @@ function renderSidebarCategories() {
 
     sidebarList.innerHTML = '';
 
+    if (sidebarEditingId && !categories.some((item) => item.id === sidebarEditingId)) {
+        resetSidebarDraftState();
+    }
+
+    const buildColorInput = (value, options = {}) => {
+        const input = document.createElement('input');
+        input.type = 'color';
+        input.className = 'yt-commander-sub-manager-color-input';
+        input.value = normalizeColorToHex(value);
+        if (options.categoryId) {
+            input.setAttribute('data-category-id', options.categoryId);
+        }
+        if (options.mode) {
+            input.setAttribute('data-mode', options.mode);
+        }
+        input.setAttribute('data-action', 'category-color');
+        setTooltip(input, options.tooltip || 'Change color');
+        return input;
+    };
+
     const addItem = (id, label, color, options = {}) => {
-        const item = document.createElement('button');
-        item.type = 'button';
+        const item = document.createElement('div');
         item.className = `${FILTER_ITEM_CLASS} yt-commander-sub-manager-sidebar-item`;
         item.setAttribute('data-action', 'filter-select');
         item.setAttribute('data-filter-id', id);
+        item.setAttribute('role', 'button');
+        item.tabIndex = 0;
         if (filterMode === id) {
             item.classList.add('active');
         }
@@ -1369,15 +1707,10 @@ function renderSidebarCategories() {
         const left = document.createElement('span');
         left.className = 'yt-commander-sub-manager-filter-left';
 
-        const dot = document.createElement('span');
-        dot.className = FILTER_DOT_CLASS;
-        dot.style.backgroundColor = color;
-
         const name = document.createElement('span');
         name.className = 'yt-commander-sub-manager-filter-name';
         name.textContent = label;
 
-        left.appendChild(dot);
         left.appendChild(name);
 
         const right = document.createElement('span');
@@ -1407,9 +1740,108 @@ function renderSidebarCategories() {
         sidebarList.appendChild(item);
     };
 
+    const addEditableItem = (category) => {
+        const item = document.createElement('div');
+        item.className = `${FILTER_ITEM_CLASS} yt-commander-sub-manager-sidebar-item is-editing`;
+
+        const left = document.createElement('span');
+        left.className = 'yt-commander-sub-manager-filter-left';
+
+        const color = buildColorInput(category.color, { categoryId: category.id, tooltip: 'Change color' });
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'yt-commander-sub-manager-sidebar-input';
+        input.value = sidebarEditingName || category.name;
+        input.placeholder = 'Category name';
+        input.setAttribute('data-category-id', category.id);
+        input.setAttribute('data-mode', 'edit');
+
+        left.appendChild(color);
+        left.appendChild(input);
+        item.appendChild(left);
+        sidebarList.appendChild(item);
+        applyCategoryItemColors(item, category.color);
+    };
+
+    const addCreateItem = () => {
+        const item = document.createElement('div');
+        item.className = `${FILTER_ITEM_CLASS} yt-commander-sub-manager-sidebar-item is-creating`;
+
+        const left = document.createElement('span');
+        left.className = 'yt-commander-sub-manager-filter-left';
+
+        const colorValue = sidebarDraftColor || pickCategoryColor(sidebarDraftName || 'New category');
+        const color = buildColorInput(colorValue, { mode: 'create', tooltip: 'Pick color' });
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'yt-commander-sub-manager-sidebar-input';
+        input.value = sidebarDraftName;
+        input.placeholder = 'New category';
+        input.setAttribute('data-mode', 'create');
+
+        left.appendChild(color);
+        left.appendChild(input);
+        item.appendChild(left);
+        sidebarList.appendChild(item);
+        applyCategoryItemColors(item, colorValue);
+    };
+
     addItem('all', 'All categories', '#616b7f');
     addItem('uncategorized', 'Uncategorized', '#3b4457');
-    categories.forEach((category) => addItem(category.id, category.name, category.color, { removable: true }));
+    categories.forEach((category) => {
+        if (sidebarEditingId === category.id) {
+            addEditableItem(category);
+            return;
+        }
+        const item = document.createElement('div');
+        item.className = `${FILTER_ITEM_CLASS} yt-commander-sub-manager-sidebar-item`;
+        item.setAttribute('data-action', 'filter-select');
+        item.setAttribute('data-filter-id', category.id);
+        item.setAttribute('role', 'button');
+        item.tabIndex = 0;
+        if (filterMode === category.id) {
+            item.classList.add('active');
+        }
+
+        const left = document.createElement('span');
+        left.className = 'yt-commander-sub-manager-filter-left';
+
+        const name = document.createElement('span');
+        name.className = 'yt-commander-sub-manager-filter-name';
+        name.textContent = category.name;
+        name.setAttribute('data-action', 'category-edit');
+        name.setAttribute('data-category-id', category.id);
+
+        left.appendChild(name);
+
+        const right = document.createElement('span');
+        right.className = 'yt-commander-sub-manager-filter-right';
+
+        const count = document.createElement('span');
+        count.className = FILTER_COUNT_CLASS;
+        count.textContent = String(typeof counts[category.id] === 'number' ? counts[category.id] : 0);
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'yt-commander-sub-manager-filter-remove';
+        remove.setAttribute('data-action', 'filter-remove');
+        remove.setAttribute('data-category-id', category.id);
+        setTooltip(remove, `Delete ${category.name}`);
+        const removeIcon = createIcon(ICONS.trash);
+        removeIcon.classList.add('yt-commander-sub-manager-icon');
+        remove.appendChild(removeIcon);
+
+        right.appendChild(count);
+        right.appendChild(remove);
+
+        item.appendChild(left);
+        item.appendChild(right);
+        sidebarList.appendChild(item);
+        applyCategoryItemColors(item, category.color);
+    });
+    if (sidebarCreating) {
+        addCreateItem();
+    }
 }
 
 /**
@@ -1712,7 +2144,7 @@ function handleModalClick(event) {
         }
 
         if (action === 'new-category') {
-            createNewCategory().catch(() => undefined);
+            startSidebarCreate();
             return;
         }
 
@@ -1723,8 +2155,21 @@ function handleModalClick(event) {
             return;
         }
 
+        if (action === 'category-edit') {
+            const categoryId = actionTarget.getAttribute('data-category-id') || '';
+            startSidebarEdit(categoryId);
+            return;
+        }
+
+        if (action === 'category-color') {
+            return;
+        }
+
         if (action === 'filter-select') {
             const nextFilter = actionTarget.getAttribute('data-filter-id') || 'all';
+            if (sidebarCreating || sidebarEditingId) {
+                resetSidebarDraftState();
+            }
             if (filterMode !== nextFilter) {
                 filterMode = nextFilter;
                 currentPage = 1;
@@ -1792,7 +2237,23 @@ function handleModalClick(event) {
  * @param {Event} event
  */
 function handleModalChange(event) {
-    const checkbox = event.target.closest('input[type="checkbox"][data-channel-id]');
+    const target = event.target instanceof Element ? event.target : null;
+    const colorInput = target?.closest('input[type="color"][data-action="category-color"]');
+    if (colorInput) {
+        const mode = colorInput.getAttribute('data-mode') || '';
+        if (mode === 'create') {
+            sidebarDraftColor = colorInput.value;
+            return;
+        }
+        const categoryId = colorInput.getAttribute('data-category-id') || '';
+        if (categoryId) {
+            captureSidebarDraftState();
+            updateCategoryColor(categoryId, colorInput.value).catch(() => undefined);
+        }
+        return;
+    }
+
+    const checkbox = target?.closest('input[type="checkbox"][data-channel-id]');
     if (!checkbox) {
         return;
     }
@@ -1801,6 +2262,54 @@ function handleModalChange(event) {
         return;
     }
     toggleChannelSelection(channelId, checkbox.checked);
+}
+
+/**
+ * Handle modal input events.
+ * @param {Event} event
+ */
+function handleModalInput(event) {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+        return;
+    }
+    if (!target.classList.contains('yt-commander-sub-manager-sidebar-input')) {
+        return;
+    }
+    if (target.getAttribute('data-mode') === 'create') {
+        sidebarDraftName = target.value;
+        return;
+    }
+    if (sidebarEditingId) {
+        sidebarEditingName = target.value;
+    }
+}
+
+/**
+ * Handle modal keydown events for inline category edits.
+ * @param {KeyboardEvent} event
+ */
+function handleModalKeydown(event) {
+    const target = event.target;
+    const isSidebarInput = target instanceof HTMLInputElement
+        && target.classList.contains('yt-commander-sub-manager-sidebar-input');
+
+    if (event.key === 'Escape' && (sidebarCreating || sidebarEditingId)) {
+        event.preventDefault();
+        event.stopPropagation();
+        resetSidebarDraftState();
+        renderSidebarCategories();
+        return;
+    }
+
+    if (!isSidebarInput) {
+        return;
+    }
+
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        commitSidebarInput(target, 'enter').catch(() => undefined);
+    }
 }
 
 /**
@@ -1825,31 +2334,9 @@ function handlePickerClick(event) {
 
     const action = baseTarget?.closest('[data-action]')?.getAttribute('data-action');
     if (action === 'picker-new-category') {
-        createNewCategory().catch(() => undefined);
+        closePicker();
+        startSidebarCreate();
     }
-}
-
-/**
- * Create a new category via prompt.
- */
-async function createNewCategory() {
-    const name = window.prompt('New category name');
-    if (!name || !name.trim()) {
-        return;
-    }
-
-    if (categories.some((item) => item.name.toLowerCase() === name.trim().toLowerCase())) {
-        setStatus('Category already exists.', 'error');
-        return;
-    }
-
-    const category = createCategory(name);
-    categories.push(category);
-    markCategoriesDirty();
-    await persistLocalState();
-    await markPending([`category:${category.id}`]);
-    renderSidebarCategories();
-    renderList();
 }
 
 /**
@@ -2361,6 +2848,7 @@ function renderList() {
         return;
     }
 
+    captureSidebarDraftState();
     renderSidebarCategories();
 
     const filtered = filterChannels();
@@ -2403,6 +2891,7 @@ function closeModal() {
     overlay.classList.remove('is-visible');
     closePicker();
     closeFilterMenu();
+    resetSidebarDraftState();
 }
 
 /**
