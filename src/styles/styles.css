@@ -2067,6 +2067,18 @@ body.yt-commander-windowed-lock {
     color: inherit;
 }
 
+.yt-commander-sub-manager-filter-initial {
+    display: none;
+    width: 100%;
+    justify-content: center;
+    align-items: center;
+    text-transform: uppercase;
+    font-weight: 600;
+    font-size: 16px;
+    letter-spacing: 0.04em;
+    color: inherit;
+}
+
 .yt-commander-sub-manager-filter-right {
     display: inline-flex;
     align-items: center;
@@ -2426,6 +2438,10 @@ body.yt-commander-windowed-lock {
     display: none;
 }
 
+.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-filter-initial {
+    display: inline-flex;
+}
+
 .yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-filter-left {
     gap: 0;
 }
@@ -2761,6 +2777,10 @@ body.yt-commander-windowed-lock {
     display: grid;
     gap: 8px;
     margin-bottom: 12px;
+    max-height: 320px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
 }
 
 .yt-commander-sub-manager-picker-item {

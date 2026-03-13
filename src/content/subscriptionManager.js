@@ -134,6 +134,52 @@ function setTooltip(el, label) {
 }
 
 /**
+ * Clear tooltip from element.
+ * @param {HTMLElement} el
+ */
+function clearTooltip(el) {
+    if (!el) {
+        return;
+    }
+    el.removeAttribute('aria-label');
+    el.removeAttribute('title');
+    el.removeAttribute('data-tooltip');
+    el.classList.remove('yt-commander-sub-manager-tooltip');
+}
+
+/**
+ * Apply sidebar tooltip when collapsed.
+ * @param {HTMLElement} el
+ * @param {string} label
+ */
+function applySidebarTooltip(el, label) {
+    if (!el) {
+        return;
+    }
+    if (sidebarCollapsed) {
+        setTooltip(el, label);
+        return;
+    }
+    clearTooltip(el);
+}
+
+/**
+ * Get single-letter initial.
+ * @param {string} label
+ * @returns {string}
+ */
+function getSidebarInitial(label) {
+    if (typeof label !== 'string') {
+        return '';
+    }
+    const trimmed = label.trim();
+    if (!trimmed) {
+        return '';
+    }
+    return trimmed[0].toUpperCase();
+}
+
+/**
  * Normalize color to hex for color input controls.
  * @param {string} value
  * @returns {string}
@@ -1411,8 +1457,12 @@ function openPicker(anchor, mode, channelIds) {
     pickerTargetIds = Array.isArray(channelIds) ? channelIds : [];
     pickerAnchorEl = anchor;
     renderPicker();
-    positionPicker();
     picker.style.display = 'block';
+    picker.style.visibility = 'hidden';
+    requestAnimationFrame(() => {
+        positionPicker();
+        picker.style.visibility = 'visible';
+    });
 }
 
 /**
@@ -1423,6 +1473,11 @@ function closePicker() {
         return;
     }
     picker.style.display = 'none';
+    picker.style.visibility = '';
+    const list = picker.querySelector('.yt-commander-sub-manager-picker-list');
+    if (list) {
+        list.style.maxHeight = '';
+    }
     pickerAnchorEl = null;
     pickerTargetIds = [];
 }
@@ -1434,15 +1489,31 @@ function positionPicker() {
     if (!picker || !pickerAnchorEl) {
         return;
     }
-    const rect = pickerAnchorEl.getBoundingClientRect();
-    const pickerRect = picker.getBoundingClientRect();
-    const padding = 8;
-    let top = rect.bottom + padding;
-    let left = rect.left;
-
-    if (top + pickerRect.height > window.innerHeight - padding) {
-        top = rect.top - pickerRect.height - padding;
+    if (picker.style.display !== 'block') {
+        return;
     }
+    const rect = pickerAnchorEl.getBoundingClientRect();
+    const list = picker.querySelector('.yt-commander-sub-manager-picker-list');
+    if (list) {
+        list.style.maxHeight = '';
+    }
+    const initialPickerRect = picker.getBoundingClientRect();
+    const initialListRect = list ? list.getBoundingClientRect() : { height: 0 };
+    const padding = 8;
+    const spaceBelow = window.innerHeight - rect.bottom - padding;
+    const spaceAbove = rect.top - padding;
+    const openAbove = spaceAbove > spaceBelow;
+    const available = Math.max(openAbove ? spaceAbove : spaceBelow, 0);
+    const nonListHeight = Math.max(0, initialPickerRect.height - initialListRect.height);
+    if (list) {
+        const maxListHeight = Math.max(0, Math.floor(available - nonListHeight));
+        list.style.maxHeight = `${maxListHeight}px`;
+    }
+    const pickerRect = picker.getBoundingClientRect();
+    let top = openAbove
+        ? rect.top - pickerRect.height - padding
+        : rect.bottom + padding;
+    let left = rect.left;
 
     if (left + pickerRect.width > window.innerWidth - padding) {
         left = window.innerWidth - pickerRect.width - padding;
@@ -1703,14 +1774,20 @@ function renderSidebarCategories() {
         if (filterMode === id) {
             item.classList.add('active');
         }
+        applySidebarTooltip(item, label);
 
         const left = document.createElement('span');
         left.className = 'yt-commander-sub-manager-filter-left';
+
+        const initial = document.createElement('span');
+        initial.className = 'yt-commander-sub-manager-filter-initial';
+        initial.textContent = getSidebarInitial(label);
 
         const name = document.createElement('span');
         name.className = 'yt-commander-sub-manager-filter-name';
         name.textContent = label;
 
+        left.appendChild(initial);
         left.appendChild(name);
 
         const right = document.createElement('span');
@@ -1802,9 +1879,14 @@ function renderSidebarCategories() {
         if (filterMode === category.id) {
             item.classList.add('active');
         }
+        applySidebarTooltip(item, category.name);
 
         const left = document.createElement('span');
         left.className = 'yt-commander-sub-manager-filter-left';
+
+        const initial = document.createElement('span');
+        initial.className = 'yt-commander-sub-manager-filter-initial';
+        initial.textContent = getSidebarInitial(category.name);
 
         const name = document.createElement('span');
         name.className = 'yt-commander-sub-manager-filter-name';
@@ -1812,6 +1894,7 @@ function renderSidebarCategories() {
         name.setAttribute('data-action', 'category-edit');
         name.setAttribute('data-category-id', category.id);
 
+        left.appendChild(initial);
         left.appendChild(name);
 
         const right = document.createElement('span');
