@@ -2231,8 +2231,109 @@ body.yt-commander-windowed-lock {
 
 .yt-commander-sub-manager-content {
     flex: 1;
+    display: flex;
+    gap: 14px;
+    overflow: hidden;
+    padding: 12px 16px 18px;
+}
+
+.yt-commander-sub-manager-sidebar {
+    width: 220px;
+    flex: 0 0 220px;
+    align-self: stretch;
+    background: #171f2b;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
     overflow: auto;
-    padding: 4px 16px 18px;
+}
+
+.yt-commander-sub-manager-sidebar.is-collapsed {
+    width: 60px;
+    flex-basis: 60px;
+    padding: 10px 8px;
+}
+
+.yt-commander-sub-manager-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.yt-commander-sub-manager-sidebar-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #9aa4b6;
+}
+
+.yt-commander-sub-manager-sidebar-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.yt-commander-sub-manager-sidebar-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.08);
+    color: inherit;
+}
+
+.yt-commander-sub-manager-sidebar-btn.yt-commander-sub-manager-icon-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+}
+
+.yt-commander-sub-manager-sidebar-btn:hover {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.yt-commander-sub-manager-sidebar-list {
+    display: grid;
+    gap: 8px;
+}
+
+.yt-commander-sub-manager-sidebar-item {
+    width: 100%;
+    text-align: left;
+}
+
+.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-title {
+    display: none;
+}
+
+.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-filter-right,
+.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-filter-name {
+    display: none;
+}
+
+.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-filter-left {
+    gap: 0;
+}
+
+.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-item {
+    justify-content: center;
+    padding: 10px;
+}
+
+.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-actions {
+    flex-direction: column;
+}
+
+.yt-commander-sub-manager-main {
+    flex: 1;
+    overflow: auto;
+    padding: 4px 8px 18px;
 }
 
 .yt-commander-sub-manager-table {
@@ -2565,6 +2666,16 @@ body.yt-commander-windowed-lock {
     .yt-commander-sub-manager-modal {
         width: 100vw;
         max-height: 94vh;
+    }
+
+    .yt-commander-sub-manager-content {
+        flex-direction: column;
+    }
+
+    .yt-commander-sub-manager-sidebar,
+    .yt-commander-sub-manager-sidebar.is-collapsed {
+        width: 100%;
+        flex-basis: auto;
     }
 
     .yt-commander-sub-manager-row {

@@ -21,6 +21,7 @@ const STORAGE_KEYS = {
     VIEW: 'subscriptionManagerView',
     FILTER: 'subscriptionManagerFilter',
     COOLDOWN_MINUTES: 'subscriptionManagerCooldownMinutes',
+    SIDEBAR_COLLAPSED: 'subscriptionManagerSidebarCollapsed',
     PENDING_KEYS: 'subscriptionSyncPendingKeys',
     PENDING_COUNT: 'subscriptionSyncPendingCount'
 };
@@ -36,8 +37,6 @@ const BADGE_CLASS = 'yt-commander-sub-manager-badge';
 const BADGE_REMOVE_CLASS = 'yt-commander-sub-manager-badge-remove';
 const STATUS_CLASS = 'yt-commander-sub-manager-status';
 const PICKER_CLASS = 'yt-commander-sub-manager-picker';
-const FILTER_BUTTON_CLASS = 'yt-commander-sub-manager-filter';
-const FILTER_MENU_CLASS = 'yt-commander-sub-manager-filter-menu';
 const FILTER_ITEM_CLASS = 'yt-commander-sub-manager-filter-item';
 const FILTER_DOT_CLASS = 'yt-commander-sub-manager-filter-dot';
 const FILTER_COUNT_CLASS = 'yt-commander-sub-manager-filter-count';
@@ -72,9 +71,10 @@ let pagePrevButton = null;
 let pageNextButton = null;
 let viewTableButton = null;
 let viewCardButton = null;
-let filterButton = null;
-let filterLabelEl = null;
-let filterMenu = null;
+let sidebar = null;
+let sidebarList = null;
+let sidebarToggleButton = null;
+let sidebarAddButton = null;
 let addCategoryButton = null;
 let removeCategoryButton = null;
 let unsubscribeButton = null;
@@ -83,8 +83,7 @@ let picker = null;
 let pickerMode = 'toggle';
 let pickerTargetIds = [];
 let pickerAnchorEl = null;
-let filterMenuOpen = false;
-let filterAnchorEl = null;
+let sidebarCollapsed = false;
 
 let channels = [];
 let channelsFetchedAt = 0;
@@ -134,10 +133,7 @@ function resetModalElements() {
     if (existingOverlay) {
         existingOverlay.remove();
     }
-    if (filterMenu && filterMenu.isConnected) {
-        filterMenu.remove();
-    }
-    const strayFilterMenu = document.querySelector(`.${FILTER_MENU_CLASS}`);
+    const strayFilterMenu = document.querySelector('.yt-commander-sub-manager-filter-menu');
     if (strayFilterMenu) {
         strayFilterMenu.remove();
     }
@@ -160,9 +156,10 @@ function resetModalElements() {
     pageNextButton = null;
     viewTableButton = null;
     viewCardButton = null;
-    filterButton = null;
-    filterLabelEl = null;
-    filterMenu = null;
+    sidebar = null;
+    sidebarList = null;
+    sidebarToggleButton = null;
+    sidebarAddButton = null;
     addCategoryButton = null;
     removeCategoryButton = null;
     unsubscribeButton = null;
@@ -170,8 +167,6 @@ function resetModalElements() {
     pickerAnchorEl = null;
     pickerTargetIds = [];
     pickerMode = 'toggle';
-    filterMenuOpen = false;
-    filterAnchorEl = null;
     tableRowById.clear();
     cardById.clear();
 }
@@ -240,6 +235,8 @@ const ICONS = {
     minus: 'M5 11h14v2H5z',
     trash: 'M6 7h12v2H6V7zm2 3h8v9H8v-9zm3-7h2l1 2H10l1-2z',
     openNewTab: 'M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z',
+    collapse: 'M15.41 7.41 14 6 8 12 14 18 15.41 16.59 10.83 12z',
+    expand: 'M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z',
     prev: 'M15.41 7.41 14 6 8 12 14 18 15.41 16.59 10.83 12z',
     next: 'M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z'
 };
@@ -558,7 +555,8 @@ async function loadLocalState() {
         STORAGE_KEYS.ASSIGNMENTS,
         STORAGE_KEYS.VIEW,
         STORAGE_KEYS.FILTER,
-        STORAGE_KEYS.COOLDOWN_MINUTES
+        STORAGE_KEYS.COOLDOWN_MINUTES,
+        STORAGE_KEYS.SIDEBAR_COLLAPSED
     ]);
 
     categories = normalizeCategories(result[STORAGE_KEYS.CATEGORIES]);
@@ -569,6 +567,7 @@ async function loadLocalState() {
     filterMode = typeof result[STORAGE_KEYS.FILTER] === 'string' ? result[STORAGE_KEYS.FILTER] : 'all';
     apiCooldownMinutes = normalizeCooldownMinutes(result[STORAGE_KEYS.COOLDOWN_MINUTES]);
     apiCooldownMs = apiCooldownMinutes * 60 * 1000;
+    sidebarCollapsed = result[STORAGE_KEYS.SIDEBAR_COLLAPSED] === true;
 }
 
 /**
@@ -1048,27 +1047,6 @@ function ensureModal() {
     viewCardButton.setAttribute('data-action', 'view-card');
     setIconButton(viewCardButton, ICONS.card, 'Card view');
 
-    filterButton = document.createElement('button');
-    filterButton.type = 'button';
-    filterButton.className = FILTER_BUTTON_CLASS;
-    filterButton.setAttribute('data-action', 'filter-toggle');
-    filterLabelEl = document.createElement('span');
-    filterLabelEl.className = 'yt-commander-sub-manager-filter-label';
-    filterLabelEl.textContent = 'All categories';
-    const filterAdd = document.createElement('span');
-    filterAdd.className = 'yt-commander-sub-manager-filter-add';
-    filterAdd.setAttribute('data-action', 'new-category');
-    filterAdd.setAttribute('role', 'button');
-    filterAdd.setAttribute('aria-label', 'New category');
-    filterAdd.setAttribute('title', 'New category');
-    filterAdd.setAttribute('data-tooltip', 'New category');
-    filterAdd.classList.add('yt-commander-sub-manager-tooltip');
-    const filterAddIcon = createIcon(ICONS.plus);
-    filterAddIcon.classList.add('yt-commander-sub-manager-icon');
-    filterAdd.appendChild(filterAddIcon);
-    filterButton.appendChild(filterLabelEl);
-    filterButton.appendChild(filterAdd);
-
     unsubscribeButton = document.createElement('button');
     unsubscribeButton.type = 'button';
     unsubscribeButton.className = 'yt-commander-sub-manager-btn danger';
@@ -1079,31 +1057,22 @@ function ensureModal() {
     addCategoryButton.type = 'button';
     addCategoryButton.className = 'yt-commander-sub-manager-btn';
     addCategoryButton.setAttribute('data-action', 'add-category-selected');
-    setIconButton(addCategoryButton, ICONS.plus, 'Add category');
+    setIconButton(addCategoryButton, ICONS.plus, 'Add to category');
 
     removeCategoryButton = document.createElement('button');
     removeCategoryButton.type = 'button';
     removeCategoryButton.className = 'yt-commander-sub-manager-btn secondary';
     removeCategoryButton.setAttribute('data-action', 'remove-category-selected');
-    setIconButton(removeCategoryButton, ICONS.minus, 'Remove category');
+    setIconButton(removeCategoryButton, ICONS.minus, 'Remove from category');
 
     headerActions.appendChild(viewTableButton);
     headerActions.appendChild(viewCardButton);
-    headerActions.appendChild(filterButton);
     const actionGroup = document.createElement('div');
     actionGroup.className = 'yt-commander-sub-manager-action-group';
     actionGroup.appendChild(unsubscribeButton);
     actionGroup.appendChild(addCategoryButton);
     actionGroup.appendChild(removeCategoryButton);
     headerActions.appendChild(actionGroup);
-    if (!filterMenu || !filterMenu.isConnected) {
-        filterMenu = document.createElement('div');
-        filterMenu.className = FILTER_MENU_CLASS;
-        filterMenu.setAttribute('role', 'menu');
-        filterMenu.style.display = 'none';
-        filterMenu.addEventListener('click', handleFilterMenuClick);
-        document.body.appendChild(filterMenu);
-    }
 
 
     header.appendChild(titleWrap);
@@ -1112,14 +1081,56 @@ function ensureModal() {
     const content = document.createElement('div');
     content.className = 'yt-commander-sub-manager-content';
 
+    sidebar = document.createElement('div');
+    sidebar.className = 'yt-commander-sub-manager-sidebar';
+
+    const sidebarHeader = document.createElement('div');
+    sidebarHeader.className = 'yt-commander-sub-manager-sidebar-header';
+
+    const sidebarTitle = document.createElement('div');
+    sidebarTitle.className = 'yt-commander-sub-manager-sidebar-title';
+    sidebarTitle.textContent = 'Categories';
+
+    const sidebarActions = document.createElement('div');
+    sidebarActions.className = 'yt-commander-sub-manager-sidebar-actions';
+
+    sidebarAddButton = document.createElement('button');
+    sidebarAddButton.type = 'button';
+    sidebarAddButton.className = 'yt-commander-sub-manager-sidebar-btn';
+    sidebarAddButton.setAttribute('data-action', 'new-category');
+    setIconButton(sidebarAddButton, ICONS.plus, 'New category');
+
+    sidebarToggleButton = document.createElement('button');
+    sidebarToggleButton.type = 'button';
+    sidebarToggleButton.className = 'yt-commander-sub-manager-sidebar-btn';
+    sidebarToggleButton.setAttribute('data-action', 'sidebar-toggle');
+
+    sidebarActions.appendChild(sidebarAddButton);
+    sidebarActions.appendChild(sidebarToggleButton);
+
+    sidebarHeader.appendChild(sidebarTitle);
+    sidebarHeader.appendChild(sidebarActions);
+
+    sidebarList = document.createElement('div');
+    sidebarList.className = 'yt-commander-sub-manager-sidebar-list';
+
+    sidebar.appendChild(sidebarHeader);
+    sidebar.appendChild(sidebarList);
+    applySidebarState();
+
     tableWrap = document.createElement('div');
     tableWrap.className = TABLE_CLASS;
 
     cardsWrap = document.createElement('div');
     cardsWrap.className = CARDS_CLASS;
 
-    content.appendChild(tableWrap);
-    content.appendChild(cardsWrap);
+    const main = document.createElement('div');
+    main.className = 'yt-commander-sub-manager-main';
+    main.appendChild(tableWrap);
+    main.appendChild(cardsWrap);
+
+    content.appendChild(sidebar);
+    content.appendChild(main);
 
     statusEl = document.createElement('div');
     statusEl.className = STATUS_CLASS;
@@ -1193,7 +1204,7 @@ function renderPicker() {
 
     const title = document.createElement('div');
     title.className = 'yt-commander-sub-manager-picker-title';
-    title.textContent = pickerMode === 'remove' ? 'Remove category' : 'Add category';
+    title.textContent = pickerMode === 'remove' ? 'Remove from category' : 'Add to category';
 
     const list = document.createElement('div');
     list.className = 'yt-commander-sub-manager-picker-list';
@@ -1305,36 +1316,34 @@ function createCategory(name) {
 }
 
 /**
- * Update categories dropdown options.
+ * Persist sidebar state.
+ * @returns {Promise<void>}
  */
-function getFilterLabel(value) {
-    if (value === 'all') {
-        return 'All categories';
-    }
-    if (value === 'uncategorized') {
-        return 'Uncategorized';
-    }
-    const category = categories.find((item) => item.id === value);
-    return category ? category.name : 'All categories';
+async function persistSidebarState() {
+    await storageSet({
+        [STORAGE_KEYS.SIDEBAR_COLLAPSED]: sidebarCollapsed
+    });
 }
 
-function updateFilterButtonLabel() {
-    if (!filterButton) {
+function updateSidebarToggleButton() {
+    if (!sidebarToggleButton) {
         return;
     }
-    const counts = getCategoryCounts();
-    const label = getFilterLabel(filterMode);
-    const count = typeof counts[filterMode] === 'number' ? counts[filterMode] : counts.all || 0;
-    const text = `${label} (${count})`;
-    if (filterLabelEl) {
-        filterLabelEl.textContent = text;
-        return;
-    }
-    filterButton.textContent = text;
+    const icon = sidebarCollapsed ? ICONS.expand : ICONS.collapse;
+    const label = sidebarCollapsed ? 'Expand categories' : 'Collapse categories';
+    setIconButton(sidebarToggleButton, icon, label);
 }
 
-function renderFilterMenu() {
-    if (!filterButton || !filterMenu) {
+function applySidebarState() {
+    if (!sidebar) {
+        return;
+    }
+    sidebar.classList.toggle('is-collapsed', sidebarCollapsed);
+    updateSidebarToggleButton();
+}
+
+function renderSidebarCategories() {
+    if (!sidebarList) {
         return;
     }
 
@@ -1345,13 +1354,13 @@ function renderFilterMenu() {
         persistViewState().catch(() => undefined);
     }
 
-    filterMenu.innerHTML = '';
+    sidebarList.innerHTML = '';
 
     const addItem = (id, label, color, options = {}) => {
-        const item = document.createElement('div');
-        item.className = FILTER_ITEM_CLASS;
-        item.setAttribute('role', 'menuitem');
-        item.setAttribute('tabindex', '0');
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = `${FILTER_ITEM_CLASS} yt-commander-sub-manager-sidebar-item`;
+        item.setAttribute('data-action', 'filter-select');
         item.setAttribute('data-filter-id', id);
         if (filterMode === id) {
             item.classList.add('active');
@@ -1386,10 +1395,7 @@ function renderFilterMenu() {
             remove.className = 'yt-commander-sub-manager-filter-remove';
             remove.setAttribute('data-action', 'filter-remove');
             remove.setAttribute('data-category-id', id);
-            remove.setAttribute('aria-label', `Remove ${label}`);
-            remove.setAttribute('title', `Remove ${label}`);
-            remove.setAttribute('data-tooltip', `Remove ${label}`);
-            remove.classList.add('yt-commander-sub-manager-tooltip');
+            setTooltip(remove, `Delete ${label}`);
             const removeIcon = createIcon(ICONS.trash);
             removeIcon.classList.add('yt-commander-sub-manager-icon');
             remove.appendChild(removeIcon);
@@ -1398,89 +1404,12 @@ function renderFilterMenu() {
 
         item.appendChild(left);
         item.appendChild(right);
-        filterMenu.appendChild(item);
+        sidebarList.appendChild(item);
     };
 
     addItem('all', 'All categories', '#616b7f');
     addItem('uncategorized', 'Uncategorized', '#3b4457');
     categories.forEach((category) => addItem(category.id, category.name, category.color, { removable: true }));
-
-    updateFilterButtonLabel();
-}
-
-function positionFilterMenu() {
-    if (!filterMenu) {
-        return;
-    }
-    const anchor = filterAnchorEl || filterButton;
-    if (!anchor) {
-        return;
-    }
-    const rect = anchor.getBoundingClientRect();
-    const menuRect = filterMenu.getBoundingClientRect();
-    const padding = 8;
-    let top = rect.bottom + padding;
-    let left = rect.left;
-
-    if (top + menuRect.height > window.innerHeight - padding) {
-        top = rect.top - menuRect.height - padding;
-    }
-
-    if (left + menuRect.width > window.innerWidth - padding) {
-        left = window.innerWidth - menuRect.width - padding;
-    }
-
-    filterMenu.style.top = `${Math.max(padding, top)}px`;
-    filterMenu.style.left = `${Math.max(padding, left)}px`;
-}
-
-function openFilterMenu(anchor) {
-    if (!filterMenu) {
-        return;
-    }
-    filterMenuOpen = true;
-    filterAnchorEl = anchor || filterButton;
-    renderFilterMenu();
-    positionFilterMenu();
-    filterMenu.style.display = 'block';
-}
-
-function closeFilterMenu() {
-    if (!filterMenu) {
-        return;
-    }
-    filterMenuOpen = false;
-    filterMenu.style.display = 'none';
-    filterAnchorEl = null;
-}
-
-function toggleFilterMenu(anchor) {
-    if (filterMenuOpen) {
-        closeFilterMenu();
-        return;
-    }
-    openFilterMenu(anchor);
-}
-
-function handleFilterMenuClick(event) {
-    const baseTarget = event.target instanceof Element ? event.target : event.target?.parentElement;
-    const removeTarget = baseTarget?.closest('[data-action="filter-remove"]');
-    if (removeTarget) {
-        event.preventDefault();
-        event.stopPropagation();
-        const categoryId = removeTarget.getAttribute('data-category-id') || '';
-        removeCategory(categoryId).catch(() => undefined);
-        return;
-    }
-    const target = baseTarget?.closest('[data-filter-id]');
-    if (!target) {
-        return;
-    }
-    filterMode = target.getAttribute('data-filter-id') || 'all';
-    currentPage = 1;
-    persistViewState().catch(() => undefined);
-    closeFilterMenu();
-    renderList();
 }
 
 /**
@@ -1527,7 +1456,7 @@ async function removeCategory(categoryId) {
     await persistLocalState();
     await markPending(updatedKeys);
     setStatus(`Removed "${category.name}" from ${affected} channel(s).`, 'success');
-    renderFilterMenu();
+    renderSidebarCategories();
     renderList();
 }
 
@@ -1723,15 +1652,6 @@ function handleDocumentClick(event) {
         }
     }
 
-    if (filterMenuOpen) {
-        const inMenu = (target && filterMenu?.contains(target)) || (filterMenu && path.includes(filterMenu));
-        const inButton = (target && filterButton && filterButton.contains(target))
-            || (filterButton && path.includes(filterButton));
-        if (!inMenu && !inButton) {
-            closeFilterMenu();
-        }
-    }
-
 }
 
 /**
@@ -1745,11 +1665,6 @@ function handleModalClick(event) {
     if (action) {
         if (action === 'close-modal') {
             closeModal();
-            return;
-        }
-
-        if (action === 'filter-toggle') {
-            toggleFilterMenu(actionTarget);
             return;
         }
 
@@ -1801,6 +1716,30 @@ function handleModalClick(event) {
             return;
         }
 
+        if (action === 'sidebar-toggle') {
+            sidebarCollapsed = !sidebarCollapsed;
+            applySidebarState();
+            persistSidebarState().catch(() => undefined);
+            return;
+        }
+
+        if (action === 'filter-select') {
+            const nextFilter = actionTarget.getAttribute('data-filter-id') || 'all';
+            if (filterMode !== nextFilter) {
+                filterMode = nextFilter;
+                currentPage = 1;
+                persistViewState().catch(() => undefined);
+                renderList();
+            }
+            return;
+        }
+
+        if (action === 'filter-remove') {
+            const categoryId = actionTarget.getAttribute('data-category-id') || '';
+            removeCategory(categoryId).catch(() => undefined);
+            return;
+        }
+
         if (action === 'category-add') {
             const channelId = actionTarget.getAttribute('data-channel-id') || '';
             if (!channelId) {
@@ -1828,7 +1767,7 @@ function handleModalClick(event) {
     }
 
     const interactive = baseTarget?.closest(
-        'button, a, input, select, textarea, .yt-commander-sub-manager-categories, .yt-commander-sub-manager-filter-menu, .yt-commander-sub-manager-picker'
+        'button, a, input, select, textarea, .yt-commander-sub-manager-categories, .yt-commander-sub-manager-picker'
     );
     if (interactive) {
         return;
@@ -1909,7 +1848,7 @@ async function createNewCategory() {
     markCategoriesDirty();
     await persistLocalState();
     await markPending([`category:${category.id}`]);
-    renderFilterMenu();
+    renderSidebarCategories();
     renderList();
 }
 
@@ -2089,9 +2028,9 @@ function buildCategoryBadges(channelId) {
         remove.setAttribute('data-action', 'remove-category');
         remove.setAttribute('data-channel-id', channelId);
         remove.setAttribute('data-category-id', category.id);
-        remove.setAttribute('aria-label', `Remove ${category.name}`);
-        remove.setAttribute('title', `Remove ${category.name}`);
-        remove.setAttribute('data-tooltip', `Remove ${category.name}`);
+        remove.setAttribute('aria-label', `Remove from ${category.name}`);
+        remove.setAttribute('title', `Remove from ${category.name}`);
+        remove.setAttribute('data-tooltip', `Remove from ${category.name}`);
         remove.classList.add('yt-commander-sub-manager-tooltip');
         remove.textContent = 'x';
 
@@ -2104,9 +2043,9 @@ function buildCategoryBadges(channelId) {
     add.className = 'yt-commander-sub-manager-category-add';
     add.setAttribute('data-action', 'category-add');
     add.setAttribute('data-channel-id', channelId);
-    add.setAttribute('aria-label', 'Add category');
-    add.setAttribute('title', 'Add category');
-    add.setAttribute('data-tooltip', 'Add category');
+    add.setAttribute('aria-label', 'Add to category');
+    add.setAttribute('title', 'Add to category');
+    add.setAttribute('data-tooltip', 'Add to category');
     add.classList.add('yt-commander-sub-manager-tooltip');
     const addIcon = createIcon(ICONS.plus);
     addIcon.classList.add('yt-commander-sub-manager-icon');
@@ -2422,7 +2361,7 @@ function renderList() {
         return;
     }
 
-    renderFilterMenu();
+    renderSidebarCategories();
 
     const filtered = filterChannels();
     const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
@@ -2472,6 +2411,7 @@ function closeModal() {
 async function openModal() {
     ensureModal();
     await loadLocalState();
+    applySidebarState();
     const hydrated = await hydrateSnapshotFromStorage();
     overlay.classList.add('is-visible');
     if (hydrated) {
@@ -2537,10 +2477,6 @@ function handleKeydown(event) {
     }
     if (picker && picker.style.display === 'block') {
         closePicker();
-        return;
-    }
-    if (filterMenuOpen) {
-        closeFilterMenu();
         return;
     }
     if (overlay?.classList.contains('is-visible')) {
