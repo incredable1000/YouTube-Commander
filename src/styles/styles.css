@@ -2145,10 +2145,12 @@ body.yt-commander-windowed-lock {
     width: 16px;
     height: 16px;
     fill: currentColor;
+    display: block;
 }
 
 .yt-commander-sub-manager-tooltip {
     position: relative;
+    overflow: visible;
 }
 
 .yt-commander-sub-manager-tooltip::after {

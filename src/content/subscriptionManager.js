@@ -41,6 +41,7 @@ const FILTER_ITEM_CLASS = 'yt-commander-sub-manager-filter-item';
 const FILTER_DOT_CLASS = 'yt-commander-sub-manager-filter-dot';
 const FILTER_COUNT_CLASS = 'yt-commander-sub-manager-filter-count';
 const QUICK_ADD_CLASS = 'yt-commander-sub-manager-quick-add';
+const MODAL_VERSION = '2026-03-13-1';
 
 const ITEMS_PER_PAGE = 100;
 const SNAPSHOT_TTL_MS = 30 * 60 * 1000;
@@ -108,6 +109,53 @@ let cardById = new Map();
 
 let quickAddObserver = null;
 let quickAddPending = false;
+
+function resetModalElements() {
+    const existingOverlay = document.querySelector(`.${OVERLAY_CLASS}`);
+    if (existingOverlay) {
+        existingOverlay.remove();
+    }
+    if (filterMenu && filterMenu.isConnected) {
+        filterMenu.remove();
+    }
+    const strayFilterMenu = document.querySelector(`.${FILTER_MENU_CLASS}`);
+    if (strayFilterMenu) {
+        strayFilterMenu.remove();
+    }
+    if (picker && picker.isConnected) {
+        picker.remove();
+    }
+    const strayPicker = document.querySelector(`.${PICKER_CLASS}`);
+    if (strayPicker) {
+        strayPicker.remove();
+    }
+
+    overlay = null;
+    modal = null;
+    tableWrap = null;
+    cardsWrap = null;
+    statusEl = null;
+    selectionBadgeEl = null;
+    pageInfoEl = null;
+    pagePrevButton = null;
+    pageNextButton = null;
+    viewTableButton = null;
+    viewCardButton = null;
+    filterButton = null;
+    filterLabelEl = null;
+    filterMenu = null;
+    addCategoryButton = null;
+    removeCategoryButton = null;
+    unsubscribeButton = null;
+    picker = null;
+    pickerAnchorEl = null;
+    pickerTargetIds = [];
+    pickerMode = 'toggle';
+    filterMenuOpen = false;
+    filterAnchorEl = null;
+    tableRowById.clear();
+    cardById.clear();
+}
 
 /**
  * Storage helper.
@@ -829,12 +877,15 @@ async function handleQuickAddClick(event) {
  * Ensure modal elements exist.
  */
 function ensureModal() {
-    if (overlay && overlay.isConnected) {
+    if (overlay && overlay.isConnected && overlay.dataset?.ytcVersion === MODAL_VERSION) {
         return;
     }
 
+    resetModalElements();
+
     overlay = document.createElement('div');
     overlay.className = OVERLAY_CLASS;
+    overlay.dataset.ytcVersion = MODAL_VERSION;
 
     modal = document.createElement('div');
     modal.className = MODAL_CLASS;
