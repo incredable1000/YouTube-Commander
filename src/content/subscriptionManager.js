@@ -20,6 +20,7 @@ const STORAGE_KEYS = {
     SNAPSHOT: 'subscriptionManagerSnapshot',
     VIEW: 'subscriptionManagerView',
     FILTER: 'subscriptionManagerFilter',
+    COOLDOWN_MINUTES: 'subscriptionManagerCooldownMinutes',
     PENDING_KEYS: 'subscriptionSyncPendingKeys',
     PENDING_COUNT: 'subscriptionSyncPendingCount'
 };
@@ -45,7 +46,8 @@ const MODAL_VERSION = '2026-03-13-1';
 
 const ITEMS_PER_PAGE = 100;
 const SNAPSHOT_TTL_MS = 30 * 60 * 1000;
-const API_COOLDOWN_MS = 5 * 60 * 1000;
+const DEFAULT_API_COOLDOWN_MS = 5 * 60 * 1000;
+const COOLDOWN_MINUTES_OPTIONS = [5, 10, 30, 60, 120, 240];
 
 const bridgeClient = createBridgeClient({
     source: BRIDGE_SOURCE,
@@ -99,6 +101,8 @@ let assignmentCache = new Map();
 let categoryCountsCache = null;
 let categoryCountsCacheKey = '';
 let lastSnapshotHash = '';
+let apiCooldownMinutes = COOLDOWN_MINUTES_OPTIONS[0];
+let apiCooldownMs = DEFAULT_API_COOLDOWN_MS;
 let viewMode = 'table';
 let filterMode = 'all';
 let currentPage = 1;
@@ -109,6 +113,21 @@ let cardById = new Map();
 
 let quickAddObserver = null;
 let quickAddPending = false;
+
+/**
+ * Tooltip helper.
+ * @param {HTMLElement} el
+ * @param {string} label
+ */
+function setTooltip(el, label) {
+    if (!el || !label) {
+        return;
+    }
+    el.setAttribute('aria-label', label);
+    el.setAttribute('title', label);
+    el.setAttribute('data-tooltip', label);
+    el.classList.add('yt-commander-sub-manager-tooltip');
+}
 
 function resetModalElements() {
     const existingOverlay = document.querySelector(`.${OVERLAY_CLASS}`);
@@ -220,6 +239,7 @@ const ICONS = {
     plus: 'M11 5h2v14h-2zM5 11h14v2H5z',
     minus: 'M5 11h14v2H5z',
     trash: 'M6 7h12v2H6V7zm2 3h8v9H8v-9zm3-7h2l1 2H10l1-2z',
+    openNewTab: 'M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z',
     prev: 'M15.41 7.41 14 6 8 12 14 18 15.41 16.59 10.83 12z',
     next: 'M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z'
 };
@@ -239,11 +259,101 @@ function setIconButton(button, iconPath, label) {
     icon.classList.add('yt-commander-sub-manager-icon');
     button.appendChild(icon);
     button.classList.add('yt-commander-sub-manager-icon-btn');
-    if (label) {
-        button.setAttribute('aria-label', label);
-        button.setAttribute('title', label);
-        button.setAttribute('data-tooltip', label);
-        button.classList.add('yt-commander-sub-manager-tooltip');
+    setTooltip(button, label);
+}
+
+/**
+ * Normalize cooldown minutes selection.
+ * @param {number} value
+ * @returns {number}
+ */
+function normalizeCooldownMinutes(value) {
+    const minutes = Number(value);
+    if (!Number.isFinite(minutes)) {
+        return COOLDOWN_MINUTES_OPTIONS[0];
+    }
+    const matched = COOLDOWN_MINUTES_OPTIONS.find((option) => option === minutes);
+    return matched || COOLDOWN_MINUTES_OPTIONS[0];
+}
+
+/**
+ * Resolve channel URL.
+ * @param {{channelId?: string, handle?: string, url?: string}} channel
+ * @returns {string}
+ */
+function resolveChannelUrl(channel) {
+    if (!channel) {
+        return '';
+    }
+    const rawUrl = typeof channel.url === 'string' ? channel.url.trim() : '';
+    if (rawUrl) {
+        try {
+            return new URL(rawUrl, location.origin).toString();
+        } catch (_error) {
+            return rawUrl;
+        }
+    }
+    const handle = normalizeHandle(channel.handle);
+    if (handle) {
+        return `https://www.youtube.com/${handle}`;
+    }
+    if (channel.channelId) {
+        return `https://www.youtube.com/channel/${channel.channelId}`;
+    }
+    return '';
+}
+
+/**
+ * Update open-channel button data/tooltip.
+ * @param {HTMLButtonElement} button
+ * @param {object} channel
+ */
+function updateOpenChannelButton(button, channel) {
+    if (!button) {
+        return;
+    }
+    const url = resolveChannelUrl(channel);
+    if (url) {
+        button.setAttribute('data-channel-url', url);
+        button.disabled = false;
+        setTooltip(button, 'Open channel in new tab');
+    } else {
+        button.removeAttribute('data-channel-url');
+        button.disabled = true;
+        setTooltip(button, 'Channel link unavailable');
+    }
+}
+
+/**
+ * Build open-channel button.
+ * @param {object} channel
+ * @param {string} className
+ * @returns {HTMLButtonElement}
+ */
+function buildOpenChannelButton(channel, className) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `yt-commander-sub-manager-open-channel ${className || ''}`.trim();
+    button.setAttribute('data-action', 'open-channel');
+    setIconButton(button, ICONS.openNewTab, 'Open channel in new tab');
+    updateOpenChannelButton(button, channel);
+    return button;
+}
+
+/**
+ * Open URL in background tab.
+ * @param {string} url
+ */
+function openUrlInBackground(url) {
+    if (!url) {
+        setStatus('Channel link unavailable.', 'error');
+        return;
+    }
+    try {
+        chrome.runtime.sendMessage({ type: 'OPEN_NEW_TAB', url });
+    } catch (error) {
+        logger.warn('Failed to open tab', error);
+        setStatus('Unable to open channel.', 'error');
     }
 }
 
@@ -447,7 +557,8 @@ async function loadLocalState() {
         STORAGE_KEYS.CATEGORIES,
         STORAGE_KEYS.ASSIGNMENTS,
         STORAGE_KEYS.VIEW,
-        STORAGE_KEYS.FILTER
+        STORAGE_KEYS.FILTER,
+        STORAGE_KEYS.COOLDOWN_MINUTES
     ]);
 
     categories = normalizeCategories(result[STORAGE_KEYS.CATEGORIES]);
@@ -456,6 +567,8 @@ async function loadLocalState() {
     markAssignmentsDirty();
     viewMode = result[STORAGE_KEYS.VIEW] === 'card' ? 'card' : 'table';
     filterMode = typeof result[STORAGE_KEYS.FILTER] === 'string' ? result[STORAGE_KEYS.FILTER] : 'all';
+    apiCooldownMinutes = normalizeCooldownMinutes(result[STORAGE_KEYS.COOLDOWN_MINUTES]);
+    apiCooldownMs = apiCooldownMinutes * 60 * 1000;
 }
 
 /**
@@ -977,7 +1090,6 @@ function ensureModal() {
     headerActions.appendChild(viewTableButton);
     headerActions.appendChild(viewCardButton);
     headerActions.appendChild(filterButton);
-
     const actionGroup = document.createElement('div');
     actionGroup.className = 'yt-commander-sub-manager-action-group';
     actionGroup.appendChild(unsubscribeButton);
@@ -992,6 +1104,7 @@ function ensureModal() {
         filterMenu.addEventListener('click', handleFilterMenuClick);
         document.body.appendChild(filterMenu);
     }
+
 
     header.appendChild(titleWrap);
     header.appendChild(headerActions);
@@ -1618,6 +1731,7 @@ function handleDocumentClick(event) {
             closeFilterMenu();
         }
     }
+
 }
 
 /**
@@ -1703,6 +1817,12 @@ function handleModalClick(event) {
                 return;
             }
             applyCategoryUpdate([channelId], categoryId, 'remove').catch(() => undefined);
+            return;
+        }
+
+        if (action === 'open-channel') {
+            const url = actionTarget.getAttribute('data-channel-url') || '';
+            openUrlInBackground(url);
             return;
         }
     }
@@ -1812,7 +1932,7 @@ async function loadSubscriptions(options = {}) {
         return { status: 'skipped' };
     }
 
-    const cooldownRemainingMs = API_COOLDOWN_MS - (now - lastCallAt);
+    const cooldownRemainingMs = apiCooldownMs - (now - lastCallAt);
     const shouldUpdateStatus = !background || overlay?.classList.contains('is-visible');
     if (cooldownRemainingMs > 0) {
         if (shouldUpdateStatus) {
@@ -2061,15 +2181,20 @@ function buildTableRow(channel) {
 
     const nameWrap = document.createElement('div');
     nameWrap.className = 'yt-commander-sub-manager-name-wrap';
+    const nameRow = document.createElement('div');
+    nameRow.className = 'yt-commander-sub-manager-name-row';
     const name = document.createElement('div');
     name.className = 'yt-commander-sub-manager-name';
     name.setAttribute('data-field', 'name');
     name.textContent = channel.title || 'Untitled channel';
+    const openButton = buildOpenChannelButton(channel, '');
     const handle = document.createElement('div');
     handle.className = 'yt-commander-sub-manager-handle';
     handle.setAttribute('data-field', 'handle');
     handle.textContent = channel.handle || channel.url || '';
-    nameWrap.appendChild(name);
+    nameRow.appendChild(name);
+    nameRow.appendChild(openButton);
+    nameWrap.appendChild(nameRow);
     nameWrap.appendChild(handle);
     channelCell.appendChild(nameWrap);
 
@@ -2103,6 +2228,10 @@ function updateTableRow(row, channel) {
     const handle = row.querySelector('[data-field="handle"]');
     if (handle) {
         handle.textContent = channel.handle || channel.url || '';
+    }
+    const openButton = row.querySelector('.yt-commander-sub-manager-open-channel');
+    if (openButton) {
+        updateOpenChannelButton(openButton, channel);
     }
     const avatar = row.querySelector('img.yt-commander-sub-manager-avatar');
     if (avatar && channel.avatar) {
@@ -2138,6 +2267,8 @@ function buildCard(channel) {
         avatar.src = channel.avatar;
     }
     media.appendChild(avatar);
+    const cardOpenButton = buildOpenChannelButton(channel, 'is-card');
+    media.appendChild(cardOpenButton);
     card.appendChild(media);
 
     const stats = document.createElement('div');
@@ -2182,6 +2313,10 @@ function updateCard(card, channel) {
     const handle = card.querySelector('[data-field="handle"]');
     if (handle) {
         handle.textContent = channel.handle || channel.url || '';
+    }
+    const openButton = card.querySelector('.yt-commander-sub-manager-open-channel');
+    if (openButton) {
+        updateOpenChannelButton(openButton, channel);
     }
     const avatar = card.querySelector('img.yt-commander-sub-manager-card-image');
     if (avatar && channel.avatar) {
@@ -2430,6 +2565,7 @@ export async function initSubscriptionManager() {
 
     window.addEventListener('resize', () => {
         positionPicker();
+        positionFilterMenu();
     });
 
     window.addEventListener('message', bridgeClient.handleResponse);

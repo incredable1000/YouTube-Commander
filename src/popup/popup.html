@@ -864,6 +864,7 @@
                 <div class="action-buttons">
                     <button class="btn btn-secondary" id="openSubscriptionManager">Open Manager</button>
                     <button class="btn btn-secondary" id="syncSubscriptionsNow">Manual Sync</button>
+                    <button class="btn btn-secondary" id="restoreSubscriptions">Restore</button>
                 </div>
                 <div class="setting-row" style="display: block; margin-top: 12px;">
                     <div class="setting-label" style="margin-bottom: 6px;">Subscription Worker URL</div>
@@ -899,6 +900,17 @@
                         <option value="30">30 min</option>
                         <option value="60" selected>1 hour</option>
                         <option value="120">2 hours</option>
+                    </select>
+                </div>
+                <div class="setting-row" style="margin-top: 8px;">
+                    <div class="setting-label">Fetch Cooldown</div>
+                    <select id="subscriptionFetchCooldown" class="setting-select">
+                        <option value="5">5 min</option>
+                        <option value="10">10 min</option>
+                        <option value="30">30 min</option>
+                        <option value="60">60 min</option>
+                        <option value="120">120 min</option>
+                        <option value="240">240 min</option>
                     </select>
                 </div>
                 <div class="setting-row" style="display: block; margin-top: 8px; gap: 4px;">

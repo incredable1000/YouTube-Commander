@@ -69,6 +69,7 @@ your existing Worker). It supports:
 - `POST /sync` (watched history)
 - `GET /pull` (watched history restore)
 - `POST /subscriptions` (subscription manager sync)
+- `GET /subscriptions` (subscription manager restore)
 
 ```js
 /**
@@ -91,6 +92,10 @@ export default {
 
             if (request.method === 'GET' && pathname.endsWith('/pull')) {
                 return handlePull(request, env);
+            }
+
+            if (request.method === 'GET' && pathname.endsWith('/subscriptions')) {
+                return handleSubscriptionRestore(request, env);
             }
 
             if (request.method === 'POST' && pathname.endsWith('/subscriptions')) {
@@ -162,6 +167,79 @@ async function handlePull(request, env) {
         videoIds,
         nextCursor: hasMore ? String(nextCursor) : null,
         hasMore
+    });
+}
+
+async function handleSubscriptionRestore(request, env) {
+    const url = new URL(request.url);
+    const accountKey = (url.searchParams.get('accountKey') || 'default').trim() || 'default';
+
+    const [channelsResult, categoriesResult, assignmentsResult, stateResult] = await Promise.all([
+        env.DB.prepare(
+            `SELECT channel_id, title, handle, url, avatar, subscriber_count, video_count
+             FROM subscription_channels
+             WHERE account_key = ?
+             ORDER BY title`
+        ).bind(accountKey).all(),
+        env.DB.prepare(
+            `SELECT category_id, name, color
+             FROM subscription_categories
+             WHERE account_key = ?
+             ORDER BY name`
+        ).bind(accountKey).all(),
+        env.DB.prepare(
+            `SELECT channel_id, category_id
+             FROM subscription_channel_categories
+             WHERE account_key = ?`
+        ).bind(accountKey).all(),
+        env.DB.prepare(
+            `SELECT snapshot_hash, snapshot_fetched_at, channel_total
+             FROM subscription_sync_state
+             WHERE account_key = ?`
+        ).bind(accountKey).first()
+    ]);
+
+    const channels = (channelsResult?.results || []).map((row) => ({
+        channelId: row.channel_id,
+        title: row.title || '',
+        handle: row.handle || '',
+        url: row.url || '',
+        avatar: row.avatar || '',
+        subscriberCount: row.subscriber_count || '',
+        videoCount: row.video_count || ''
+    }));
+
+    const categories = (categoriesResult?.results || []).map((row) => ({
+        id: row.category_id,
+        name: row.name,
+        color: row.color || ''
+    }));
+
+    const assignments = {};
+    (assignmentsResult?.results || []).forEach((row) => {
+        if (!row.channel_id || !row.category_id) {
+            return;
+        }
+        if (!assignments[row.channel_id]) {
+            assignments[row.channel_id] = [];
+        }
+        assignments[row.channel_id].push(row.category_id);
+    });
+
+    const snapshot = {
+        hash: stateResult?.snapshot_hash || '',
+        fetchedAt: stateResult?.snapshot_fetched_at || null,
+        total: typeof stateResult?.channel_total === 'number' ? stateResult.channel_total : channels.length,
+        channels
+    };
+
+    return json({
+        ok: true,
+        accountKey,
+        snapshot,
+        channels,
+        categories,
+        assignments
     });
 }
 

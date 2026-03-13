@@ -56,6 +56,8 @@ const SUBSCRIPTION_STORAGE_KEYS = {
     AUTO_ENABLED: 'subscriptionSyncAutoEnabled',
     INTERVAL_MINUTES: 'subscriptionSyncIntervalMinutes'
 };
+const SUBSCRIPTION_COOLDOWN_KEY = 'subscriptionManagerCooldownMinutes';
+const SUBSCRIPTION_COOLDOWN_OPTIONS = [5, 10, 30, 60, 120, 240];
 const SQL_EXPORT_TABLE_NAME = 'watched_videos';
 const SQL_EXPORT_IDS_PER_FILE = 200000;
 const SQL_EXPORT_VALUES_PER_STATEMENT = 300;
@@ -609,6 +611,9 @@ function loadSettings() {
         loadSubscriptionSyncSettings().catch((error) => {
             showStatus(error?.message || 'Failed to load subscription sync settings', 'error');
         });
+        loadSubscriptionCooldownSetting().catch((error) => {
+            showStatus(error?.message || 'Failed to load subscription cooldown setting', 'error');
+        });
         cleanupLegacyFeatureFlags();
     });
 }
@@ -1084,6 +1089,34 @@ async function saveSubscriptionSyncSettings() {
 }
 
 /**
+ * Normalize subscription fetch cooldown minutes.
+ * @param {number|string} raw
+ * @returns {number}
+ */
+function normalizeSubscriptionCooldownMinutes(raw) {
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) {
+        return SUBSCRIPTION_COOLDOWN_OPTIONS[0];
+    }
+    const matched = SUBSCRIPTION_COOLDOWN_OPTIONS.find((option) => option === parsed);
+    return matched || SUBSCRIPTION_COOLDOWN_OPTIONS[0];
+}
+
+/**
+ * Load subscription fetch cooldown setting.
+ * @returns {Promise<void>}
+ */
+async function loadSubscriptionCooldownSetting() {
+    const select = document.getElementById('subscriptionFetchCooldown');
+    if (!select) {
+        return;
+    }
+    const result = await chrome.storage.local.get([SUBSCRIPTION_COOLDOWN_KEY]);
+    const value = normalizeSubscriptionCooldownMinutes(result[SUBSCRIPTION_COOLDOWN_KEY]);
+    select.value = String(value);
+}
+
+/**
  * Render cloud sync status in popup.
  * @param {object} status
  */
@@ -1292,6 +1325,28 @@ function setupSubscriptionSyncControls() {
 
     endpointInput?.addEventListener('blur', saveOnBlur);
     tokenInput?.addEventListener('blur', saveOnBlur);
+}
+
+/**
+ * Setup subscription fetch cooldown control.
+ */
+function setupSubscriptionCooldownControl() {
+    const select = document.getElementById('subscriptionFetchCooldown');
+    if (!select) {
+        return;
+    }
+    select.addEventListener('change', async () => {
+        const value = normalizeSubscriptionCooldownMinutes(select.value);
+        select.value = String(value);
+        try {
+            await chrome.storage.local.set({
+                [SUBSCRIPTION_COOLDOWN_KEY]: value
+            });
+            showStatus(`Subscription fetch cooldown set to ${value} min.`, 'success');
+        } catch (error) {
+            showStatus(error?.message || 'Failed to save subscription cooldown', 'error');
+        }
+    });
 }
 
 
@@ -1638,6 +1693,57 @@ async function syncSubscriptionsNow() {
 }
 
 /**
+ * Restore subscription manager data from Cloudflare.
+ */
+async function restoreSubscriptionsFromCloudflare() {
+    const restoreButton = document.getElementById('restoreSubscriptions');
+    if (!restoreButton) {
+        return;
+    }
+
+    const initialLabel = restoreButton.textContent;
+    restoreButton.disabled = true;
+    restoreButton.textContent = 'Restoring...';
+
+    try {
+        showStatus('Restoring subscriptions from Cloudflare...', 'info');
+        const { endpointUrl, apiToken } = await saveSubscriptionSyncSettings();
+
+        if (!endpointUrl) {
+            throw new Error('Subscription Worker URL is required');
+        }
+
+        const response = await sendRuntimeMessage({
+            type: 'RESTORE_SUBSCRIPTIONS_FROM_CLOUDFLARE',
+            endpointUrl,
+            apiToken
+        }, 240000);
+
+        if (!response?.success) {
+            throw new Error(response?.error || 'Subscription restore failed');
+        }
+
+        const host = typeof response.endpointHost === 'string' && response.endpointHost
+            ? response.endpointHost
+            : 'Cloudflare';
+        const channelCount = Number(response.channelCount) || 0;
+        const categoryCount = Number(response.categoryCount) || 0;
+        const assignmentCount = Number(response.assignmentCount) || 0;
+
+        showStatus(
+            `Restored ${channelCount} channels, ${categoryCount} categories, ${assignmentCount} assignments from ${host}.`,
+            'success'
+        );
+        await refreshSubscriptionSyncStatus();
+    } catch (error) {
+        showStatus(error?.message || 'Failed to restore subscriptions', 'error');
+    } finally {
+        restoreButton.disabled = false;
+        restoreButton.textContent = initialLabel;
+    }
+}
+
+/**
  * Open subscription manager modal from popup.
  */
 async function openSubscriptionManagerFromPopup() {
@@ -1908,6 +2014,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupDeleteVideosToggle();
     setupCloudflareSyncControls();
     setupSubscriptionSyncControls();
+    setupSubscriptionCooldownControl();
     setupTokenVisibilityToggle('cloudflareSyncToken', 'cloudflareTokenToggle');
     setupTokenVisibilityToggle('subscriptionSyncToken', 'subscriptionTokenToggle');
     setupAutoSave();
@@ -1920,6 +2027,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('historyFileInput').addEventListener('change', handleFileImport);
     document.getElementById('openSubscriptionManager').addEventListener('click', openSubscriptionManagerFromPopup);
     document.getElementById('syncSubscriptionsNow').addEventListener('click', syncSubscriptionsNow);
+    document.getElementById('restoreSubscriptions').addEventListener('click', restoreSubscriptionsFromCloudflare);
 
     setInterval(loadWatchedHistoryStats, 5000);
     setInterval(refreshCloudflareSyncStatus, 30000);

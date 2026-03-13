@@ -69,6 +69,7 @@ const SUBSCRIPTION_SYNC_DEFAULTS = {
 
 let cloudSyncInProgress = false;
 let subscriptionSyncInProgress = false;
+let subscriptionRestoreInProgress = false;
 let pendingQueueMutationChain = Promise.resolve();
 const DEFAULT_ACCOUNT_KEY = 'default';
 
@@ -1286,6 +1287,46 @@ async function postSubscriptionSyncPayload(endpoint, apiToken, payload) {
 }
 
 /**
+ * Fetch subscription payload from Cloudflare.
+ * @param {URL} endpoint
+ * @param {string} apiToken
+ * @param {string} accountKey
+ * @returns {Promise<any>}
+ */
+async function fetchSubscriptionRestorePayload(endpoint, apiToken, accountKey) {
+    const requestUrl = new URL(endpoint.toString());
+    if (accountKey) {
+        requestUrl.searchParams.set('accountKey', accountKey);
+    }
+
+    const headers = {
+        'X-YT-Commander-Client': 'chrome-extension'
+    };
+
+    if (apiToken) {
+        headers.Authorization = `Bearer ${apiToken}`;
+        headers['X-YT-Commander-Key'] = apiToken;
+    }
+
+    const response = await fetch(requestUrl.toString(), {
+        method: 'GET',
+        headers
+    });
+
+    const rawBody = await response.text();
+    const parsedBody = parseJsonSafe(rawBody);
+
+    if (!response.ok) {
+        const message = typeof parsedBody?.error === 'string'
+            ? parsedBody.error
+            : (rawBody.replace(/\s+/g, ' ').trim().slice(0, 220) || 'Unknown error');
+        throw new Error(`Subscription restore failed (${response.status}): ${message}`);
+    }
+
+    return parsedBody || {};
+}
+
+/**
  * Fetch one page of IDs from Cloudflare pull endpoint.
  * @param {URL} pullEndpoint
  * @param {string} apiToken
@@ -1776,6 +1817,106 @@ async function performSubscriptionSync(options = {}) {
 }
 
 /**
+ * Restore subscription manager data from Cloudflare.
+ * @param {{endpointUrl?: string, apiToken?: string, accountKey?: string}} options
+ * @returns {Promise<{channelCount: number, categoryCount: number, assignmentCount: number, endpointHost: string}>}
+ */
+async function restoreSubscriptionsFromCloudflare(options = {}) {
+    if (subscriptionRestoreInProgress) {
+        throw new Error('Restore is already in progress');
+    }
+    if (subscriptionSyncInProgress) {
+        throw new Error('Subscription sync is already in progress');
+    }
+
+    const state = await readSubscriptionSyncState();
+    const endpointRaw = typeof options.endpointUrl === 'string' && options.endpointUrl.trim()
+        ? options.endpointUrl.trim()
+        : state.endpointUrl;
+    const apiToken = typeof options.apiToken === 'string'
+        ? options.apiToken.trim()
+        : state.apiToken;
+
+    const endpoint = buildSubscriptionEndpoint(endpointRaw);
+    const accountKey = normalizeAccountKey(options.accountKey || state.primaryAccountKey || DEFAULT_ACCOUNT_KEY);
+
+    subscriptionRestoreInProgress = true;
+
+    try {
+        const payload = await fetchSubscriptionRestorePayload(endpoint, apiToken, accountKey);
+        const snapshot = payload && typeof payload.snapshot === 'object' ? payload.snapshot : {};
+        const rawChannels = Array.isArray(payload.channels)
+            ? payload.channels
+            : (Array.isArray(snapshot.channels) ? snapshot.channels : []);
+        const rawCategories = Array.isArray(payload.categories) ? payload.categories : [];
+        const rawAssignments = payload && typeof payload.assignments === 'object'
+            ? payload.assignments
+            : {};
+
+        const channels = rawChannels.filter((channel) => channel && typeof channel.channelId === 'string' && channel.channelId);
+
+        const categories = rawCategories
+            .map((item) => {
+                if (!item || typeof item !== 'object') {
+                    return null;
+                }
+                const id = typeof item.id === 'string' ? item.id.trim() : '';
+                const name = typeof item.name === 'string' ? item.name.trim() : '';
+                const color = typeof item.color === 'string' ? item.color : '';
+                if (!id || !name) {
+                    return null;
+                }
+                return { id, name, color };
+            })
+            .filter(Boolean);
+
+        const categoryIds = new Set(categories.map((item) => item.id));
+        const assignments = {};
+        let assignmentCount = 0;
+        if (rawAssignments && typeof rawAssignments === 'object') {
+            Object.entries(rawAssignments).forEach(([channelId, list]) => {
+                if (typeof channelId !== 'string' || !channelId) {
+                    return;
+                }
+                const next = Array.isArray(list)
+                    ? list.filter((id) => typeof id === 'string' && id && categoryIds.has(id))
+                    : [];
+                if (next.length > 0) {
+                    const unique = Array.from(new Set(next));
+                    assignments[channelId] = unique;
+                    assignmentCount += unique.length;
+                }
+            });
+        }
+
+        const fetchedAt = Number(snapshot.fetchedAt) || Date.now();
+        const hash = typeof snapshot.hash === 'string' ? snapshot.hash : '';
+
+        await storageLocalSet({
+            subscriptionManagerCategories: categories,
+            subscriptionManagerAssignments: assignments,
+            subscriptionManagerSnapshot: {
+                channels,
+                fetchedAt,
+                hash
+            },
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_KEYS]: [],
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_COUNT]: 0,
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.COUNT]: channels.length
+        });
+
+        return {
+            channelCount: channels.length,
+            categoryCount: categories.length,
+            assignmentCount,
+            endpointHost: endpoint.host
+        };
+    } finally {
+        subscriptionRestoreInProgress = false;
+    }
+}
+
+/**
  * Read cloud sync status and refresh pending count when possible.
  * @returns {Promise<object>}
  */
@@ -2053,6 +2194,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             apiToken: message.apiToken,
             source: 'popup-manual-sync',
             activeTabId: Number.isFinite(message.activeTabId) ? Number(message.activeTabId) : undefined
+        })
+            .then((result) => sendResponse({ success: true, ...result }))
+            .catch((error) => sendResponse({ success: false, error: error.message }));
+        return true;
+    }
+
+    if (message.type === 'RESTORE_SUBSCRIPTIONS_FROM_CLOUDFLARE') {
+        restoreSubscriptionsFromCloudflare({
+            endpointUrl: message.endpointUrl,
+            apiToken: message.apiToken,
+            accountKey: message.accountKey
         })
             .then((result) => sendResponse({ success: true, ...result }))
             .catch((error) => sendResponse({ success: false, error: error.message }));
