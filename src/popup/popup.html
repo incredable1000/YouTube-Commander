@@ -697,6 +697,89 @@
             fill: currentColor;
         }
 
+        body.yt-commander-popup-v2 .ytc-v2-settings-modal {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 85;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-modal.is-visible {
+            display: flex;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(5, 8, 14, 0.75);
+            backdrop-filter: blur(6px);
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-panel {
+            position: relative;
+            width: calc(100% - 28px);
+            max-width: 392px;
+            max-height: calc(100% - 28px);
+            overflow: auto;
+            border-radius: 16px;
+            border: 1px solid var(--ytc-v2-border);
+            background: linear-gradient(160deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 60%), var(--ytc-v2-surface);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+            padding: 12px;
+            z-index: 1;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--ytc-v2-text);
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-close {
+            border: 1px solid var(--ytc-v2-border);
+            background: rgba(18, 24, 38, 0.92);
+            color: var(--ytc-v2-muted);
+            border-radius: 10px;
+            width: 32px;
+            height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.16s ease;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-close:hover {
+            border-color: var(--ytc-v2-cyan);
+            color: var(--ytc-v2-text);
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-close:focus-visible {
+            outline: none;
+            border-color: var(--ytc-v2-cyan);
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--ytc-v2-cyan) 30%, transparent);
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-panel .feature-card {
+            display: block;
+            margin: 0;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-panel .feature-card::before {
+            display: none;
+        }
+
         body.yt-commander-popup-v2 .version {
             color: var(--ytc-v2-muted);
             font-size: 12px;
@@ -858,120 +941,6 @@
             </div>
         </div>
 
-        <!-- Cloudflare Feature -->
-        <div class="feature-card">
-            <div class="feature-header expanded" data-feature="cloudflare">
-                <div class="feature-title">
-                    <div class="feature-name">Cloudflare</div>
-                    <div class="feature-description">Sync watched history and subscriptions to D1</div>
-                </div>
-            </div>
-            <div class="feature-content expanded" id="cloudflareContent">
-                <div class="setting-row" style="display: block; margin-top: 4px;">
-                    <div class="setting-label" style="margin-bottom: 6px;">Cloudflare API Token (shared)</div>
-                    <div class="yt-commander-input-row">
-                        <input type="password" id="cloudflareSyncToken" class="setting-input setting-input-wide" placeholder="Bearer token (if your worker requires auth)" autocomplete="off">
-                        <button type="button" class="yt-commander-token-btn" id="cloudflareTokenToggle" aria-label="Show token" title="Show token" aria-pressed="false">
-                            <svg class="yt-commander-icon-eye" viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
-                                <circle cx="12" cy="12" r="3.5"></circle>
-                            </svg>
-                            <svg class="yt-commander-icon-eye-off" viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
-                                <path d="M4 4l16 16"></path>
-                                <path d="M9.5 9.5a3 3 0 0 0 4.2 4.2"></path>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-
-                <div class="ytc-v2-section">
-                    <div class="ytc-v2-section-title">Watched history sync</div>
-                    <div class="action-buttons">
-                        <button class="btn btn-secondary" id="syncToCloudflare">Sync</button>
-                        <button class="btn btn-secondary" id="downloadFromCloudflare">Restore</button>
-                    </div>
-                    <div class="action-buttons" style="margin-top: 8px;">
-                        <button class="btn btn-secondary" id="lockPrimarySyncAccount">Use Current Account</button>
-                    </div>
-                    <div class="setting-row" style="display: block; margin-top: 12px;">
-                        <div class="setting-label" style="margin-bottom: 6px;">Cloudflare Worker URL</div>
-                        <input type="url" id="cloudflareSyncEndpoint" class="setting-input setting-input-wide" placeholder="https://your-worker.workers.dev/sync">
-                    </div>
-                    <div class="setting-row" style="margin-top: 12px;">
-                        <div class="setting-label" style="font-size: 13px;">Auto Sync</div>
-                        <div class="toggle-switch small-toggle active" id="cloudflareAutoSyncToggle">
-                            <div class="toggle-slider"></div>
-                        </div>
-                    </div>
-                    <div class="setting-row" style="margin-top: 8px;">
-                        <div class="setting-label">Sync Every</div>
-                        <select id="cloudflareSyncInterval" class="setting-select">
-                            <option value="5">5 min</option>
-                            <option value="10">10 min</option>
-                            <option value="30" selected>30 min</option>
-                            <option value="60">60 min</option>
-                            <option value="120">120 min</option>
-                            <option value="240">240 min</option>
-                        </select>
-                    </div>
-                    <div class="setting-row" style="display: block; margin-top: 8px; gap: 4px;">
-                        <div class="setting-label" style="font-size: 12px;">Pending IDs: <span id="cloudflarePendingCount">0</span></div>
-                        <div class="setting-label" style="font-size: 12px;">Sync Account: <span id="cloudflarePrimaryAccount">Not locked</span></div>
-                        <div class="setting-label" style="font-size: 12px;">Next Sync In: <span id="cloudflareNextSyncIn">--:--</span></div>
-                        <div class="setting-label" style="font-size: 12px;">Last Sync: <span id="cloudflareLastSyncAt">Never</span></div>
-                        <div class="setting-label" style="font-size: 12px;">Status: <span id="cloudflareLastSyncInfo">Idle</span></div>
-                    </div>
-                </div>
-
-                <div class="ytc-v2-section">
-                    <div class="ytc-v2-section-title">Subscription sync</div>
-                    <div class="action-buttons">
-                        <button class="btn btn-secondary" id="syncSubscriptionsNow">Manual Sync</button>
-                        <button class="btn btn-secondary" id="restoreSubscriptions">Restore</button>
-                    </div>
-                    <div class="setting-row" style="display: block; margin-top: 12px;">
-                        <div class="setting-label" style="margin-bottom: 6px;">Subscription Worker URL</div>
-                        <input type="url" id="subscriptionSyncEndpoint" class="setting-input setting-input-wide" placeholder="https://your-worker.workers.dev/subscriptions">
-                    </div>
-                    <div class="setting-row" style="margin-top: 12px;">
-                        <div class="setting-label" style="font-size: 13px;">Auto Sync</div>
-                        <div class="toggle-switch small-toggle active" id="subscriptionAutoSyncToggle">
-                            <div class="toggle-slider"></div>
-                        </div>
-                    </div>
-                    <div class="setting-row" style="margin-top: 8px;">
-                        <div class="setting-label">Sync Every</div>
-                        <select id="subscriptionSyncInterval" class="setting-select">
-                            <option value="5">5 min</option>
-                            <option value="10">10 min</option>
-                            <option value="30">30 min</option>
-                            <option value="60" selected>60 min</option>
-                            <option value="120">120 min</option>
-                            <option value="240">240 min</option>
-                        </select>
-                    </div>
-                    <div class="setting-row" style="display: block; margin-top: 8px; gap: 4px;">
-                        <div class="setting-label" style="font-size: 12px;">Pending IDs: <span id="subscriptionPendingCount">0</span></div>
-                        <div class="setting-label" style="font-size: 12px;">Sync Account: <span id="subscriptionPrimaryAccount">Not locked</span></div>
-                        <div class="setting-label" style="font-size: 12px;">Next Sync In: <span id="subscriptionNextSyncIn">--:--</span></div>
-                        <div class="setting-label" style="font-size: 12px;">Last Sync: <span id="subscriptionLastSyncAt">Never</span></div>
-                        <div class="setting-label" style="font-size: 12px;">Status: <span id="subscriptionLastSyncInfo">Idle</span></div>
-                    </div>
-                </div>
-
-                <div class="ytc-v2-section">
-                    <div class="ytc-v2-section-title">D1 export</div>
-                    <div class="action-buttons">
-                        <button class="btn btn-secondary" id="exportSqlMigration">Export SQL</button>
-                    </div>
-                </div>
-
-                <div id="subscriptionStatus" class="status"></div>
-                <div class="note">Cloudflare sync sends only pending unsynced data to reduce API calls. The API token is shared across both history and subscription sync workers.</div>
-            </div>
-        </div>
-
         <!-- Subscription Manager Feature -->
         <div class="feature-card">
             <div class="feature-header expanded" data-feature="subscriptionManager">
@@ -1106,6 +1075,112 @@
 
         <!-- Status Display -->
         <div id="status" class="status"></div>
+    </div>
+
+    <div class="ytc-v2-settings-modal" id="popupSettingsModal" aria-hidden="true">
+        <div class="ytc-v2-settings-backdrop" data-action="close-settings"></div>
+        <div class="ytc-v2-settings-panel" role="dialog" aria-modal="true" aria-label="Settings">
+            <div class="ytc-v2-settings-header">
+                <div class="ytc-v2-settings-title">Settings</div>
+                <button type="button" class="ytc-v2-settings-close" data-action="close-settings" aria-label="Close settings">X</button>
+            </div>
+            <!-- Cloudflare Feature -->
+            <div class="feature-card">
+                <div class="feature-header expanded" data-feature="cloudflare">
+                    <div class="feature-title">
+                        <div class="feature-name">Cloudflare</div>
+                        <div class="feature-description">Sync watched history and subscriptions to D1</div>
+                    </div>
+                </div>
+                <div class="feature-content expanded" id="cloudflareContent">
+                    <div class="setting-row" style="display: block; margin-top: 4px;">
+                        <div class="setting-label" style="margin-bottom: 6px;">Cloudflare Worker URL</div>
+                        <input type="url" id="cloudflareSyncEndpoint" class="setting-input setting-input-wide" placeholder="https://your-worker.workers.dev">
+                    </div>
+                    <div class="setting-row" style="display: block; margin-top: 8px;">
+                        <div class="setting-label" style="margin-bottom: 6px;">Cloudflare API Token (shared)</div>
+                        <div class="yt-commander-input-row">
+                            <input type="password" id="cloudflareSyncToken" class="setting-input setting-input-wide" placeholder="Bearer token (if your worker requires auth)" autocomplete="off">
+                            <button type="button" class="yt-commander-token-btn" id="cloudflareTokenToggle" aria-label="Show token" title="Show token" aria-pressed="false">
+                                <svg class="yt-commander-icon-eye" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+                                    <circle cx="12" cy="12" r="3.5"></circle>
+                                </svg>
+                                <svg class="yt-commander-icon-eye-off" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+                                    <path d="M4 4l16 16"></path>
+                                    <path d="M9.5 9.5a3 3 0 0 0 4.2 4.2"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="setting-row" style="margin-top: 12px;">
+                        <div class="setting-label" style="font-size: 13px;">Auto Sync (all)</div>
+                        <div class="toggle-switch small-toggle active" id="cloudflareAutoSyncToggle">
+                            <div class="toggle-slider"></div>
+                        </div>
+                    </div>
+                    <div class="setting-row" style="margin-top: 8px;">
+                        <div class="setting-label">Sync Every (all)</div>
+                        <select id="cloudflareSyncInterval" class="setting-select">
+                            <option value="5">5 min</option>
+                            <option value="10">10 min</option>
+                            <option value="30" selected>30 min</option>
+                            <option value="60">60 min</option>
+                            <option value="120">120 min</option>
+                            <option value="240">240 min</option>
+                        </select>
+                    </div>
+
+                    <div class="ytc-v2-section">
+                        <div class="ytc-v2-section-title">Watched history sync</div>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary" id="syncToCloudflare">Sync</button>
+                            <button class="btn btn-secondary" id="downloadFromCloudflare">Restore</button>
+                        </div>
+                        <div class="action-buttons" style="margin-top: 8px;">
+                            <button class="btn btn-secondary" id="lockPrimarySyncAccount">Use Current Account</button>
+                        </div>
+                        <div class="setting-row" style="display: block; margin-top: 8px; gap: 4px;">
+                            <div class="setting-label" style="font-size: 12px;">Pending IDs: <span id="cloudflarePendingCount">0</span></div>
+                            <div class="setting-label" style="font-size: 12px;">Sync Account: <span id="cloudflarePrimaryAccount">Not locked</span></div>
+                            <div class="setting-label" style="font-size: 12px;">Next Sync In: <span id="cloudflareNextSyncIn">--:--</span></div>
+                            <div class="setting-label" style="font-size: 12px;">Last Sync: <span id="cloudflareLastSyncAt">Never</span></div>
+                            <div class="setting-label" style="font-size: 12px;">Status: <span id="cloudflareLastSyncInfo">Idle</span></div>
+                        </div>
+                    </div>
+
+                    <div class="ytc-v2-section">
+                        <div class="ytc-v2-section-title">Subscription sync</div>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary" id="syncSubscriptionsNow">Manual Sync</button>
+                            <button class="btn btn-secondary" id="restoreSubscriptions">Restore</button>
+                        </div>
+                        <div class="setting-row" style="display: block; margin-top: 12px;">
+                            <div class="setting-label" style="margin-bottom: 6px;">Worker URL</div>
+                            <div class="setting-label" style="font-size: 12px;">Uses the base URL above and routes to /subscriptions automatically.</div>
+                        </div>
+                        <div class="setting-row" style="display: block; margin-top: 8px; gap: 4px;">
+                            <div class="setting-label" style="font-size: 12px;">Pending IDs: <span id="subscriptionPendingCount">0</span></div>
+                            <div class="setting-label" style="font-size: 12px;">Sync Account: <span id="subscriptionPrimaryAccount">Not locked</span></div>
+                            <div class="setting-label" style="font-size: 12px;">Next Sync In: <span id="subscriptionNextSyncIn">--:--</span></div>
+                            <div class="setting-label" style="font-size: 12px;">Last Sync: <span id="subscriptionLastSyncAt">Never</span></div>
+                            <div class="setting-label" style="font-size: 12px;">Status: <span id="subscriptionLastSyncInfo">Idle</span></div>
+                        </div>
+                    </div>
+
+                    <div class="ytc-v2-section">
+                        <div class="ytc-v2-section-title">D1 export</div>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary" id="exportSqlMigration">Export SQL</button>
+                        </div>
+                    </div>
+
+                    <div id="subscriptionStatus" class="status"></div>
+                    <div class="note">Cloudflare sync sends only pending unsynced data to reduce API calls. The API token and auto sync cadence are shared across history and subscription sync workers.</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="footer">
