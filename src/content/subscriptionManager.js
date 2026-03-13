@@ -34,7 +34,8 @@ const CARDS_CLASS = 'yt-commander-sub-manager-cards';
 const BADGE_CLASS = 'yt-commander-sub-manager-badge';
 const BADGE_REMOVE_CLASS = 'yt-commander-sub-manager-badge-remove';
 const STATUS_CLASS = 'yt-commander-sub-manager-status';
-const PICKER_CLASS = 'yt-commander-sub-manager-picker';const FILTER_BUTTON_CLASS = 'yt-commander-sub-manager-filter-btn';
+const PICKER_CLASS = 'yt-commander-sub-manager-picker';
+const FILTER_BUTTON_CLASS = 'yt-commander-sub-manager-filter';
 const FILTER_MENU_CLASS = 'yt-commander-sub-manager-filter-menu';
 const FILTER_ITEM_CLASS = 'yt-commander-sub-manager-filter-item';
 const FILTER_DOT_CLASS = 'yt-commander-sub-manager-filter-dot';
@@ -43,6 +44,7 @@ const QUICK_ADD_CLASS = 'yt-commander-sub-manager-quick-add';
 
 const ITEMS_PER_PAGE = 100;
 const SNAPSHOT_TTL_MS = 30 * 60 * 1000;
+const API_COOLDOWN_MS = 5 * 60 * 1000;
 
 const bridgeClient = createBridgeClient({
     source: BRIDGE_SOURCE,
@@ -61,19 +63,18 @@ let modal = null;
 let tableWrap = null;
 let cardsWrap = null;
 let statusEl = null;
-let selectionCountEl = null;
+let selectionBadgeEl = null;
 let pageInfoEl = null;
 let pagePrevButton = null;
 let pageNextButton = null;
 let viewTableButton = null;
 let viewCardButton = null;
 let filterButton = null;
+let filterLabelEl = null;
 let filterMenu = null;
 let addCategoryButton = null;
 let removeCategoryButton = null;
 let unsubscribeButton = null;
-let newCategoryButton = null;
-let openManagerButton = null;
 
 let picker = null;
 let pickerMode = 'toggle';
@@ -84,6 +85,7 @@ let filterAnchorEl = null;
 
 let channels = [];
 let channelsFetchedAt = 0;
+let lastFetchAttemptAt = 0;
 let channelsVersion = 0;
 let channelsById = new Map();
 let channelsByHandle = new Map();
@@ -162,6 +164,39 @@ function createSubscriptionIcon() {
  */
 function createQuickAddIcon() {
     return createIcon('M12 5v14M5 12h14');
+}
+
+const ICONS = {
+    table: 'M3 3h18v18H3V3zm2 2v6h6V5H5zm8 0v6h6V5h-6zM5 13v6h6v-6H5zm8 0v6h6v-6h-6z',
+    card: 'M4 6h16v12H4V6zm2 2h12v3H6V8zm0 5h8v3H6v-3z',
+    plus: 'M11 5h2v14h-2zM5 11h14v2H5z',
+    minus: 'M5 11h14v2H5z',
+    trash: 'M6 7h12v2H6V7zm2 3h8v9H8v-9zm3-7h2l1 2H10l1-2z',
+    prev: 'M15.41 7.41 14 6 8 12 14 18 15.41 16.59 10.83 12z',
+    next: 'M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z'
+};
+
+/**
+ * Apply icon-only button styling and tooltips.
+ * @param {HTMLButtonElement} button
+ * @param {string} iconPath
+ * @param {string} label
+ */
+function setIconButton(button, iconPath, label) {
+    if (!button) {
+        return;
+    }
+    button.textContent = '';
+    const icon = createIcon(iconPath);
+    icon.classList.add('yt-commander-sub-manager-icon');
+    button.appendChild(icon);
+    button.classList.add('yt-commander-sub-manager-icon-btn');
+    if (label) {
+        button.setAttribute('aria-label', label);
+        button.setAttribute('title', label);
+        button.setAttribute('data-tooltip', label);
+        button.classList.add('yt-commander-sub-manager-tooltip');
+    }
 }
 
 /**
@@ -777,7 +812,7 @@ async function handleQuickAddClick(event) {
     }
 
     if (!channelId && (identity.handle || identity.url)) {
-        await loadSubscriptions(true, { background: true });
+        await loadSubscriptions({ force: true, background: true });
         channelId = resolveChannelIdFromIdentity(identity);
     }
 
@@ -812,15 +847,26 @@ function ensureModal() {
     const titleWrap = document.createElement('div');
     titleWrap.className = 'yt-commander-sub-manager-title-wrap';
 
+    const titleRow = document.createElement('div');
+    titleRow.className = 'yt-commander-sub-manager-title-row';
+
     const title = document.createElement('div');
     title.className = 'yt-commander-sub-manager-title';
     title.textContent = 'Subscription Manager';
+
+    selectionBadgeEl = document.createElement('span');
+    selectionBadgeEl.className = 'yt-commander-sub-manager-selected-badge';
+    selectionBadgeEl.setAttribute('aria-live', 'polite');
+    selectionBadgeEl.style.display = 'none';
+
+    titleRow.appendChild(title);
+    titleRow.appendChild(selectionBadgeEl);
 
     const subtitle = document.createElement('div');
     subtitle.className = 'yt-commander-sub-manager-subtitle';
     subtitle.textContent = 'Manage subscriptions with categories and bulk actions.';
 
-    titleWrap.appendChild(title);
+    titleWrap.appendChild(titleRow);
     titleWrap.appendChild(subtitle);
 
     const headerActions = document.createElement('div');
@@ -830,37 +876,63 @@ function ensureModal() {
     viewTableButton.type = 'button';
     viewTableButton.className = 'yt-commander-sub-manager-toggle';
     viewTableButton.setAttribute('data-action', 'view-table');
-    viewTableButton.textContent = 'Table';
+    setIconButton(viewTableButton, ICONS.table, 'Table view');
 
     viewCardButton = document.createElement('button');
     viewCardButton.type = 'button';
     viewCardButton.className = 'yt-commander-sub-manager-toggle';
     viewCardButton.setAttribute('data-action', 'view-card');
-    viewCardButton.textContent = 'Card';
+    setIconButton(viewCardButton, ICONS.card, 'Card view');
 
     filterButton = document.createElement('button');
     filterButton.type = 'button';
     filterButton.className = FILTER_BUTTON_CLASS;
     filterButton.setAttribute('data-action', 'filter-toggle');
-    filterButton.textContent = 'All categories';
+    filterLabelEl = document.createElement('span');
+    filterLabelEl.className = 'yt-commander-sub-manager-filter-label';
+    filterLabelEl.textContent = 'All categories';
+    const filterAdd = document.createElement('span');
+    filterAdd.className = 'yt-commander-sub-manager-filter-add';
+    filterAdd.setAttribute('data-action', 'new-category');
+    filterAdd.setAttribute('role', 'button');
+    filterAdd.setAttribute('aria-label', 'New category');
+    filterAdd.setAttribute('title', 'New category');
+    filterAdd.setAttribute('data-tooltip', 'New category');
+    filterAdd.classList.add('yt-commander-sub-manager-tooltip');
+    const filterAddIcon = createIcon(ICONS.plus);
+    filterAddIcon.classList.add('yt-commander-sub-manager-icon');
+    filterAdd.appendChild(filterAddIcon);
+    filterButton.appendChild(filterLabelEl);
+    filterButton.appendChild(filterAdd);
 
-    newCategoryButton = document.createElement('button');
-    newCategoryButton.type = 'button';
-    newCategoryButton.className = 'yt-commander-sub-manager-btn secondary';
-    newCategoryButton.setAttribute('data-action', 'new-category');
-    newCategoryButton.textContent = 'New category';
+    unsubscribeButton = document.createElement('button');
+    unsubscribeButton.type = 'button';
+    unsubscribeButton.className = 'yt-commander-sub-manager-btn danger';
+    unsubscribeButton.setAttribute('data-action', 'unsubscribe-selected');
+    setIconButton(unsubscribeButton, ICONS.trash, 'Unsubscribe selected');
 
-    openManagerButton = document.createElement('button');
-    openManagerButton.type = 'button';
-    openManagerButton.className = 'yt-commander-sub-manager-close';
-    openManagerButton.setAttribute('data-action', 'close-modal');
-    openManagerButton.textContent = 'Close';
+    addCategoryButton = document.createElement('button');
+    addCategoryButton.type = 'button';
+    addCategoryButton.className = 'yt-commander-sub-manager-btn';
+    addCategoryButton.setAttribute('data-action', 'add-category-selected');
+    setIconButton(addCategoryButton, ICONS.plus, 'Add category');
+
+    removeCategoryButton = document.createElement('button');
+    removeCategoryButton.type = 'button';
+    removeCategoryButton.className = 'yt-commander-sub-manager-btn secondary';
+    removeCategoryButton.setAttribute('data-action', 'remove-category-selected');
+    setIconButton(removeCategoryButton, ICONS.minus, 'Remove category');
 
     headerActions.appendChild(viewTableButton);
     headerActions.appendChild(viewCardButton);
     headerActions.appendChild(filterButton);
-    headerActions.appendChild(newCategoryButton);
-    headerActions.appendChild(openManagerButton);
+
+    const actionGroup = document.createElement('div');
+    actionGroup.className = 'yt-commander-sub-manager-action-group';
+    actionGroup.appendChild(unsubscribeButton);
+    actionGroup.appendChild(addCategoryButton);
+    actionGroup.appendChild(removeCategoryButton);
+    headerActions.appendChild(actionGroup);
     if (!filterMenu || !filterMenu.isConnected) {
         filterMenu = document.createElement('div');
         filterMenu.className = FILTER_MENU_CLASS;
@@ -872,36 +944,6 @@ function ensureModal() {
 
     header.appendChild(titleWrap);
     header.appendChild(headerActions);
-
-    const toolbar = document.createElement('div');
-    toolbar.className = 'yt-commander-sub-manager-toolbar';
-
-    selectionCountEl = document.createElement('div');
-    selectionCountEl.className = 'yt-commander-sub-manager-selection';
-    selectionCountEl.textContent = '0 selected';
-
-    unsubscribeButton = document.createElement('button');
-    unsubscribeButton.type = 'button';
-    unsubscribeButton.className = 'yt-commander-sub-manager-btn danger';
-    unsubscribeButton.setAttribute('data-action', 'unsubscribe-selected');
-    unsubscribeButton.textContent = 'Unsubscribe';
-
-    addCategoryButton = document.createElement('button');
-    addCategoryButton.type = 'button';
-    addCategoryButton.className = 'yt-commander-sub-manager-btn';
-    addCategoryButton.setAttribute('data-action', 'add-category-selected');
-    addCategoryButton.textContent = 'Add category';
-
-    removeCategoryButton = document.createElement('button');
-    removeCategoryButton.type = 'button';
-    removeCategoryButton.className = 'yt-commander-sub-manager-btn secondary';
-    removeCategoryButton.setAttribute('data-action', 'remove-category-selected');
-    removeCategoryButton.textContent = 'Remove category';
-
-    toolbar.appendChild(selectionCountEl);
-    toolbar.appendChild(unsubscribeButton);
-    toolbar.appendChild(addCategoryButton);
-    toolbar.appendChild(removeCategoryButton);
 
     const content = document.createElement('div');
     content.className = 'yt-commander-sub-manager-content';
@@ -926,7 +968,7 @@ function ensureModal() {
     pagePrevButton.type = 'button';
     pagePrevButton.className = 'yt-commander-sub-manager-btn secondary';
     pagePrevButton.setAttribute('data-action', 'page-prev');
-    pagePrevButton.textContent = 'Prev';
+    setIconButton(pagePrevButton, ICONS.prev, 'Previous page');
 
     pageInfoEl = document.createElement('div');
     pageInfoEl.className = 'yt-commander-sub-manager-page-info';
@@ -936,14 +978,13 @@ function ensureModal() {
     pageNextButton.type = 'button';
     pageNextButton.className = 'yt-commander-sub-manager-btn secondary';
     pageNextButton.setAttribute('data-action', 'page-next');
-    pageNextButton.textContent = 'Next';
+    setIconButton(pageNextButton, ICONS.next, 'Next page');
 
     footer.appendChild(pagePrevButton);
     footer.appendChild(pageInfoEl);
     footer.appendChild(pageNextButton);
 
     modal.appendChild(header);
-    modal.appendChild(toolbar);
     modal.appendChild(content);
     modal.appendChild(statusEl);
     modal.appendChild(footer);
@@ -1021,7 +1062,7 @@ function renderPicker() {
     newButton.type = 'button';
     newButton.className = 'yt-commander-sub-manager-btn secondary';
     newButton.setAttribute('data-action', 'picker-new-category');
-    newButton.textContent = 'New category';
+    setIconButton(newButton, ICONS.plus, 'New category');
     footer.appendChild(newButton);
 
     picker.appendChild(title);
@@ -1120,7 +1161,12 @@ function updateFilterButtonLabel() {
     const counts = getCategoryCounts();
     const label = getFilterLabel(filterMode);
     const count = typeof counts[filterMode] === 'number' ? counts[filterMode] : counts.all || 0;
-    filterButton.textContent = `${label} (${count})`;
+    const text = `${label} (${count})`;
+    if (filterLabelEl) {
+        filterLabelEl.textContent = text;
+        return;
+    }
+    filterButton.textContent = text;
 }
 
 function renderFilterMenu() {
@@ -1137,35 +1183,63 @@ function renderFilterMenu() {
 
     filterMenu.innerHTML = '';
 
-    const addItem = (id, label, color) => {
-        const item = document.createElement('button');
-        item.type = 'button';
+    const addItem = (id, label, color, options = {}) => {
+        const item = document.createElement('div');
         item.className = FILTER_ITEM_CLASS;
+        item.setAttribute('role', 'menuitem');
+        item.setAttribute('tabindex', '0');
         item.setAttribute('data-filter-id', id);
         if (filterMode === id) {
             item.classList.add('active');
         }
+
+        const left = document.createElement('span');
+        left.className = 'yt-commander-sub-manager-filter-left';
 
         const dot = document.createElement('span');
         dot.className = FILTER_DOT_CLASS;
         dot.style.backgroundColor = color;
 
         const name = document.createElement('span');
+        name.className = 'yt-commander-sub-manager-filter-name';
         name.textContent = label;
+
+        left.appendChild(dot);
+        left.appendChild(name);
+
+        const right = document.createElement('span');
+        right.className = 'yt-commander-sub-manager-filter-right';
 
         const count = document.createElement('span');
         count.className = FILTER_COUNT_CLASS;
         count.textContent = String(typeof counts[id] === 'number' ? counts[id] : 0);
 
-        item.appendChild(dot);
-        item.appendChild(name);
-        item.appendChild(count);
+        right.appendChild(count);
+
+        if (options.removable) {
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'yt-commander-sub-manager-filter-remove';
+            remove.setAttribute('data-action', 'filter-remove');
+            remove.setAttribute('data-category-id', id);
+            remove.setAttribute('aria-label', `Remove ${label}`);
+            remove.setAttribute('title', `Remove ${label}`);
+            remove.setAttribute('data-tooltip', `Remove ${label}`);
+            remove.classList.add('yt-commander-sub-manager-tooltip');
+            const removeIcon = createIcon(ICONS.trash);
+            removeIcon.classList.add('yt-commander-sub-manager-icon');
+            remove.appendChild(removeIcon);
+            right.appendChild(remove);
+        }
+
+        item.appendChild(left);
+        item.appendChild(right);
         filterMenu.appendChild(item);
     };
 
     addItem('all', 'All categories', '#616b7f');
     addItem('uncategorized', 'Uncategorized', '#3b4457');
-    categories.forEach((category) => addItem(category.id, category.name, category.color));
+    categories.forEach((category) => addItem(category.id, category.name, category.color, { removable: true }));
 
     updateFilterButtonLabel();
 }
@@ -1226,6 +1300,14 @@ function toggleFilterMenu(anchor) {
 
 function handleFilterMenuClick(event) {
     const baseTarget = event.target instanceof Element ? event.target : event.target?.parentElement;
+    const removeTarget = baseTarget?.closest('[data-action="filter-remove"]');
+    if (removeTarget) {
+        event.preventDefault();
+        event.stopPropagation();
+        const categoryId = removeTarget.getAttribute('data-category-id') || '';
+        removeCategory(categoryId).catch(() => undefined);
+        return;
+    }
     const target = baseTarget?.closest('[data-filter-id]');
     if (!target) {
         return;
@@ -1234,6 +1316,54 @@ function handleFilterMenuClick(event) {
     currentPage = 1;
     persistViewState().catch(() => undefined);
     closeFilterMenu();
+    renderList();
+}
+
+/**
+ * Remove category and associated assignments.
+ * @param {string} categoryId
+ * @returns {Promise<void>}
+ */
+async function removeCategory(categoryId) {
+    if (!categoryId) {
+        return;
+    }
+    const category = categories.find((item) => item.id === categoryId);
+    if (!category) {
+        return;
+    }
+    const confirmText = `Remove category "${category.name}"? This will unassign it from all channels.`;
+    if (!window.confirm(confirmText)) {
+        return;
+    }
+
+    categories = categories.filter((item) => item.id !== categoryId);
+    markCategoriesDirty();
+
+    const updatedKeys = [`category:${categoryId}`];
+    let affected = 0;
+    Object.entries(assignments).forEach(([channelId, list]) => {
+        if (!Array.isArray(list) || !list.includes(categoryId)) {
+            return;
+        }
+        const next = list.filter((id) => id !== categoryId);
+        if (next.length > 0) {
+            assignments[channelId] = next;
+        } else {
+            delete assignments[channelId];
+        }
+        updatedKeys.push(`channel:${channelId}`);
+        affected += 1;
+    });
+
+    if (affected > 0) {
+        markAssignmentsDirty();
+    }
+
+    await persistLocalState();
+    await markPending(updatedKeys);
+    setStatus(`Removed "${category.name}" from ${affected} channel(s).`, 'success');
+    renderFilterMenu();
     renderList();
 }
 
@@ -1279,8 +1409,19 @@ function formatSubscriptionError(error) {
  * Update selection UI.
  */
 function updateSelectionSummary() {
-    if (selectionCountEl) {
-        selectionCountEl.textContent = `${selectedChannelIds.size} selected`;
+    if (selectionBadgeEl) {
+        const count = selectedChannelIds.size;
+        if (count > 0) {
+            selectionBadgeEl.textContent = String(count);
+            selectionBadgeEl.setAttribute('aria-label', `${count} selected`);
+            selectionBadgeEl.setAttribute('title', `${count} selected`);
+            selectionBadgeEl.setAttribute('data-tooltip', `${count} selected`);
+            selectionBadgeEl.classList.add('yt-commander-sub-manager-tooltip');
+            selectionBadgeEl.style.display = 'inline-flex';
+        } else {
+            selectionBadgeEl.textContent = '';
+            selectionBadgeEl.style.display = 'none';
+        }
     }
 
     const disabled = selectedChannelIds.size === 0;
@@ -1293,6 +1434,38 @@ function updateSelectionSummary() {
     if (removeCategoryButton) {
         removeCategoryButton.disabled = disabled;
     }
+}
+
+/**
+ * Toggle a channel selection state.
+ * @param {string} channelId
+ * @param {boolean} [nextState]
+ */
+function toggleChannelSelection(channelId, nextState) {
+    if (!channelId) {
+        return;
+    }
+    const shouldSelect = typeof nextState === 'boolean'
+        ? nextState
+        : !selectedChannelIds.has(channelId);
+    if (shouldSelect) {
+        selectedChannelIds.add(channelId);
+    } else {
+        selectedChannelIds.delete(channelId);
+    }
+    const row = tableRowById.get(channelId);
+    if (row) {
+        const checkbox = row.querySelector('input[type="checkbox"][data-channel-id]');
+        if (checkbox) {
+            checkbox.checked = shouldSelect;
+        }
+        row.classList.toggle('is-selected', shouldSelect);
+    }
+    const card = cardById.get(channelId);
+    if (card) {
+        card.classList.toggle('is-selected', shouldSelect);
+    }
+    updateSelectionSummary();
 }
 
 /**
@@ -1375,15 +1548,22 @@ function handleOverlayClick(event) {
  * @param {MouseEvent} event
  */
 function handleDocumentClick(event) {
-    const target = event.target;
+    const target = event.target instanceof Element ? event.target : null;
+    const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
     if (picker && picker.style.display === 'block') {
-        if (!picker.contains(target) && !(pickerAnchorEl && pickerAnchorEl.contains(target))) {
+        const inPicker = (target && picker.contains(target)) || path.includes(picker);
+        const inAnchor = (target && pickerAnchorEl && pickerAnchorEl.contains(target))
+            || (pickerAnchorEl && path.includes(pickerAnchorEl));
+        if (!inPicker && !inAnchor) {
             closePicker();
         }
     }
 
     if (filterMenuOpen) {
-        if (!filterMenu?.contains(target) && !(filterButton && filterButton.contains(target))) {
+        const inMenu = (target && filterMenu?.contains(target)) || (filterMenu && path.includes(filterMenu));
+        const inButton = (target && filterButton && filterButton.contains(target))
+            || (filterButton && path.includes(filterButton));
+        if (!inMenu && !inButton) {
             closeFilterMenu();
         }
     }
@@ -1397,84 +1577,103 @@ function handleModalClick(event) {
     const baseTarget = event.target instanceof Element ? event.target : event.target?.parentElement;
     const actionTarget = baseTarget?.closest('[data-action]');
     const action = actionTarget?.getAttribute('data-action');
-    if (!action) {
-        return;
-    }
-
-    if (action === 'close-modal') {
-        closeModal();
-        return;
-    }
-
-    if (action === 'filter-toggle') {
-        toggleFilterMenu(actionTarget);
-        return;
-    }
-
-    if (action === 'view-table') {
-        viewMode = 'table';
-        persistViewState().catch(() => undefined);
-        renderList();
-        return;
-    }
-
-    if (action === 'view-card') {
-        viewMode = 'card';
-        persistViewState().catch(() => undefined);
-        renderList();
-        return;
-    }
-
-    if (action === 'page-prev') {
-        currentPage = Math.max(1, currentPage - 1);
-        renderList();
-        return;
-    }
-
-    if (action === 'page-next') {
-        currentPage = currentPage + 1;
-        renderList();
-        return;
-    }
-
-    if (action === 'unsubscribe-selected') {
-        unsubscribeSelected().catch((error) => {
-            setStatus(error?.message || 'Failed to unsubscribe', 'error');
-        });
-        return;
-    }
-
-    if (action === 'add-category-selected') {
-        openPicker(actionTarget, 'add', Array.from(selectedChannelIds));
-        return;
-    }
-
-    if (action === 'remove-category-selected') {
-        openPicker(actionTarget, 'remove', Array.from(selectedChannelIds));
-        return;
-    }
-
-    if (action === 'new-category') {
-        createNewCategory().catch(() => undefined);
-        return;
-    }
-
-    if (action === 'category-add') {
-        const channelId = actionTarget.getAttribute('data-channel-id') || '';
-        if (!channelId) {
+    if (action) {
+        if (action === 'close-modal') {
+            closeModal();
             return;
         }
-        openPicker(actionTarget, 'toggle', [channelId]);
+
+        if (action === 'filter-toggle') {
+            toggleFilterMenu(actionTarget);
+            return;
+        }
+
+        if (action === 'view-table') {
+            viewMode = 'table';
+            persistViewState().catch(() => undefined);
+            renderList();
+            return;
+        }
+
+        if (action === 'view-card') {
+            viewMode = 'card';
+            persistViewState().catch(() => undefined);
+            renderList();
+            return;
+        }
+
+        if (action === 'page-prev') {
+            currentPage = Math.max(1, currentPage - 1);
+            renderList();
+            return;
+        }
+
+        if (action === 'page-next') {
+            currentPage = currentPage + 1;
+            renderList();
+            return;
+        }
+
+        if (action === 'unsubscribe-selected') {
+            unsubscribeSelected().catch((error) => {
+                setStatus(error?.message || 'Failed to unsubscribe', 'error');
+            });
+            return;
+        }
+
+        if (action === 'add-category-selected') {
+            openPicker(actionTarget, 'add', Array.from(selectedChannelIds));
+            return;
+        }
+
+        if (action === 'remove-category-selected') {
+            openPicker(actionTarget, 'remove', Array.from(selectedChannelIds));
+            return;
+        }
+
+        if (action === 'new-category') {
+            createNewCategory().catch(() => undefined);
+            return;
+        }
+
+        if (action === 'category-add') {
+            const channelId = actionTarget.getAttribute('data-channel-id') || '';
+            if (!channelId) {
+                return;
+            }
+            openPicker(actionTarget, 'toggle', [channelId]);
+            return;
+        }
+
+        if (action === 'remove-category') {
+            const channelId = actionTarget.getAttribute('data-channel-id') || '';
+            const categoryId = actionTarget.getAttribute('data-category-id') || '';
+            if (!channelId || !categoryId) {
+                return;
+            }
+            applyCategoryUpdate([channelId], categoryId, 'remove').catch(() => undefined);
+            return;
+        }
+    }
+
+    const interactive = baseTarget?.closest(
+        'button, a, input, select, textarea, .yt-commander-sub-manager-categories, .yt-commander-sub-manager-filter-menu, .yt-commander-sub-manager-picker'
+    );
+    if (interactive) {
         return;
     }
 
-    if (action === 'remove-category') {
-        const channelId = actionTarget.getAttribute('data-channel-id') || '';
-        const categoryId = actionTarget.getAttribute('data-category-id') || '';
-        if (!channelId || !categoryId) {
-            return;
-        }
-        applyCategoryUpdate([channelId], categoryId, 'remove').catch(() => undefined);
+    const row = baseTarget?.closest('.yt-commander-sub-manager-row');
+    if (row && !row.classList.contains('header')) {
+        const channelId = row.getAttribute('data-channel-id') || '';
+        toggleChannelSelection(channelId);
+        return;
+    }
+
+    const card = baseTarget?.closest('.yt-commander-sub-manager-card');
+    if (card) {
+        const channelId = card.getAttribute('data-channel-id') || '';
+        toggleChannelSelection(channelId);
     }
 }
 
@@ -1491,12 +1690,7 @@ function handleModalChange(event) {
     if (!channelId) {
         return;
     }
-    if (checkbox.checked) {
-        selectedChannelIds.add(channelId);
-    } else {
-        selectedChannelIds.delete(channelId);
-    }
-    updateSelectionSummary();
+    toggleChannelSelection(channelId, checkbox.checked);
 }
 
 /**
@@ -1550,16 +1744,37 @@ async function createNewCategory() {
 
 /**
  * Load subscriptions list from main world.
- * @param {boolean} [force]
- * @returns {Promise<void>}
+ * @param {boolean | {force?: boolean, background?: boolean}} [options]
+ * @returns {Promise<{status: 'skipped' | 'fetched' | 'error', cooldownRemainingMs?: number}>}
  */
-async function loadSubscriptions(force = false) {
+async function loadSubscriptions(options = {}) {
+    const resolved = typeof options === 'boolean' ? { force: options } : (options || {});
+    const force = Boolean(resolved.force);
+    const background = Boolean(resolved.background);
     const now = Date.now();
-    if (!force && channels.length > 0 && (now - channelsFetchedAt) < SNAPSHOT_TTL_MS) {
-        return;
+    const stored = await storageGet([STORAGE_KEYS.SNAPSHOT]);
+    const prevSnapshot = stored?.[STORAGE_KEYS.SNAPSHOT];
+    const lastSnapshotAt = Number(prevSnapshot?.fetchedAt) || 0;
+    const lastCallAt = Math.max(channelsFetchedAt, lastSnapshotAt, lastFetchAttemptAt);
+
+    if (!force && channels.length > 0 && (now - lastCallAt) < SNAPSHOT_TTL_MS) {
+        return { status: 'skipped' };
     }
 
-    setStatus('Loading subscriptions...', 'info');
+    const cooldownRemainingMs = API_COOLDOWN_MS - (now - lastCallAt);
+    const shouldUpdateStatus = !background || overlay?.classList.contains('is-visible');
+    if (cooldownRemainingMs > 0) {
+        if (shouldUpdateStatus) {
+            const waitMinutes = Math.ceil(cooldownRemainingMs / 60000);
+            setStatus(`Refresh cooldown: try again in ${waitMinutes} min.`, 'info');
+        }
+        return { status: 'skipped', cooldownRemainingMs };
+    }
+
+    lastFetchAttemptAt = now;
+    if (shouldUpdateStatus) {
+        setStatus(background ? 'Refreshing subscriptions...' : 'Loading subscriptions...', 'info');
+    }
 
     try {
         const response = await bridgeClient.sendRequest(ACTIONS.GET_SUBSCRIPTIONS, { limit: 60000 });
@@ -1567,19 +1782,24 @@ async function loadSubscriptions(force = false) {
         list.sort((a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }));
 
         channels = list;
-        channelsFetchedAt = now;
+        channelsFetchedAt = Date.now();
         const hash = computeSnapshotHash(list);
-        const stored = await storageGet([STORAGE_KEYS.SNAPSHOT]);
-        const prevHash = stored?.[STORAGE_KEYS.SNAPSHOT]?.hash || '';
+        const prevHash = prevSnapshot?.hash || '';
         await persistSnapshot(list, hash);
         if (hash && hash !== prevHash) {
             await markPending(['snapshot']);
         }
 
-        setStatus(`Loaded ${channels.length} channels.`, 'success');
+        if (shouldUpdateStatus) {
+            setStatus(`Loaded ${channels.length} channels.`, 'success');
+        }
+        return { status: 'fetched' };
     } catch (error) {
         logger.warn('Failed to load subscriptions', error);
-        setStatus(formatSubscriptionError(error), 'error');
+        if (shouldUpdateStatus) {
+            setStatus(formatSubscriptionError(error), 'error');
+        }
+        return { status: 'error' };
     }
 }
 /**
@@ -1599,6 +1819,77 @@ function buildChannelMeta(channel) {
         bits.push(channel.videoCount);
     }
     return bits.join(' | ');
+}
+
+/**
+ * Normalize count labels for display.
+ * @param {string | number | null | undefined} value
+ * @param {'subscribers' | 'videos'} kind
+ * @returns {string}
+ */
+function formatCountLabel(value, kind) {
+    if (value === null || value === undefined) {
+        return '-';
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value.toLocaleString();
+    }
+    let text = String(value).trim();
+    if (!text) {
+        return '-';
+    }
+    if (text.startsWith('@')) {
+        return '-';
+    }
+    if (kind === 'subscribers') {
+        text = text.replace(/subscribers?/i, '').trim();
+    } else if (kind === 'videos') {
+        text = text.replace(/videos?/i, '').trim();
+    }
+    return text || '-';
+}
+
+/**
+ * Resolve subscriber/video counts even if source fields are swapped.
+ * @param {object} channel
+ * @returns {{subscribers: string, videos: string}}
+ */
+function resolveChannelCounts(channel) {
+    const subRaw = typeof channel?.subscriberCount === 'string' ? channel.subscriberCount.trim() : '';
+    const vidRaw = typeof channel?.videoCount === 'string' ? channel.videoCount.trim() : '';
+    const subHasHandle = subRaw.startsWith('@');
+    const subHasSubscribers = /subscribers?/i.test(subRaw);
+    const subHasVideos = /videos?/i.test(subRaw);
+    const vidHasSubscribers = /subscribers?/i.test(vidRaw);
+    const vidHasVideos = /videos?/i.test(vidRaw);
+    const subIsCount = !subHasHandle && /\d/.test(subRaw);
+    const vidIsCount = !vidRaw.startsWith('@') && /\d/.test(vidRaw);
+
+    let subscriberValue = '';
+    let videoValue = '';
+
+    if (subHasSubscribers) {
+        subscriberValue = subRaw;
+    } else if (vidHasSubscribers) {
+        subscriberValue = vidRaw;
+    } else if (subIsCount) {
+        subscriberValue = subRaw;
+    } else if (vidIsCount && subHasHandle) {
+        subscriberValue = vidRaw;
+    }
+
+    if (vidHasVideos) {
+        videoValue = vidRaw;
+    } else if (subHasVideos) {
+        videoValue = subRaw;
+    } else if (vidIsCount && !vidHasSubscribers) {
+        videoValue = vidRaw;
+    }
+
+    return {
+        subscribers: formatCountLabel(subscriberValue, 'subscribers'),
+        videos: formatCountLabel(videoValue, 'videos')
+    };
 }
 
 /**
@@ -1627,6 +1918,10 @@ function buildCategoryBadges(channelId) {
         remove.setAttribute('data-action', 'remove-category');
         remove.setAttribute('data-channel-id', channelId);
         remove.setAttribute('data-category-id', category.id);
+        remove.setAttribute('aria-label', `Remove ${category.name}`);
+        remove.setAttribute('title', `Remove ${category.name}`);
+        remove.setAttribute('data-tooltip', `Remove ${category.name}`);
+        remove.classList.add('yt-commander-sub-manager-tooltip');
         remove.textContent = 'x';
 
         badge.appendChild(remove);
@@ -1638,7 +1933,13 @@ function buildCategoryBadges(channelId) {
     add.className = 'yt-commander-sub-manager-category-add';
     add.setAttribute('data-action', 'category-add');
     add.setAttribute('data-channel-id', channelId);
-    add.textContent = 'Add';
+    add.setAttribute('aria-label', 'Add category');
+    add.setAttribute('title', 'Add category');
+    add.setAttribute('data-tooltip', 'Add category');
+    add.classList.add('yt-commander-sub-manager-tooltip');
+    const addIcon = createIcon(ICONS.plus);
+    addIcon.classList.add('yt-commander-sub-manager-icon');
+    add.appendChild(addIcon);
     wrapper.appendChild(add);
 
     return wrapper;
@@ -1669,7 +1970,7 @@ function buildTableHeader(pageItems) {
 
     header.appendChild(headerCheckbox);
 
-    const headerLabels = ['Channel', 'Subscribers', 'Videos', 'Categories'];
+    const headerLabels = ['Channel', 'Subscribers', 'Categories'];
     headerLabels.forEach((label) => {
         const cell = document.createElement('div');
         cell.className = 'yt-commander-sub-manager-cell header';
@@ -1684,6 +1985,9 @@ function buildTableRow(channel) {
     const row = document.createElement('div');
     row.className = 'yt-commander-sub-manager-row';
     row.setAttribute('data-channel-id', channel.channelId || '');
+    if (selectedChannelIds.has(channel.channelId)) {
+        row.classList.add('is-selected');
+    }
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -1720,17 +2024,12 @@ function buildTableRow(channel) {
 
     row.appendChild(channelCell);
 
+    const counts = resolveChannelCounts(channel);
     const subCell = document.createElement('div');
     subCell.className = 'yt-commander-sub-manager-cell';
     subCell.setAttribute('data-field', 'subscribers');
-    subCell.textContent = channel.subscriberCount || '-';
+    subCell.textContent = counts.subscribers;
     row.appendChild(subCell);
-
-    const videoCell = document.createElement('div');
-    videoCell.className = 'yt-commander-sub-manager-cell';
-    videoCell.setAttribute('data-field', 'videos');
-    videoCell.textContent = channel.videoCount || '-';
-    row.appendChild(videoCell);
 
     const catCell = document.createElement('div');
     catCell.className = 'yt-commander-sub-manager-cell';
@@ -1758,13 +2057,10 @@ function updateTableRow(row, channel) {
     if (avatar && channel.avatar) {
         avatar.src = channel.avatar;
     }
+    const counts = resolveChannelCounts(channel);
     const subCell = row.querySelector('[data-field="subscribers"]');
     if (subCell) {
-        subCell.textContent = channel.subscriberCount || '-';
-    }
-    const videoCell = row.querySelector('[data-field="videos"]');
-    if (videoCell) {
-        videoCell.textContent = channel.videoCount || '-';
+        subCell.textContent = counts.subscribers;
     }
     const catCell = row.querySelector('[data-field="categories"]');
     if (catCell) {
@@ -1777,13 +2073,9 @@ function buildCard(channel) {
     const card = document.createElement('div');
     card.className = 'yt-commander-sub-manager-card';
     card.setAttribute('data-channel-id', channel.channelId || '');
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'yt-commander-sub-manager-checkbox yt-commander-sub-manager-card-checkbox';
-    checkbox.setAttribute('data-channel-id', channel.channelId || '');
-    checkbox.checked = selectedChannelIds.has(channel.channelId);
-    card.appendChild(checkbox);
+    if (selectedChannelIds.has(channel.channelId)) {
+        card.classList.add('is-selected');
+    }
 
     const media = document.createElement('div');
     media.className = 'yt-commander-sub-manager-card-media';
@@ -1810,16 +2102,12 @@ function buildCard(channel) {
 
     const metrics = document.createElement('div');
     metrics.className = 'yt-commander-sub-manager-card-metrics';
+    const counts = resolveChannelCounts(channel);
     const subscribers = document.createElement('div');
     subscribers.className = 'yt-commander-sub-manager-card-metric';
     subscribers.setAttribute('data-field', 'subscribers');
-    subscribers.textContent = channel.subscriberCount || '-';
-    const videos = document.createElement('div');
-    videos.className = 'yt-commander-sub-manager-card-metric';
-    videos.setAttribute('data-field', 'videos');
-    videos.textContent = channel.videoCount || '-';
+    subscribers.textContent = counts.subscribers;
     metrics.appendChild(subscribers);
-    metrics.appendChild(videos);
 
     stats.appendChild(name);
     stats.appendChild(handle);
@@ -1836,10 +2124,6 @@ function buildCard(channel) {
 }
 
 function updateCard(card, channel) {
-    const checkbox = card.querySelector('input[type="checkbox"][data-channel-id]');
-    if (checkbox) {
-        checkbox.checked = selectedChannelIds.has(channel.channelId);
-    }
     const name = card.querySelector('[data-field="name"]');
     if (name) {
         name.textContent = channel.title || 'Untitled channel';
@@ -1852,13 +2136,10 @@ function updateCard(card, channel) {
     if (avatar && channel.avatar) {
         avatar.src = channel.avatar;
     }
+    const counts = resolveChannelCounts(channel);
     const subscribers = card.querySelector('[data-field="subscribers"]');
     if (subscribers) {
-        subscribers.textContent = channel.subscriberCount || '-';
-    }
-    const videos = card.querySelector('[data-field="videos"]');
-    if (videos) {
-        videos.textContent = channel.videoCount || '-';
+        subscribers.textContent = counts.subscribers;
     }
     const categoriesWrap = card.querySelector('[data-field="categories"]');
     if (categoriesWrap) {
@@ -1996,6 +2277,7 @@ function closeModal() {
     }
     overlay.classList.remove('is-visible');
     closePicker();
+    closeFilterMenu();
 }
 
 /**
@@ -2004,9 +2286,16 @@ function closeModal() {
 async function openModal() {
     ensureModal();
     await loadLocalState();
-    renderFilterMenu();
+    const hydrated = await hydrateSnapshotFromStorage();
     overlay.classList.add('is-visible');
-    await loadSubscriptions(false);
+    if (hydrated) {
+        renderList();
+        loadSubscriptions({ force: true, background: true }).then(() => {
+            renderList();
+        }).catch(() => undefined);
+        return;
+    }
+    await loadSubscriptions({ force: true });
     renderList();
 }
 
@@ -2057,7 +2346,18 @@ async function unsubscribeSelected() {
  * @param {KeyboardEvent} event
  */
 function handleKeydown(event) {
-    if (event.key === 'Escape' && overlay?.classList.contains('is-visible')) {
+    if (event.key !== 'Escape') {
+        return;
+    }
+    if (picker && picker.style.display === 'block') {
+        closePicker();
+        return;
+    }
+    if (filterMenuOpen) {
+        closeFilterMenu();
+        return;
+    }
+    if (overlay?.classList.contains('is-visible')) {
         closeModal();
     }
 }
@@ -2083,6 +2383,7 @@ export async function initSubscriptionManager() {
 
     window.addEventListener('message', bridgeClient.handleResponse);
     window.addEventListener('keydown', handleKeydown);
+    document.addEventListener('click', handleDocumentClick, true);
 
     isInitialized = true;
     logger.info('Subscription manager initialized');
@@ -2108,7 +2409,7 @@ export async function getSubscriptionSnapshot() {
         return snapshot;
     }
 
-    await loadSubscriptions(true);
+    await loadSubscriptions({ force: true, background: true });
     const nextStored = await storageGet([STORAGE_KEYS.SNAPSHOT]);
     return nextStored?.[STORAGE_KEYS.SNAPSHOT] || { channels: [], fetchedAt: Date.now(), hash: '' };
 }

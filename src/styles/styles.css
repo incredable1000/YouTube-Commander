@@ -1893,13 +1893,34 @@ body.yt-commander-windowed-lock {
     gap: 6px;
 }
 
+.yt-commander-sub-manager-title-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
 .yt-commander-sub-manager-title {
-    font-size: 22px;
+    font-size: 24px;
+    font-weight: 700;
+}
+
+.yt-commander-sub-manager-selected-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: rgba(244, 193, 109, 0.2);
+    border: 1px solid rgba(244, 193, 109, 0.6);
+    color: #f4c16d;
+    font-size: 12px;
     font-weight: 700;
 }
 
 .yt-commander-sub-manager-subtitle {
-    font-size: 14px;
+    font-size: 15px;
     color: #b3bccb;
 }
 
@@ -1910,13 +1931,19 @@ body.yt-commander-windowed-lock {
     align-items: center;
 }
 
+.yt-commander-sub-manager-action-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .yt-commander-sub-manager-toggle {
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.16);
     color: inherit;
     border-radius: 12px;
     padding: 7px 14px;
-    font-size: 13px;
+    font-size: 14px;
     cursor: pointer;
 }
 
@@ -1932,7 +1959,135 @@ body.yt-commander-windowed-lock {
     color: inherit;
     border-radius: 12px;
     padding: 7px 12px;
-    font-size: 13px;
+    font-size: 14px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.yt-commander-sub-manager-filter-btn {
+    background: rgba(20, 26, 38, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: inherit;
+    border-radius: 12px;
+    padding: 7px 12px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.yt-commander-sub-manager-filter-label {
+    white-space: nowrap;
+}
+
+.yt-commander-sub-manager-filter-add {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: inherit;
+    cursor: pointer;
+}
+
+.yt-commander-sub-manager-filter-add:hover {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.24);
+}
+
+.yt-commander-sub-manager-filter-menu {
+    position: fixed;
+    min-width: 220px;
+    background: #151c28;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 16px;
+    padding: 12px;
+    z-index: 10001;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
+    display: grid;
+    gap: 8px;
+}
+
+.yt-commander-sub-manager-filter-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    padding: 9px 12px;
+    color: #e8edf5;
+    cursor: pointer;
+    font-size: 14px;
+    text-align: left;
+}
+
+.yt-commander-sub-manager-filter-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.yt-commander-sub-manager-filter-item.active {
+    background: rgba(244, 193, 109, 0.16);
+    border-color: rgba(244, 193, 109, 0.55);
+    color: #f4c16d;
+}
+
+.yt-commander-sub-manager-filter-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.yt-commander-sub-manager-filter-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.yt-commander-sub-manager-filter-right {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.yt-commander-sub-manager-filter-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.yt-commander-sub-manager-filter-count {
+    background: rgba(255, 255, 255, 0.14);
+    color: #c9d1e3;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 12px;
+}
+
+.yt-commander-sub-manager-filter-remove {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: #d7deeb;
+    border-radius: 999px;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.yt-commander-sub-manager-filter-remove:hover {
+    border-color: rgba(255, 255, 255, 0.32);
+    background: rgba(255, 255, 255, 0.08);
 }
 
 .yt-commander-sub-manager-btn {
@@ -1941,7 +2096,7 @@ body.yt-commander-windowed-lock {
     color: #1b1f2a;
     border-radius: 12px;
     padding: 8px 14px;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     cursor: pointer;
 }
@@ -1968,8 +2123,74 @@ body.yt-commander-windowed-lock {
     color: inherit;
     border-radius: 12px;
     padding: 7px 14px;
-    font-size: 13px;
+    font-size: 14px;
     cursor: pointer;
+}
+
+.yt-commander-sub-manager-icon-btn {
+    width: 34px;
+    height: 32px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.yt-commander-sub-manager-btn.yt-commander-sub-manager-icon-btn,
+.yt-commander-sub-manager-toggle.yt-commander-sub-manager-icon-btn {
+    padding: 0;
+}
+
+.yt-commander-sub-manager-icon {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+
+.yt-commander-sub-manager-tooltip {
+    position: relative;
+}
+
+.yt-commander-sub-manager-tooltip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%) translateY(4px);
+    background: #0f141d;
+    color: #e8edf5;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-size: 11px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    z-index: 10002;
+}
+
+.yt-commander-sub-manager-tooltip::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 2px);
+    transform: translateX(-50%);
+    border-width: 6px 6px 0 6px;
+    border-style: solid;
+    border-color: #0f141d transparent transparent transparent;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    z-index: 10002;
+}
+
+.yt-commander-sub-manager-tooltip:hover::after,
+.yt-commander-sub-manager-tooltip:hover::before,
+.yt-commander-sub-manager-tooltip:focus-visible::after,
+.yt-commander-sub-manager-tooltip:focus-visible::before {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
 }
 
 .yt-commander-sub-manager-toolbar {
@@ -1982,7 +2203,7 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-sub-manager-selection {
-    font-size: 13px;
+    font-size: 14px;
     color: #b3bccb;
     margin-right: auto;
 }
@@ -1990,7 +2211,7 @@ body.yt-commander-windowed-lock {
 .yt-commander-sub-manager-content {
     flex: 1;
     overflow: auto;
-    padding: 12px 16px 18px;
+    padding: 4px 16px 18px;
 }
 
 .yt-commander-sub-manager-table {
@@ -1999,17 +2220,25 @@ body.yt-commander-windowed-lock {
 
 .yt-commander-sub-manager-row {
     display: grid;
-    grid-template-columns: 30px minmax(240px, 2.2fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(100px, 0.8fr) minmax(200px, 1.4fr);
+    grid-template-columns: 30px minmax(280px, 2.4fr) minmax(140px, 1fr) minmax(220px, 1.2fr);
     gap: 14px;
     align-items: center;
     padding: 12px 14px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     background: #171f2b;
-    font-size: 14px;
+    font-size: 15px;
 }
 
 .yt-commander-sub-manager-row:not(.header):nth-child(even) {
     background: #192231;
+}
+
+.yt-commander-sub-manager-row:not(.header) {
+    cursor: pointer;
+}
+
+.yt-commander-sub-manager-row.is-selected {
+    background: #212c3f;
 }
 
 .yt-commander-sub-manager-row.header {
@@ -2017,7 +2246,7 @@ body.yt-commander-windowed-lock {
     top: 0;
     z-index: 2;
     background: #141b26;
-    font-size: 12px;
+    font-size: 13px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: #9aa4b6;
@@ -2027,7 +2256,8 @@ body.yt-commander-windowed-lock {
     display: flex;
     align-items: center;
     gap: 12px;
-    font-size: 14px;
+    font-size: 15px;
+    min-width: 0;
 }
 
 .yt-commander-sub-manager-cell.header {
@@ -2052,15 +2282,23 @@ body.yt-commander-windowed-lock {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
 }
 
 .yt-commander-sub-manager-name {
     font-weight: 600;
+    font-size: 16px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .yt-commander-sub-manager-handle {
-    font-size: 13px;
+    font-size: 14px;
     color: #b1bac8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .yt-commander-sub-manager-cards {
@@ -2078,6 +2316,46 @@ body.yt-commander-windowed-lock {
     flex-direction: column;
     gap: 12px;
     box-shadow: 0 16px 32px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+}
+
+.yt-commander-sub-manager-card.is-selected {
+    border-color: rgba(244, 193, 109, 0.55);
+    box-shadow: 0 0 0 1px rgba(244, 193, 109, 0.45), 0 16px 32px rgba(0, 0, 0, 0.25);
+}
+
+.yt-commander-sub-manager-card-media {
+    border-radius: 14px;
+    overflow: hidden;
+    background: #0f141d;
+}
+
+.yt-commander-sub-manager-card-image {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    display: block;
+}
+
+.yt-commander-sub-manager-card-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.yt-commander-sub-manager-card-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.yt-commander-sub-manager-card-metric {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 13px;
+    color: #d4dbea;
 }
 
 .yt-commander-sub-manager-card-header {
@@ -2093,7 +2371,7 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-sub-manager-card-meta {
-    font-size: 13px;
+    font-size: 14px;
     color: #b1bac8;
 }
 
@@ -2116,7 +2394,7 @@ body.yt-commander-windowed-lock {
     gap: 6px;
     padding: 4px 10px;
     border-radius: 999px;
-    font-size: 12px;
+    font-size: 13px;
     color: #111520;
     font-weight: 600;
 }
@@ -2125,7 +2403,7 @@ body.yt-commander-windowed-lock {
     border: none;
     background: transparent;
     color: inherit;
-    font-size: 12px;
+    font-size: 13px;
     cursor: pointer;
 }
 
@@ -2134,9 +2412,13 @@ body.yt-commander-windowed-lock {
     background: transparent;
     color: #c5cedd;
     border-radius: 999px;
-    padding: 4px 10px;
-    font-size: 12px;
+    width: 30px;
+    height: 30px;
+    padding: 0;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .yt-commander-sub-manager-checkbox {
@@ -2231,6 +2513,7 @@ body.yt-commander-windowed-lock {
 .yt-commander-sub-manager-picker-footer {
     display: flex;
     justify-content: flex-end;
+    gap: 8px;
 }
 
 @media (max-width: 720px) {
@@ -2240,7 +2523,7 @@ body.yt-commander-windowed-lock {
     }
 
     .yt-commander-sub-manager-row {
-        grid-template-columns: 26px minmax(180px, 1.6fr) minmax(100px, 1fr) minmax(100px, 1fr) minmax(80px, 0.8fr) minmax(160px, 1fr);
+        grid-template-columns: 26px minmax(210px, 1.6fr) minmax(110px, 1fr) minmax(160px, 1fr);
         font-size: 13px;
     }
 

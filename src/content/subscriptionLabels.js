@@ -23,6 +23,7 @@ const METADATA_ROW_SELECTORS = [
     '.shortsLockupViewModelHostOutsideMetadata'
 ];
 const SUBSCRIBE_PAGE_URL = 'https://www.youtube.com/feed/channels';
+const HOME_BROWSE_SELECTOR = 'ytd-browse[page-subtype="home"], ytd-browse[browse-id="FEwhat_to_watch"]';
 const MAX_CONTINUATION_PAGES = 500;
 const CONTINUATION_FETCH_DELAY_MS = 120;
 const CONTINUATION_RETRY_DELAY_MS = 4000;
@@ -39,7 +40,6 @@ let dataInitialized = false;
 let mutationObserver = null;
 let renderScheduled = false;
 let pendingCards = new Set();
-let lastUrl = location.href;
 let debugState = null;
 let ytcfgFallback = null;
 let renderedCount = 0;
@@ -49,6 +49,8 @@ let shortsLookupPending = new Set();
 let shortsLookupInFlight = new Set();
 let shortsLookupFailures = new Map();
 let shortsLookupCards = new Map();
+let homeBootstrapped = false;
+let scanIntervalId = null;
 
 function setDebugState(key, value) {
     try {
@@ -77,6 +79,52 @@ function setDebugMeta(key, value) {
     } catch (_error) {
         // Ignore DOM errors.
     }
+}
+
+function isElementHidden(element) {
+    if (!element) {
+        return true;
+    }
+    if (element.hasAttribute('hidden')) {
+        return true;
+    }
+    if (element.getAttribute('aria-hidden') === 'true') {
+        return true;
+    }
+    return false;
+}
+
+function getHomeBrowseRoot() {
+    const roots = document.querySelectorAll(HOME_BROWSE_SELECTOR);
+    for (const root of roots) {
+        if (!root || !root.isConnected) {
+            continue;
+        }
+        if (isElementHidden(root)) {
+            continue;
+        }
+        return root;
+    }
+    return null;
+}
+
+function isHomeCard(card) {
+    const root = card?.closest?.(HOME_BROWSE_SELECTOR);
+    if (!root) {
+        return false;
+    }
+    if (!root.isConnected) {
+        return false;
+    }
+    return !isElementHidden(root);
+}
+
+function clearLabelsFromCard(card) {
+    if (!card) {
+        return;
+    }
+    card.querySelectorAll(`.${LABEL_CLASS}`).forEach((label) => label.remove());
+    card.querySelectorAll(`.${HOST_CLASS}`).forEach((host) => host.classList.remove(HOST_CLASS));
 }
 
 function loadShortsChannelCache() {
@@ -839,7 +887,7 @@ function injectStyles() {
         }
 
         .${LABEL_CLASS} {
-            display: inline-flex;
+            display: none;
             align-items: center;
             padding: 4px 10px;
             margin-left: 6px;
@@ -851,6 +899,11 @@ function injectStyles() {
             background: rgba(255, 255, 255, 0.1);
             color: #e2e8f0;
             white-space: nowrap;
+        }
+
+        ytd-browse[page-subtype="home"] .${LABEL_CLASS},
+        ytd-browse[browse-id="FEwhat_to_watch"] .${LABEL_CLASS} {
+            display: inline-flex;
         }
 
         .${LABEL_CLASS}[${LABEL_KIND_ATTR}='${LABEL_KIND_SUBSCRIBED}'] {
@@ -868,8 +921,7 @@ function injectStyles() {
  * @returns {boolean}
  */
 function isEligiblePage() {
-    const path = location.pathname || '';
-    return path === '/';
+    return Boolean(getHomeBrowseRoot());
 }
 
 /**
@@ -1112,6 +1164,10 @@ function ensureLabel(anchor, hostOverride = null) {
  * @param {Element} card
  */
 function decorateCard(card) {
+    if (!isHomeCard(card)) {
+        clearLabelsFromCard(card);
+        return;
+    }
     if (!dataInitialized) {
         return;
     }
@@ -1181,6 +1237,11 @@ function scheduleRender() {
 
     window.requestAnimationFrame(() => {
         renderScheduled = false;
+        if (!isEligiblePage()) {
+            clearLabels();
+            pendingCards.clear();
+            return;
+        }
         const cards = Array.from(pendingCards);
         pendingCards.clear();
         cards.forEach((card) => decorateCard(card));
@@ -1205,7 +1266,27 @@ function queueCards(cards) {
  * Scan current page for cards.
  */
 function scanVisibleCards() {
-    const cards = document.querySelectorAll(CARD_SELECTOR);
+    const homeRoot = getHomeBrowseRoot();
+    if (!homeRoot) {
+        clearLabels();
+        return;
+    }
+    if (!homeBootstrapped) {
+        homeBootstrapped = true;
+        ensureSubscriptionIndex().then(() => {
+            setDebugState('dataReady', dataReady);
+            setDebugState('subscriptionCounts', {
+                ids: subscribedChannelIds.size,
+                paths: subscribedChannelPaths.size
+            });
+            setDebugMeta('data-counts', `ids:${subscribedChannelIds.size};paths:${subscribedChannelPaths.size}`);
+            scanVisibleCards();
+        }).catch((error) => {
+            logger.warn('Failed to load subscribed channels', error);
+        });
+    }
+
+    const cards = homeRoot.querySelectorAll(CARD_SELECTOR);
     if (cards.length > 0) {
         try {
             document.documentElement.setAttribute('data-yt-commander-subs-cards', String(cards.length));
@@ -1245,6 +1326,10 @@ function startObserver() {
     }
 
     mutationObserver = new MutationObserver((mutations) => {
+        if (!isEligiblePage()) {
+            clearLabels();
+            return;
+        }
         const found = [];
         for (const mutation of mutations) {
             mutation.addedNodes.forEach((node) => {
@@ -1266,47 +1351,31 @@ function startObserver() {
     mutationObserver.observe(document.documentElement, { childList: true, subtree: true });
 }
 
-/**
- * Handle SPA navigation changes.
- */
-function handleNavigation() {
-    if (location.href === lastUrl) {
+function startScanLoop() {
+    if (scanIntervalId) {
         return;
     }
-    lastUrl = location.href;
-    if (!isEligiblePage()) {
-        clearLabels();
-        return;
-    }
-    scanVisibleCards();
+    scanIntervalId = window.setInterval(() => {
+        scanVisibleCards();
+    }, 1000);
 }
 
 /**
  * Initialize module.
  */
 async function init() {
-    if (!isEligiblePage()) {
-        return;
-    }
-
     injectStyles();
     loadShortsChannelCache();
     dataInitialized = true;
     setDebugState('initializedAt', Date.now());
     setDebugAttribute('initialized');
-    scanVisibleCards();
     startObserver();
-
-    await ensureSubscriptionIndex();
-    setDebugState('dataReady', dataReady);
-    setDebugState('subscriptionCounts', {
-        ids: subscribedChannelIds.size,
-        paths: subscribedChannelPaths.size
-    });
-    setDebugMeta('data-counts', `ids:${subscribedChannelIds.size};paths:${subscribedChannelPaths.size}`);
+    startScanLoop();
     scanVisibleCards();
-
-    window.addEventListener('yt-navigate-finish', handleNavigation);
+    window.addEventListener('yt-navigate-finish', scanVisibleCards);
+    document.addEventListener('yt-navigate-finish', scanVisibleCards);
+    window.addEventListener('yt-page-data-updated', scanVisibleCards);
+    document.addEventListener('yt-page-data-updated', scanVisibleCards);
 }
 
 /**
