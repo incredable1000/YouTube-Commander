@@ -1866,7 +1866,7 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-sub-manager-modal {
-    width: min(1040px, 96vw);
+    width: 96vw;
     max-height: 90vh;
     background: #151a24;
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -2163,8 +2163,8 @@ body.yt-commander-windowed-lock {
     color: #e8edf5;
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 8px;
-    padding: 4px 8px;
-    font-size: 11px;
+    padding: 6px 10px;
+    font-size: 16px;
     white-space: nowrap;
     opacity: 0;
     pointer-events: none;
@@ -2520,7 +2520,7 @@ body.yt-commander-windowed-lock {
 
 @media (max-width: 720px) {
     .yt-commander-sub-manager-modal {
-        width: 96vw;
+        width: 100vw;
         max-height: 94vh;
     }
 
