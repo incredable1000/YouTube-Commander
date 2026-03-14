@@ -2006,6 +2006,33 @@ body.yt-commander-windowed-lock {
     gap: 8px;
 }
 
+.yt-commander-sub-manager-view-toggle {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.06);
+    margin-left: 10px;
+}
+
+.yt-commander-sub-manager-view-toggle .yt-commander-sub-manager-toggle {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    padding: 6px 10px;
+    font-size: 13px;
+}
+
+.yt-commander-sub-manager-view-toggle .yt-commander-sub-manager-toggle + .yt-commander-sub-manager-toggle {
+    border-left: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.yt-commander-sub-manager-view-toggle .yt-commander-sub-manager-toggle.active {
+    background: rgba(244, 193, 109, 0.2);
+    color: #f4c16d;
+}
+
 .yt-commander-sub-manager-toggle {
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.16);

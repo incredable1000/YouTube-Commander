@@ -1244,6 +1244,8 @@ function ensureModal() {
     clearSelectionButton.style.display = 'none';
 
     titleRow.appendChild(title);
+    const viewToggle = document.createElement('div');
+    viewToggle.className = 'yt-commander-sub-manager-view-toggle';
     titleRow.appendChild(selectionBadgeEl);
     titleRow.appendChild(clearSelectionButton);
 
@@ -1269,6 +1271,9 @@ function ensureModal() {
     viewCardButton.setAttribute('data-action', 'view-card');
     setIconButton(viewCardButton, ICONS.card, 'Card view');
 
+    viewToggle.appendChild(viewTableButton);
+    viewToggle.appendChild(viewCardButton);
+
     unsubscribeButton = document.createElement('button');
     unsubscribeButton.type = 'button';
     unsubscribeButton.className = 'yt-commander-sub-manager-btn danger';
@@ -1293,8 +1298,6 @@ function ensureModal() {
     sortButton.setAttribute('data-action', 'sort-toggle');
     updateSortButton();
 
-    headerActions.appendChild(viewTableButton);
-    headerActions.appendChild(viewCardButton);
     headerActions.appendChild(sortButton);
     const actionGroup = document.createElement('div');
     actionGroup.className = 'yt-commander-sub-manager-action-group';
@@ -1306,6 +1309,8 @@ function ensureModal() {
 
     header.appendChild(titleWrap);
     header.appendChild(headerActions);
+
+    titleRow.insertBefore(viewToggle, selectionBadgeEl);
 
     const content = document.createElement('div');
     content.className = 'yt-commander-sub-manager-content';
