@@ -123,6 +123,8 @@ let sortMode = 'name';
 let currentPage = 1;
 let selectedChannelIds = new Set();
 let resetScrollPending = false;
+let selectionAnchorId = '';
+let currentPageIds = [];
 let tableRowById = new Map();
 let cardById = new Map();
 
@@ -277,6 +279,8 @@ function resetModalElements() {
     tooltipPortal = null;
     tooltipPortalTarget = null;
     resetScrollPending = false;
+    selectionAnchorId = '';
+    currentPageIds = [];
     tableRowById.clear();
     cardById.clear();
     resetSidebarDraftState();
@@ -2304,6 +2308,9 @@ function updateSelectionSummary() {
             selectionBadgeEl.style.display = 'none';
         }
     }
+    if (selectedChannelIds.size === 0) {
+        selectionAnchorId = '';
+    }
 
     const disabled = selectedChannelIds.size === 0;
     if (unsubscribeButton) {
@@ -2323,13 +2330,10 @@ function updateSelectionSummary() {
  * @param {string} channelId
  * @param {boolean} [nextState]
  */
-function toggleChannelSelection(channelId, nextState) {
+function applyChannelSelection(channelId, shouldSelect) {
     if (!channelId) {
         return;
     }
-    const shouldSelect = typeof nextState === 'boolean'
-        ? nextState
-        : !selectedChannelIds.has(channelId);
     if (shouldSelect) {
         selectedChannelIds.add(channelId);
     } else {
@@ -2347,7 +2351,51 @@ function toggleChannelSelection(channelId, nextState) {
     if (card) {
         card.classList.toggle('is-selected', shouldSelect);
     }
+}
+
+/**
+ * Toggle a channel selection state.
+ * @param {string} channelId
+ * @param {boolean} [nextState]
+ */
+function toggleChannelSelection(channelId, nextState) {
+    const shouldSelect = typeof nextState === 'boolean'
+        ? nextState
+        : !selectedChannelIds.has(channelId);
+    applyChannelSelection(channelId, shouldSelect);
     updateSelectionSummary();
+}
+
+/**
+ * Handle selection interaction (shift+click range).
+ * @param {string} channelId
+ * @param {{shiftKey?: boolean}} [options]
+ */
+function handleChannelSelectionInteraction(channelId, options = {}) {
+    if (!channelId) {
+        return;
+    }
+    const shiftKey = Boolean(options.shiftKey);
+    if (shiftKey && selectionAnchorId && currentPageIds.length > 0) {
+        const startIndex = currentPageIds.indexOf(selectionAnchorId);
+        const endIndex = currentPageIds.indexOf(channelId);
+        if (startIndex !== -1 && endIndex !== -1) {
+            const [from, to] = startIndex < endIndex
+                ? [startIndex, endIndex]
+                : [endIndex, startIndex];
+            const range = currentPageIds.slice(from, to + 1);
+            range.forEach((id) => {
+                if (!selectedChannelIds.has(id)) {
+                    applyChannelSelection(id, true);
+                }
+            });
+            updateSelectionSummary();
+            selectionAnchorId = channelId;
+            return;
+        }
+    }
+    toggleChannelSelection(channelId);
+    selectionAnchorId = channelId;
 }
 
 /**
@@ -2414,6 +2462,7 @@ async function applyCategoryUpdate(channelIds, categoryId, mode) {
     await markPending(updatedKeys);
     setStatus(`Updated ${updatedKeys.length} channel(s).`, 'success');
     selectedChannelIds = new Set();
+    selectionAnchorId = '';
     resetScrollPending = true;
     renderList();
 }
@@ -2519,11 +2568,12 @@ function handleModalClick(event) {
             return;
         }
 
-        if (action === 'clear-selection') {
-            selectedChannelIds = new Set();
-            renderList();
-            return;
-        }
+    if (action === 'clear-selection') {
+        selectedChannelIds = new Set();
+        selectionAnchorId = '';
+        renderList();
+        return;
+    }
 
         if (action === 'new-category') {
             startSidebarCreate();
@@ -2598,14 +2648,14 @@ function handleModalClick(event) {
     const row = baseTarget?.closest('.yt-commander-sub-manager-row');
     if (row && !row.classList.contains('header')) {
         const channelId = row.getAttribute('data-channel-id') || '';
-        toggleChannelSelection(channelId);
+        handleChannelSelectionInteraction(channelId, { shiftKey: event.shiftKey });
         return;
     }
 
     const card = baseTarget?.closest('.yt-commander-sub-manager-card');
     if (card) {
         const channelId = card.getAttribute('data-channel-id') || '';
-        toggleChannelSelection(channelId);
+        handleChannelSelectionInteraction(channelId, { shiftKey: event.shiftKey });
     }
 }
 
@@ -2661,6 +2711,7 @@ function handleModalChange(event) {
         return;
     }
     toggleChannelSelection(channelId, checkbox.checked);
+    selectionAnchorId = channelId;
 }
 
 /**
@@ -3322,6 +3373,9 @@ function renderList() {
 
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     const pageItems = filtered.slice(start, start + ITEMS_PER_PAGE);
+    currentPageIds = pageItems
+        .map((channel) => channel?.channelId)
+        .filter((id) => typeof id === 'string' && id);
 
     tableWrap.style.display = viewMode === 'table' ? 'block' : 'none';
     cardsWrap.style.display = viewMode === 'card' ? 'grid' : 'none';
@@ -3421,6 +3475,7 @@ async function unsubscribeSelected() {
 
     channels = channels.filter((item) => !selectedChannelIds.has(item.channelId));
     selectedChannelIds = new Set();
+    selectionAnchorId = '';
 
     ids.forEach((id) => {
         delete assignments[id];

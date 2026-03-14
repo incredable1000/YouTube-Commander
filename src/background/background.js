@@ -67,6 +67,10 @@ const SUBSCRIPTION_SYNC_DEFAULTS = {
     pendingCount: 0
 };
 
+const BADGE_MAX_COUNT = 999;
+const BADGE_BACKGROUND_COLOR = '#ff5b6e';
+const BADGE_TEXT_COLOR = '#ffffff';
+
 let cloudSyncInProgress = false;
 let subscriptionSyncInProgress = false;
 let subscriptionRestoreInProgress = false;
@@ -90,6 +94,48 @@ function delay(ms) {
 async function queryTabs(queryInfo) {
     return new Promise((resolve) => {
         chrome.tabs.query(queryInfo, (tabs) => resolve(tabs || []));
+    });
+}
+
+/**
+ * Format badge count text.
+ * @param {number} count
+ * @returns {string}
+ */
+function formatBadgeCount(count) {
+    if (!Number.isFinite(count) || count <= 0) {
+        return '';
+    }
+    if (count > BADGE_MAX_COUNT) {
+        return `${BADGE_MAX_COUNT}+`;
+    }
+    return String(count);
+}
+
+/**
+ * Update extension badge with pending watched IDs count.
+ * @param {number} count
+ */
+function updateWatchedHistoryBadge(count) {
+    const text = formatBadgeCount(count);
+    try {
+        chrome.action.setBadgeText({ text });
+        chrome.action.setBadgeBackgroundColor({ color: BADGE_BACKGROUND_COLOR });
+        if (chrome.action.setBadgeTextColor) {
+            chrome.action.setBadgeTextColor({ color: BADGE_TEXT_COLOR });
+        }
+    } catch (error) {
+        console.warn('[YT-Commander][Badge] Failed to update badge', error);
+    }
+}
+
+/**
+ * Refresh badge from stored pending count.
+ */
+function refreshWatchedHistoryBadge() {
+    chrome.storage.local.get([CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT], (result) => {
+        const count = Number(result?.[CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT]) || 0;
+        updateWatchedHistoryBadge(count);
     });
 }
 
@@ -2053,6 +2099,7 @@ async function proxyGetAllWatchedVideos() {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
+    refreshWatchedHistoryBadge();
     ensureAutoSyncAlarm().catch((error) => {
         console.error('[YT-Commander][CloudSync] Failed to ensure alarm on install', error);
     });
@@ -2068,6 +2115,7 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onStartup.addListener(() => {
+    refreshWatchedHistoryBadge();
     ensureAutoSyncAlarm().catch((error) => {
         console.error('[YT-Commander][CloudSync] Failed to ensure alarm on startup', error);
     });
@@ -2358,6 +2406,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     return false;
 });
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local') {
+        return;
+    }
+    if (changes[CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT]) {
+        const next = Number(changes[CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT].newValue) || 0;
+        updateWatchedHistoryBadge(next);
+    }
+});
+
+refreshWatchedHistoryBadge();
 
 ensureAutoSyncAlarm().catch((error) => {
     console.error('[YT-Commander][CloudSync] Failed to ensure startup alarm', error);
