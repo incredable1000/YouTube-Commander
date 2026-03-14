@@ -64,6 +64,7 @@ let overlay = null;
 let modal = null;
 let tableWrap = null;
 let cardsWrap = null;
+let mainWrap = null;
 let statusEl = null;
 let selectionBadgeEl = null;
 let pageInfoEl = null;
@@ -235,6 +236,7 @@ function resetModalElements() {
     modal = null;
     tableWrap = null;
     cardsWrap = null;
+    mainWrap = null;
     statusEl = null;
     selectionBadgeEl = null;
     pageInfoEl = null;
@@ -1307,13 +1309,13 @@ function ensureModal() {
     cardsWrap = document.createElement('div');
     cardsWrap.className = CARDS_CLASS;
 
-    const main = document.createElement('div');
-    main.className = 'yt-commander-sub-manager-main';
-    main.appendChild(tableWrap);
-    main.appendChild(cardsWrap);
+    mainWrap = document.createElement('div');
+    mainWrap.className = 'yt-commander-sub-manager-main';
+    mainWrap.appendChild(tableWrap);
+    mainWrap.appendChild(cardsWrap);
 
     content.appendChild(sidebar);
-    content.appendChild(main);
+    content.appendChild(mainWrap);
 
     statusEl = document.createElement('div');
     statusEl.className = STATUS_CLASS;
@@ -1365,6 +1367,7 @@ function ensureModal() {
 
     overlay.addEventListener('click', handleOverlayClick);
     modal.addEventListener('click', handleModalClick);
+    modal.addEventListener('dblclick', handleModalDoubleClick);
     modal.addEventListener('change', handleModalChange);
     modal.addEventListener('input', handleModalInput);
     modal.addEventListener('keydown', handleModalKeydown);
@@ -1891,7 +1894,6 @@ function renderSidebarCategories() {
         const name = document.createElement('span');
         name.className = 'yt-commander-sub-manager-filter-name';
         name.textContent = category.name;
-        name.setAttribute('data-action', 'category-edit');
         name.setAttribute('data-category-id', category.id);
 
         left.appendChild(initial);
@@ -2238,12 +2240,6 @@ function handleModalClick(event) {
             return;
         }
 
-        if (action === 'category-edit') {
-            const categoryId = actionTarget.getAttribute('data-category-id') || '';
-            startSidebarEdit(categoryId);
-            return;
-        }
-
         if (action === 'category-color') {
             return;
         }
@@ -2313,6 +2309,28 @@ function handleModalClick(event) {
         const channelId = card.getAttribute('data-channel-id') || '';
         toggleChannelSelection(channelId);
     }
+}
+
+/**
+ * Handle modal double-clicks for category rename.
+ * @param {MouseEvent} event
+ */
+function handleModalDoubleClick(event) {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) {
+        return;
+    }
+    const nameEl = target.closest('.yt-commander-sub-manager-filter-name');
+    if (!nameEl) {
+        return;
+    }
+    const categoryId = nameEl.getAttribute('data-category-id') || '';
+    if (!categoryId) {
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    startSidebarEdit(categoryId);
 }
 
 /**
@@ -2931,6 +2949,23 @@ function renderList() {
         return;
     }
 
+    const nextRenderState = {
+        viewMode,
+        filterMode,
+        currentPage,
+        channelsVersion,
+        assignmentsVersion,
+        categoriesVersion
+    };
+    const shouldResetScroll = !lastRenderState
+        || lastRenderState.viewMode !== nextRenderState.viewMode
+        || lastRenderState.filterMode !== nextRenderState.filterMode
+        || lastRenderState.currentPage !== nextRenderState.currentPage
+        || lastRenderState.channelsVersion !== nextRenderState.channelsVersion
+        || lastRenderState.assignmentsVersion !== nextRenderState.assignmentsVersion
+        || lastRenderState.categoriesVersion !== nextRenderState.categoriesVersion;
+    lastRenderState = nextRenderState;
+
     captureSidebarDraftState();
     renderSidebarCategories();
 
@@ -2962,6 +2997,10 @@ function renderList() {
     }
 
     updateSelectionSummary();
+
+    if (shouldResetScroll && mainWrap) {
+        mainWrap.scrollTop = 0;
+    }
 }
 
 /**
