@@ -1330,6 +1330,7 @@ function ensureModal() {
     sidebarToggleButton = document.createElement('button');
     sidebarToggleButton.type = 'button';
     sidebarToggleButton.className = 'yt-commander-sub-manager-sidebar-btn';
+    sidebarToggleButton.classList.add('yt-commander-sub-manager-sidebar-toggle');
     sidebarToggleButton.setAttribute('data-action', 'sidebar-toggle');
 
     sidebarActions.appendChild(sidebarAddButton);

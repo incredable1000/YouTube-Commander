@@ -2447,6 +2447,7 @@ body.yt-commander-windowed-lock {
     flex-direction: column;
     gap: 12px;
     overflow: hidden;
+    position: relative;
 }
 
 .yt-commander-sub-manager-sidebar.is-collapsed {
@@ -2483,6 +2484,18 @@ body.yt-commander-windowed-lock {
     border: 1px solid rgba(255, 255, 255, 0.16);
     background: rgba(255, 255, 255, 0.08);
     color: inherit;
+}
+
+.yt-commander-sub-manager-sidebar-toggle {
+    position: absolute;
+    top: 50%;
+    right: -14px;
+    transform: translateY(-50%);
+    width: 30px;
+    height: 44px;
+    border-radius: 999px;
+    z-index: 3;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.16);
 }
 
 .yt-commander-sub-manager-sidebar-btn.yt-commander-sub-manager-icon-btn {
@@ -2602,13 +2615,36 @@ body.yt-commander-windowed-lock {
     padding: 8px 6px;
 }
 
+.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-header {
+    justify-content: center;
+}
+
 .yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-actions {
     flex-direction: column;
-    align-items: stretch;
+    align-items: center;
+    width: 100%;
 }
 
 .yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-btn {
     width: 100%;
+    height: 34px;
+    border-radius: 12px;
+}
+
+.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-toggle {
+    width: 30px;
+    height: 44px;
+    border-radius: 999px;
+}
+
+.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-list {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-list::-webkit-scrollbar {
+    width: 0;
+    height: 0;
 }
 
 .yt-commander-sub-manager-main {
