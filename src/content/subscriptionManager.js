@@ -70,6 +70,7 @@ let statusEl = null;
 let selectionBadgeEl = null;
 let clearSelectionButton = null;
 let selectionGroupEl = null;
+let selectionHeaderEl = null;
 let pageInfoEl = null;
 let pagePrevButton = null;
 let pageNextButton = null;
@@ -258,6 +259,7 @@ function resetModalElements() {
     selectionBadgeEl = null;
     clearSelectionButton = null;
     selectionGroupEl = null;
+    selectionHeaderEl = null;
     pageInfoEl = null;
     pagePrevButton = null;
     pageNextButton = null;
@@ -1256,7 +1258,6 @@ function ensureModal() {
     selectionGroupEl.style.display = 'none';
     selectionGroupEl.appendChild(selectionBadgeEl);
     selectionGroupEl.appendChild(clearSelectionButton);
-    titleRow.appendChild(selectionGroupEl);
 
     const subtitle = document.createElement('div');
     subtitle.className = 'yt-commander-sub-manager-subtitle';
@@ -1373,6 +1374,11 @@ function ensureModal() {
 
     mainWrap = document.createElement('div');
     mainWrap.className = 'yt-commander-sub-manager-main';
+    selectionHeaderEl = document.createElement('div');
+    selectionHeaderEl.className = 'yt-commander-sub-manager-main-header';
+    selectionHeaderEl.style.display = 'none';
+    selectionHeaderEl.appendChild(selectionGroupEl);
+    mainWrap.appendChild(selectionHeaderEl);
     mainWrap.appendChild(tableWrap);
     mainWrap.appendChild(cardsWrap);
 
@@ -2319,6 +2325,9 @@ function formatSubscriptionError(error) {
  */
 function updateSelectionSummary() {
     const count = selectedChannelIds.size;
+    if (selectionHeaderEl) {
+        selectionHeaderEl.style.display = count > 0 ? 'flex' : 'none';
+    }
     if (selectionGroupEl) {
         selectionGroupEl.style.display = count > 0 ? 'inline-flex' : 'none';
     }

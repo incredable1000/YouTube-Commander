@@ -1948,6 +1948,18 @@ body.yt-commander-windowed-lock {
     margin-left: 8px;
 }
 
+.yt-commander-sub-manager-main-header {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 4px 8px 8px;
+    min-height: 0;
+}
+
+.yt-commander-sub-manager-main-header .yt-commander-sub-manager-selection-group {
+    margin-left: 0;
+}
+
 .yt-commander-sub-manager-selection-group .yt-commander-sub-manager-selected-badge {
     border: none;
     background: transparent;
