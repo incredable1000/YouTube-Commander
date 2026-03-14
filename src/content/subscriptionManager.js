@@ -1323,13 +1323,45 @@ function ensureModal() {
     sortButton.setAttribute('data-action', 'sort-toggle');
     updateSortButton();
 
-    headerActions.appendChild(sortButton);
     const actionGroup = document.createElement('div');
     actionGroup.className = 'yt-commander-sub-manager-action-group';
     actionGroup.appendChild(unsubscribeButton);
     actionGroup.appendChild(addCategoryButton);
     actionGroup.appendChild(removeCategoryButton);
+    const headerDivider = document.createElement('div');
+    headerDivider.className = 'yt-commander-sub-manager-header-divider';
+
+    const headerDividerSecondary = document.createElement('div');
+    headerDividerSecondary.className = 'yt-commander-sub-manager-header-divider';
+
+    const paginationGroup = document.createElement('div');
+    paginationGroup.className = 'yt-commander-sub-manager-pagination';
+
+    pagePrevButton = document.createElement('button');
+    pagePrevButton.type = 'button';
+    pagePrevButton.className = 'yt-commander-sub-manager-btn secondary';
+    pagePrevButton.setAttribute('data-action', 'page-prev');
+    setIconButton(pagePrevButton, ICONS.prev, 'Previous page');
+
+    pageInfoEl = document.createElement('div');
+    pageInfoEl.className = 'yt-commander-sub-manager-page-info';
+    pageInfoEl.textContent = 'Page 1 of 1';
+
+    pageNextButton = document.createElement('button');
+    pageNextButton.type = 'button';
+    pageNextButton.className = 'yt-commander-sub-manager-btn secondary';
+    pageNextButton.setAttribute('data-action', 'page-next');
+    setIconButton(pageNextButton, ICONS.next, 'Next page');
+
+    paginationGroup.appendChild(pagePrevButton);
+    paginationGroup.appendChild(pageInfoEl);
+    paginationGroup.appendChild(pageNextButton);
+
+    headerActions.appendChild(sortButton);
+    headerActions.appendChild(headerDivider);
     headerActions.appendChild(actionGroup);
+    headerActions.appendChild(headerDividerSecondary);
+    headerActions.appendChild(paginationGroup);
 
 
     header.appendChild(titleWrap);
@@ -1408,45 +1440,8 @@ function ensureModal() {
     statusWrap.appendChild(statusEl);
     mainWrap.insertBefore(statusWrap, tableWrap);
 
-    const footer = document.createElement('div');
-    footer.className = 'yt-commander-sub-manager-footer';
-
-    const footerLeft = document.createElement('div');
-    footerLeft.className = 'yt-commander-sub-manager-footer-left';
-
-    const footerCenter = document.createElement('div');
-    footerCenter.className = 'yt-commander-sub-manager-footer-center';
-
-    const footerRight = document.createElement('div');
-    footerRight.className = 'yt-commander-sub-manager-footer-right';
-
-    pagePrevButton = document.createElement('button');
-    pagePrevButton.type = 'button';
-    pagePrevButton.className = 'yt-commander-sub-manager-btn secondary';
-    pagePrevButton.setAttribute('data-action', 'page-prev');
-    setIconButton(pagePrevButton, ICONS.prev, 'Previous page');
-
-    pageInfoEl = document.createElement('div');
-    pageInfoEl.className = 'yt-commander-sub-manager-page-info';
-    pageInfoEl.textContent = 'Page 1 of 1';
-
-    pageNextButton = document.createElement('button');
-    pageNextButton.type = 'button';
-    pageNextButton.className = 'yt-commander-sub-manager-btn secondary';
-    pageNextButton.setAttribute('data-action', 'page-next');
-    setIconButton(pageNextButton, ICONS.next, 'Next page');
-
-    footerRight.appendChild(pagePrevButton);
-    footerRight.appendChild(pageInfoEl);
-    footerRight.appendChild(pageNextButton);
-
-    footer.appendChild(footerLeft);
-    footer.appendChild(footerCenter);
-    footer.appendChild(footerRight);
-
     modal.appendChild(header);
     modal.appendChild(content);
-    modal.appendChild(footer);
 
     overlay.appendChild(modal);
     document.body.appendChild(overlay);

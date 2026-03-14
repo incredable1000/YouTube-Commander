@@ -2054,12 +2054,26 @@ body.yt-commander-windowed-lock {
     flex-wrap: wrap;
     gap: 10px;
     align-items: center;
+    justify-content: flex-end;
 }
 
 .yt-commander-sub-manager-action-group {
     display: inline-flex;
     align-items: center;
     gap: 8px;
+}
+
+.yt-commander-sub-manager-pagination {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.yt-commander-sub-manager-header-divider {
+    width: 1px;
+    height: 26px;
+    background: rgba(255, 255, 255, 0.14);
+    align-self: center;
 }
 
 .yt-commander-sub-manager-view-toggle {
