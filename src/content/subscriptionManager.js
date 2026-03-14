@@ -2420,6 +2420,9 @@ function renderSidebarCategories() {
     if (!sidebarList) {
         return;
     }
+    const previousScrollTop = sidebarList.scrollTop;
+    const wasAtBottom = sidebarList.scrollHeight > sidebarList.clientHeight
+        && (sidebarList.scrollHeight - sidebarList.scrollTop - sidebarList.clientHeight) < 4;
 
     if (sidebarCountEl) {
         sidebarCountEl.textContent = String(categories.length);
@@ -2613,6 +2616,15 @@ function renderSidebarCategories() {
     });
     if (sidebarCreating) {
         addCreateItem();
+    }
+    if (!sidebarCreating && !sidebarEditingId) {
+        const nextScrollTop = wasAtBottom ? sidebarList.scrollHeight : previousScrollTop;
+        window.requestAnimationFrame(() => {
+            if (!sidebarList) {
+                return;
+            }
+            sidebarList.scrollTop = Math.min(nextScrollTop, sidebarList.scrollHeight);
+        });
     }
 }
 
