@@ -112,7 +112,7 @@ let viewMode = 'table';
 let filterMode = 'all';
 let currentPage = 1;
 let selectedChannelIds = new Set();
-let lastRenderState = null;
+let resetScrollPending = false;
 let tableRowById = new Map();
 let cardById = new Map();
 
@@ -255,6 +255,7 @@ function resetModalElements() {
     pickerAnchorEl = null;
     pickerTargetIds = [];
     pickerMode = 'toggle';
+    resetScrollPending = false;
     tableRowById.clear();
     cardById.clear();
     resetSidebarDraftState();
@@ -671,7 +672,6 @@ function rebuildChannelIndexes(list) {
 
     channelsVersion += 1;
     categoryCountsCacheKey = '';
-    lastRenderState = null;
 }
 
 /**
@@ -680,7 +680,6 @@ function rebuildChannelIndexes(list) {
 function markCategoriesDirty() {
     categoriesVersion += 1;
     categoryCountsCacheKey = '';
-    lastRenderState = null;
 }
 
 /**
@@ -690,7 +689,6 @@ function markAssignmentsDirty() {
     assignmentsVersion += 1;
     assignmentCache.clear();
     categoryCountsCacheKey = '';
-    lastRenderState = null;
 }
 
 /**
@@ -2141,6 +2139,7 @@ async function applyCategoryUpdate(channelIds, categoryId, mode) {
     await persistLocalState();
     await markPending(updatedKeys);
     setStatus(`Updated ${updatedKeys.length} channel(s).`, 'success');
+    resetScrollPending = true;
     renderList();
 }
 
@@ -2201,12 +2200,14 @@ function handleModalClick(event) {
 
         if (action === 'page-prev') {
             currentPage = Math.max(1, currentPage - 1);
+            resetScrollPending = true;
             renderList();
             return;
         }
 
         if (action === 'page-next') {
             currentPage = currentPage + 1;
+            resetScrollPending = true;
             renderList();
             return;
         }
@@ -2252,6 +2253,7 @@ function handleModalClick(event) {
             if (filterMode !== nextFilter) {
                 filterMode = nextFilter;
                 currentPage = 1;
+                resetScrollPending = true;
                 persistViewState().catch(() => undefined);
                 renderList();
             }
@@ -2949,23 +2951,6 @@ function renderList() {
         return;
     }
 
-    const nextRenderState = {
-        viewMode,
-        filterMode,
-        currentPage,
-        channelsVersion,
-        assignmentsVersion,
-        categoriesVersion
-    };
-    const shouldResetScroll = !lastRenderState
-        || lastRenderState.viewMode !== nextRenderState.viewMode
-        || lastRenderState.filterMode !== nextRenderState.filterMode
-        || lastRenderState.currentPage !== nextRenderState.currentPage
-        || lastRenderState.channelsVersion !== nextRenderState.channelsVersion
-        || lastRenderState.assignmentsVersion !== nextRenderState.assignmentsVersion
-        || lastRenderState.categoriesVersion !== nextRenderState.categoriesVersion;
-    lastRenderState = nextRenderState;
-
     captureSidebarDraftState();
     renderSidebarCategories();
 
@@ -2998,8 +2983,9 @@ function renderList() {
 
     updateSelectionSummary();
 
-    if (shouldResetScroll && mainWrap) {
+    if (resetScrollPending && mainWrap) {
         mainWrap.scrollTop = 0;
+        resetScrollPending = false;
     }
 }
 
