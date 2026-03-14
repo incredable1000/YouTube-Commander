@@ -2365,9 +2365,10 @@ function updateSelectionSummary() {
             } else {
                 selectionBadgeEl.textContent = String(count);
             }
+            const tooltipLabel = buildSelectionTooltip() || `${count} selected`;
             selectionBadgeEl.setAttribute('aria-label', `${count} selected`);
-            selectionBadgeEl.setAttribute('title', `${count} selected`);
-            selectionBadgeEl.setAttribute('data-tooltip', `${count} selected`);
+            selectionBadgeEl.setAttribute('title', tooltipLabel);
+            selectionBadgeEl.setAttribute('data-tooltip', tooltipLabel);
             selectionBadgeEl.classList.add('yt-commander-sub-manager-tooltip');
             selectionBadgeEl.style.display = 'inline-flex';
         } else {
@@ -2396,6 +2397,46 @@ function updateSelectionSummary() {
     }
 
     updateFloatingHeaderVisibility();
+}
+
+function buildSelectionTooltip() {
+    if (selectedChannelIds.size === 0) {
+        return '';
+    }
+    const nameById = new Map(categories.map((category) => [category.id, category.name]));
+    const countsById = new Map();
+    let uncategorizedCount = 0;
+    let otherCount = 0;
+
+    selectedChannelIds.forEach((channelId) => {
+        const assigned = readChannelAssignments(channelId);
+        if (!assigned || assigned.length === 0) {
+            uncategorizedCount += 1;
+            return;
+        }
+        assigned.forEach((categoryId) => {
+            if (!nameById.has(categoryId)) {
+                otherCount += 1;
+                return;
+            }
+            countsById.set(categoryId, (countsById.get(categoryId) || 0) + 1);
+        });
+    });
+
+    const lines = [];
+    categories.forEach((category) => {
+        const count = countsById.get(category.id);
+        if (count) {
+            lines.push(`${category.name}: ${count}`);
+        }
+    });
+    if (uncategorizedCount) {
+        lines.push(`Uncategorized: ${uncategorizedCount}`);
+    }
+    if (otherCount) {
+        lines.push(`Other: ${otherCount}`);
+    }
+    return lines.join('\n');
 }
 
 function updateFloatingHeaderVisibility() {
