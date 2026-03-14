@@ -1909,15 +1909,16 @@ body.yt-commander-windowed-lock {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 22px;
-    height: 22px;
-    padding: 0 8px;
+    min-width: 28px;
+    height: 28px;
+    padding: 0 12px;
     border-radius: 999px;
     background: rgba(244, 193, 109, 0.2);
     border: 1px solid rgba(244, 193, 109, 0.6);
     color: #f4c16d;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
+    gap: 6px;
 }
 
 .yt-commander-sub-manager-clear-selection {
@@ -1944,16 +1945,18 @@ body.yt-commander-windowed-lock {
     border-radius: 999px;
     overflow: hidden;
     border: 1px solid rgba(244, 193, 109, 0.6);
-    background: rgba(244, 193, 109, 0.14);
-    margin-left: 8px;
+    background: rgba(244, 193, 109, 0.18);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
 }
 
 .yt-commander-sub-manager-main-header {
+    position: absolute;
+    top: 6px;
+    right: 10px;
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    padding: 4px 8px 8px;
-    min-height: 0;
+    z-index: 4;
 }
 
 .yt-commander-sub-manager-main-header .yt-commander-sub-manager-selection-group {
@@ -1964,14 +1967,14 @@ body.yt-commander-windowed-lock {
     border: none;
     background: transparent;
     color: #f4c16d;
-    height: 22px;
-    padding: 0 10px;
-    min-width: 24px;
+    height: 28px;
+    padding: 0 12px;
+    min-width: 34px;
 }
 
 .yt-commander-sub-manager-selection-group .yt-commander-sub-manager-clear-selection {
-    width: 28px;
-    height: 22px;
+    width: 30px;
+    height: 28px;
     border-radius: 0;
     border: none;
     background: transparent;
@@ -1980,6 +1983,15 @@ body.yt-commander-windowed-lock {
 
 .yt-commander-sub-manager-selection-group .yt-commander-sub-manager-clear-selection:hover {
     background: rgba(244, 193, 109, 0.24);
+}
+
+.yt-commander-sub-manager-selected-icon {
+    width: 14px;
+    height: 14px;
+}
+
+.yt-commander-sub-manager-selected-count {
+    line-height: 1;
 }
 
 .yt-commander-sub-manager-subtitle {
@@ -2740,6 +2752,7 @@ body.yt-commander-windowed-lock {
     flex: 1;
     overflow: auto;
     padding: 4px 8px 18px;
+    position: relative;
 }
 
 .yt-commander-sub-manager-table {

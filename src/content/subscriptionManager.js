@@ -72,6 +72,7 @@ let selectionBadgeEl = null;
 let clearSelectionButton = null;
 let selectionGroupEl = null;
 let selectionHeaderEl = null;
+let selectionCountEl = null;
 let pageInfoEl = null;
 let pagePrevButton = null;
 let pageNextButton = null;
@@ -265,6 +266,7 @@ function resetModalElements() {
     clearSelectionButton = null;
     selectionGroupEl = null;
     selectionHeaderEl = null;
+    selectionCountEl = null;
     pageInfoEl = null;
     pagePrevButton = null;
     pageNextButton = null;
@@ -359,6 +361,7 @@ const ICONS = {
     card: 'M4 6h16v12H4V6zm2 2h12v3H6V8zm0 5h8v3H6v-3z',
     plus: 'M11 5h2v14h-2zM5 11h14v2H5z',
     minus: 'M5 11h14v2H5z',
+    check: 'M9 16.2 4.8 12 3.4 13.4 9 19 21 7 19.6 5.6z',
     close: 'M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.29 19.71 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29 10.59 10.6 16.89 4.29z',
     trash: 'M6 7h12v2H6V7zm2 3h8v9H8v-9zm3-7h2l1 2H10l1-2z',
     sort: 'M3 6h10v2H3V6zm0 5h7v2H3v-2zm0 5h4v2H3v-2zm15-8v8h2V8h-2zm-3 3v5h2v-5h-2z',
@@ -1250,6 +1253,13 @@ function ensureModal() {
     selectionBadgeEl.className = 'yt-commander-sub-manager-selected-badge';
     selectionBadgeEl.setAttribute('aria-live', 'polite');
     selectionBadgeEl.style.display = 'none';
+    const selectionIcon = createIcon(ICONS.check);
+    selectionIcon.classList.add('yt-commander-sub-manager-icon');
+    selectionIcon.classList.add('yt-commander-sub-manager-selected-icon');
+    selectionCountEl = document.createElement('span');
+    selectionCountEl.className = 'yt-commander-sub-manager-selected-count';
+    selectionBadgeEl.appendChild(selectionIcon);
+    selectionBadgeEl.appendChild(selectionCountEl);
 
     clearSelectionButton = document.createElement('button');
     clearSelectionButton.type = 'button';
@@ -2355,14 +2365,22 @@ function updateSelectionSummary() {
     }
     if (selectionBadgeEl) {
         if (count > 0) {
-            selectionBadgeEl.textContent = String(count);
+            if (selectionCountEl) {
+                selectionCountEl.textContent = String(count);
+            } else {
+                selectionBadgeEl.textContent = String(count);
+            }
             selectionBadgeEl.setAttribute('aria-label', `${count} selected`);
             selectionBadgeEl.setAttribute('title', `${count} selected`);
             selectionBadgeEl.setAttribute('data-tooltip', `${count} selected`);
             selectionBadgeEl.classList.add('yt-commander-sub-manager-tooltip');
             selectionBadgeEl.style.display = 'inline-flex';
         } else {
-            selectionBadgeEl.textContent = '';
+            if (selectionCountEl) {
+                selectionCountEl.textContent = '';
+            } else {
+                selectionBadgeEl.textContent = '';
+            }
             selectionBadgeEl.style.display = 'none';
         }
     }
