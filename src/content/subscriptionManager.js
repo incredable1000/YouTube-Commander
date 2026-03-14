@@ -73,6 +73,7 @@ let clearSelectionButton = null;
 let selectionGroupEl = null;
 let selectionHeaderEl = null;
 let selectionCountEl = null;
+let floatingStackEl = null;
 let pageInfoEl = null;
 let pagePrevButton = null;
 let pageNextButton = null;
@@ -267,6 +268,7 @@ function resetModalElements() {
     selectionGroupEl = null;
     selectionHeaderEl = null;
     selectionCountEl = null;
+    floatingStackEl = null;
     pageInfoEl = null;
     pagePrevButton = null;
     pageNextButton = null;
@@ -1424,7 +1426,10 @@ function ensureModal() {
     selectionHeaderEl = document.createElement('div');
     selectionHeaderEl.className = 'yt-commander-sub-manager-main-header';
     selectionHeaderEl.style.display = 'none';
-    selectionHeaderEl.appendChild(selectionGroupEl);
+    floatingStackEl = document.createElement('div');
+    floatingStackEl.className = 'yt-commander-sub-manager-float-stack';
+    floatingStackEl.appendChild(selectionGroupEl);
+    selectionHeaderEl.appendChild(floatingStackEl);
     mainWrap.appendChild(selectionHeaderEl);
     mainWrap.appendChild(tableWrap);
     mainWrap.appendChild(cardsWrap);
@@ -1435,10 +1440,9 @@ function ensureModal() {
     statusEl = document.createElement('div');
     statusEl.className = STATUS_CLASS;
     statusEl.setAttribute('aria-live', 'polite');
-    const statusWrap = document.createElement('div');
-    statusWrap.className = 'yt-commander-sub-manager-status-wrap';
-    statusWrap.appendChild(statusEl);
-    mainWrap.insertBefore(statusWrap, tableWrap);
+    if (floatingStackEl) {
+        floatingStackEl.appendChild(statusEl);
+    }
 
     modal.appendChild(header);
     modal.appendChild(content);
@@ -2318,8 +2322,10 @@ function setStatus(message, kind = 'info') {
             statusEl.textContent = '';
             statusEl.removeAttribute('data-status');
             statusTimeoutId = 0;
+            updateFloatingHeaderVisibility();
         }, 3000);
     }
+    updateFloatingHeaderVisibility();
 }
 
 /**
@@ -2352,12 +2358,6 @@ function formatSubscriptionError(error) {
  */
 function updateSelectionSummary() {
     const count = selectedChannelIds.size;
-    if (selectionHeaderEl) {
-        selectionHeaderEl.style.display = count > 0 ? 'flex' : 'none';
-    }
-    if (selectionGroupEl) {
-        selectionGroupEl.style.display = count > 0 ? 'inline-flex' : 'none';
-    }
     if (selectionBadgeEl) {
         if (count > 0) {
             if (selectionCountEl) {
@@ -2393,6 +2393,19 @@ function updateSelectionSummary() {
     updateRemoveCategoryButton();
     if (clearSelectionButton) {
         clearSelectionButton.style.display = disabled ? 'none' : 'inline-flex';
+    }
+
+    updateFloatingHeaderVisibility();
+}
+
+function updateFloatingHeaderVisibility() {
+    const hasSelection = selectedChannelIds.size > 0;
+    const hasStatus = Boolean(statusEl && statusEl.textContent);
+    if (selectionGroupEl) {
+        selectionGroupEl.style.display = hasSelection ? 'inline-flex' : 'none';
+    }
+    if (selectionHeaderEl) {
+        selectionHeaderEl.style.display = hasSelection || hasStatus ? 'flex' : 'none';
     }
 }
 
