@@ -881,7 +881,8 @@ function normalizeAssignments(raw) {
         }
         const list = Array.isArray(value) ? value.filter((id) => typeof id === 'string' && id) : [];
         if (list.length > 0) {
-            next[channelId] = Array.from(new Set(list));
+            const unique = Array.from(new Set(list));
+            next[channelId] = unique.length > 0 ? [unique[0]] : [];
         }
     });
     return next;
@@ -1182,8 +1183,9 @@ function readChannelAssignments(channelId) {
     }
     const list = assignments[channelId];
     const normalized = Array.isArray(list) ? list : [];
-    assignmentCache.set(channelId, normalized);
-    return normalized;
+    const singleton = normalized.length > 0 ? [normalized[0]] : [];
+    assignmentCache.set(channelId, singleton);
+    return singleton;
 }
 
 /**
@@ -1195,7 +1197,7 @@ function writeChannelAssignments(channelId, next) {
     if (!channelId) {
         return;
     }
-    const normalized = Array.from(new Set(next));
+    const normalized = Array.from(new Set(next)).slice(0, 1);
     if (normalized.length === 0) {
         delete assignments[channelId];
         assignmentCache.delete(channelId);
@@ -1654,18 +1656,6 @@ function ensureModal() {
     unsubscribeButton.setAttribute('data-action', 'unsubscribe-selected');
     setIconButton(unsubscribeButton, ICONS.trash, 'Unsubscribe selected');
 
-    addCategoryButton = document.createElement('button');
-    addCategoryButton.type = 'button';
-    addCategoryButton.className = 'yt-commander-sub-manager-btn';
-    addCategoryButton.setAttribute('data-action', 'add-category-selected');
-    setIconButton(addCategoryButton, ICONS.plus, 'Add to category');
-
-    removeCategoryButton = document.createElement('button');
-    removeCategoryButton.type = 'button';
-    removeCategoryButton.className = 'yt-commander-sub-manager-btn secondary';
-    removeCategoryButton.setAttribute('data-action', 'remove-category-selected');
-    updateRemoveCategoryButton();
-
     sortButton = document.createElement('button');
     sortButton.type = 'button';
     sortButton.className = 'yt-commander-sub-manager-toggle';
@@ -1675,8 +1665,6 @@ function ensureModal() {
     const actionGroup = document.createElement('div');
     actionGroup.className = 'yt-commander-sub-manager-action-group';
     actionGroup.appendChild(unsubscribeButton);
-    actionGroup.appendChild(addCategoryButton);
-    actionGroup.appendChild(removeCategoryButton);
     const headerDivider = document.createElement('div');
     headerDivider.className = 'yt-commander-sub-manager-header-divider';
 
@@ -2906,14 +2894,14 @@ async function applyCategoryUpdate(channelIds, categoryId, mode) {
             let next = current;
             let changed = false;
 
-            if (mode === 'add' && !hasCategory) {
-                next = [...current, categoryId];
+            if (mode === 'add' && (!hasCategory || current.length > 1)) {
+                next = [categoryId];
                 changed = true;
             } else if (mode === 'remove' && hasCategory) {
-                next = current.filter((id) => id !== categoryId);
+                next = [];
                 changed = true;
             } else if (mode === 'toggle') {
-                next = hasCategory ? current.filter((id) => id !== categoryId) : [...current, categoryId];
+                next = hasCategory ? [] : [categoryId];
                 changed = true;
             }
 
@@ -3029,20 +3017,6 @@ function handleModalClick(event) {
             unsubscribeSelected().catch((error) => {
                 setStatus(error?.message || 'Failed to unsubscribe', 'error');
             });
-            return;
-        }
-
-        if (action === 'add-category-selected') {
-            openPicker(actionTarget, 'add', Array.from(selectedChannelIds));
-            return;
-        }
-
-        if (action === 'remove-category-selected') {
-            if (filterMode === 'all' || filterMode === 'uncategorized') {
-                setStatus('Select a category filter to remove from.', 'error');
-                return;
-            }
-            applyCategoryUpdate(Array.from(selectedChannelIds), filterMode, 'remove').catch(() => undefined);
             return;
         }
 
