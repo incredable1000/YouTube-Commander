@@ -11,6 +11,7 @@ export const FEED_RENDERER_SELECTOR = [
     'ytd-rich-item-renderer',
     'ytd-video-renderer',
     'ytd-grid-video-renderer',
+    'ytd-rich-grid-media',
     'ytd-compact-video-renderer',
     'ytd-playlist-video-renderer',
     'ytd-playlist-panel-video-renderer',

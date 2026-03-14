@@ -325,13 +325,15 @@ function injectStyles() {
 
         [${WATCHED_ATTR}='true'] {
             position: relative !important;
+            display: block !important;
+            overflow: hidden !important;
         }
 
         .${MARKER_CLASS} {
             position: absolute !important;
             inset: 0 !important;
             pointer-events: none !important;
-            z-index: 5 !important;
+            z-index: 12 !important;
             background: rgba(0, 0, 0, 0.45) !important;
             border-radius: 12px !important;
             display: flex !important;
@@ -703,7 +705,19 @@ function decorateContainer(container) {
  * @returns {Element|null}
  */
 function findThumbnailAnchor(container, fallbackLink) {
-    return container.querySelector('a#thumbnail') || fallbackLink || null;
+    const ytThumb = container.querySelector('ytd-thumbnail, ytd-playlist-thumbnail, yt-thumbnail-view-model');
+    if (ytThumb) {
+        return ytThumb;
+    }
+    const direct = container.querySelector('a#thumbnail');
+    if (direct) {
+        return direct;
+    }
+    const richThumb = container.querySelector('#thumbnail');
+    if (richThumb) {
+        return richThumb;
+    }
+    return fallbackLink || null;
 }
 
 /**
