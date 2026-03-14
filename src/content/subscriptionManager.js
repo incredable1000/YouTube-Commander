@@ -338,6 +338,9 @@ function resolveDropTargetFromPoint(x, y) {
         return null;
     }
     const categoryId = item.getAttribute('data-filter-id') || '';
+    if (categoryId === 'uncategorized') {
+        return { item, category: { id: 'uncategorized', name: 'Uncategorized' } };
+    }
     const category = categories.find((entry) => entry.id === categoryId);
     if (!category) {
         return null;
@@ -446,6 +449,14 @@ function handleSidebarDragOver(event) {
         return;
     }
     const categoryId = item.getAttribute('data-filter-id') || '';
+    if (categoryId === 'uncategorized') {
+        event.preventDefault();
+        if (event.dataTransfer) {
+            event.dataTransfer.dropEffect = 'move';
+        }
+        setDropTarget(item, 'Drop to Uncategorized');
+        return;
+    }
     const category = categories.find((entry) => entry.id === categoryId);
     if (!category) {
         clearDropTarget();
@@ -481,6 +492,16 @@ function handleSidebarDrop(event) {
         return;
     }
     const categoryId = item.getAttribute('data-filter-id') || '';
+    if (categoryId === 'uncategorized') {
+        event.preventDefault();
+        const payload = (dragPayloadIds.length ? dragPayloadIds : extractDragPayload(event)).slice();
+        resetDragState();
+        if (payload.length === 0) {
+            return;
+        }
+        commitDropToCategory(item, 'uncategorized', payload);
+        return;
+    }
     const category = categories.find((entry) => entry.id === categoryId);
     if (!category) {
         clearDropTarget();
@@ -2874,6 +2895,7 @@ async function applyCategoryUpdate(channelIds, categoryId, mode) {
     if (!categoryId) {
         return;
     }
+    const isUncategorized = categoryId === 'uncategorized';
 
     const ids = (channelIds || []).filter((id) => typeof id === 'string' && id);
     if (ids.length === 0) {
@@ -2895,13 +2917,13 @@ async function applyCategoryUpdate(channelIds, categoryId, mode) {
             let changed = false;
 
             if (mode === 'add' && (!hasCategory || current.length > 1)) {
-                next = [categoryId];
+                next = isUncategorized ? [] : [categoryId];
                 changed = true;
             } else if (mode === 'remove' && hasCategory) {
                 next = [];
                 changed = true;
             } else if (mode === 'toggle') {
-                next = hasCategory ? [] : [categoryId];
+                next = isUncategorized ? [] : (hasCategory ? [] : [categoryId]);
                 changed = true;
             }
 
@@ -3667,12 +3689,6 @@ function buildCard(channel) {
     stats.appendChild(nameRow);
     card.appendChild(stats);
 
-    const categoriesWrap = document.createElement('div');
-    categoriesWrap.className = 'yt-commander-sub-manager-card-categories';
-    categoriesWrap.setAttribute('data-field', 'categories');
-    categoriesWrap.appendChild(buildCategoryBadges(channel.channelId));
-    card.appendChild(categoriesWrap);
-
     return card;
 }
 
@@ -3698,11 +3714,6 @@ function updateCard(card, channel) {
     const subscribers = card.querySelector('[data-field="subscribers"]');
     if (subscribers) {
         subscribers.textContent = counts.subscribers;
-    }
-    const categoriesWrap = card.querySelector('[data-field="categories"]');
-    if (categoriesWrap) {
-        categoriesWrap.innerHTML = '';
-        categoriesWrap.appendChild(buildCategoryBadges(channel.channelId));
     }
 }
 
