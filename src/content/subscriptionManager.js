@@ -3012,7 +3012,6 @@ async function applyCategoryUpdate(channelIds, categoryId, mode) {
     setStatus(successMessage, 'success');
     selectedChannelIds = new Set();
     selectionAnchorId = '';
-    resetScrollPending = true;
     renderList();
 }
 
