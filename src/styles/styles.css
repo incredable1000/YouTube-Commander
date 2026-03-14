@@ -2748,8 +2748,17 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-filter-item {
-    border-radius: 999px;
-    padding: 8px;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 50%;
+    justify-content: center;
+    margin: 0 auto;
+}
+
+.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-filter-left {
+    width: 100%;
+    justify-content: center;
 }
 
 .yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-header {
@@ -2763,15 +2772,16 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-btn {
-    width: 100%;
+    width: 34px;
     height: 34px;
-    border-radius: 999px;
+    border-radius: 50%;
+    margin: 0 auto;
 }
 
 .yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-toggle {
     width: 30px;
-    height: 44px;
-    border-radius: 999px;
+    height: 30px;
+    border-radius: 50%;
 }
 
 .yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-list {
