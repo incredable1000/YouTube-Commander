@@ -67,6 +67,7 @@ let tableWrap = null;
 let cardsWrap = null;
 let mainWrap = null;
 let statusEl = null;
+let statusTimeoutId = 0;
 let selectionBadgeEl = null;
 let clearSelectionButton = null;
 let selectionGroupEl = null;
@@ -256,6 +257,10 @@ function resetModalElements() {
     cardsWrap = null;
     mainWrap = null;
     statusEl = null;
+    if (statusTimeoutId) {
+        window.clearTimeout(statusTimeoutId);
+        statusTimeoutId = 0;
+    }
     selectionBadgeEl = null;
     clearSelectionButton = null;
     selectionGroupEl = null;
@@ -1388,6 +1393,10 @@ function ensureModal() {
     statusEl = document.createElement('div');
     statusEl.className = STATUS_CLASS;
     statusEl.setAttribute('aria-live', 'polite');
+    const statusWrap = document.createElement('div');
+    statusWrap.className = 'yt-commander-sub-manager-status-wrap';
+    statusWrap.appendChild(statusEl);
+    mainWrap.insertBefore(statusWrap, tableWrap);
 
     const footer = document.createElement('div');
     footer.className = 'yt-commander-sub-manager-footer';
@@ -1427,7 +1436,6 @@ function ensureModal() {
 
     modal.appendChild(header);
     modal.appendChild(content);
-    modal.appendChild(statusEl);
     modal.appendChild(footer);
 
     overlay.appendChild(modal);
@@ -2293,6 +2301,20 @@ function setStatus(message, kind = 'info') {
     }
     statusEl.textContent = message;
     statusEl.setAttribute('data-status', kind);
+    if (statusTimeoutId) {
+        window.clearTimeout(statusTimeoutId);
+        statusTimeoutId = 0;
+    }
+    if (message) {
+        statusTimeoutId = window.setTimeout(() => {
+            if (!statusEl) {
+                return;
+            }
+            statusEl.textContent = '';
+            statusEl.removeAttribute('data-status');
+            statusTimeoutId = 0;
+        }, 3000);
+    }
 }
 
 /**

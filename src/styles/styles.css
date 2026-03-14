@@ -3012,10 +3012,10 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-sub-manager-status {
-    position: absolute;
-    left: 50%;
-    bottom: 22px;
-    transform: translateX(-50%);
+    position: relative;
+    left: auto;
+    bottom: auto;
+    transform: none;
     padding: 10px 14px;
     font-size: 13px;
     color: #b3bccb;
@@ -3026,6 +3026,13 @@ body.yt-commander-windowed-lock {
     box-shadow: 0 14px 36px rgba(0, 0, 0, 0.35);
     max-width: min(420px, 80vw);
     z-index: 4;
+}
+
+.yt-commander-sub-manager-status-wrap {
+    display: flex;
+    justify-content: flex-end;
+    padding: 4px 0 6px;
+    min-height: 0;
 }
 
 .yt-commander-sub-manager-status[data-status='success'] {
