@@ -12,23 +12,23 @@
     background: rgba(0, 0, 0, 0.58);
     border: 1px solid rgba(255, 255, 255, 0.2);
     color: white;
-    padding: 0 8px;
-    font-size: 11px;
+    padding: 0 10px;
+    font-size: 12px;
     font-weight: 600;
     cursor: pointer;
     font-family: 'YouTube Noto', Roboto, Arial, sans-serif;
     transition: all 0.15s ease;
-    height: 24px;
+    height: 26px;
     display: inline-flex !important;
     align-items: center;
-    min-width: 34px;
+    min-width: 38px;
     justify-content: center;
     outline: none;
     margin: 0;
     user-select: none;
     opacity: 0.95;
     border-radius: 999px;
-    letter-spacing: 0.2px;
+    letter-spacing: 0.3px;
     line-height: 1;
 }
 
@@ -46,7 +46,7 @@
 }
 
 .custom-seek-button::before {
-    font-size: 11px;
+    font-size: 12px;
     opacity: 0.92;
     margin-right: 4px;
 }
