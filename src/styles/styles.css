@@ -2506,9 +2506,9 @@ body.yt-commander-windowed-lock {
 
 .yt-commander-sub-manager-sidebar-toggle {
     position: absolute;
-    top: 50%;
+    top: 12px;
     right: -14px;
-    transform: translateY(-50%);
+    transform: none;
     width: 30px;
     height: 44px;
     border-radius: 999px;
