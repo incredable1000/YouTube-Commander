@@ -2284,43 +2284,6 @@ async function restoreSubscriptionsFromCloudflare() {
 }
 
 /**
- * Open subscription manager modal from popup.
- */
-async function openSubscriptionManagerFromPopup() {
-    const button = document.getElementById('openSubscriptionManager');
-    if (!button) {
-        return;
-    }
-
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!activeTab?.id || !activeTab.url || !activeTab.url.includes('youtube.com')) {
-        showStatus('Open a YouTube tab first to launch the subscription manager', 'error');
-        return;
-    }
-
-    const initialLabel = button.textContent;
-    button.disabled = true;
-    button.textContent = 'Opening...';
-
-    try {
-        const response = await chrome.tabs.sendMessage(activeTab.id, {
-            type: 'OPEN_SUBSCRIPTION_MANAGER'
-        });
-
-        if (!response?.success) {
-            throw new Error(response?.error || 'Failed to open subscription manager');
-        }
-
-        showStatus('Subscription manager opened in current tab', 'success');
-    } catch (error) {
-        showStatus(error?.message || 'Failed to open subscription manager', 'error');
-    } finally {
-        button.disabled = false;
-        button.textContent = initialLabel;
-    }
-}
-
-/**
  * Export subscription manager data to CSV.
  */
 async function exportSubscriptionCsvFromPopup() {
@@ -2777,7 +2740,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('downloadFromCloudflare').addEventListener('click', downloadFromCloudflare);
     document.getElementById('lockPrimarySyncAccount').addEventListener('click', lockPrimarySyncAccount);
     document.getElementById('historyFileInput').addEventListener('change', handleFileImport);
-    document.getElementById('openSubscriptionManager').addEventListener('click', openSubscriptionManagerFromPopup);
     document.getElementById('exportSubscriptionCsv').addEventListener('click', exportSubscriptionCsvFromPopup);
     document.getElementById('importSubscriptionCsv').addEventListener('click', () => {
         document.getElementById('subscriptionCsvInput')?.click();
