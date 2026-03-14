@@ -1911,7 +1911,7 @@ body.yt-commander-windowed-lock {
     justify-content: center;
     min-width: 22px;
     height: 22px;
-    padding: 0 6px;
+    padding: 0 8px;
     border-radius: 999px;
     background: rgba(244, 193, 109, 0.2);
     border: 1px solid rgba(244, 193, 109, 0.6);
@@ -1936,6 +1936,38 @@ body.yt-commander-windowed-lock {
 .yt-commander-sub-manager-clear-selection:hover {
     border-color: rgba(244, 193, 109, 0.7);
     background: rgba(244, 193, 109, 0.3);
+}
+
+.yt-commander-sub-manager-selection-group {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    overflow: hidden;
+    border: 1px solid rgba(244, 193, 109, 0.6);
+    background: rgba(244, 193, 109, 0.14);
+    margin-left: 8px;
+}
+
+.yt-commander-sub-manager-selection-group .yt-commander-sub-manager-selected-badge {
+    border: none;
+    background: transparent;
+    color: #f4c16d;
+    height: 22px;
+    padding: 0 10px;
+    min-width: 24px;
+}
+
+.yt-commander-sub-manager-selection-group .yt-commander-sub-manager-clear-selection {
+    width: 28px;
+    height: 22px;
+    border-radius: 0;
+    border: none;
+    background: transparent;
+    border-left: 1px solid rgba(244, 193, 109, 0.45);
+}
+
+.yt-commander-sub-manager-selection-group .yt-commander-sub-manager-clear-selection:hover {
+    background: rgba(244, 193, 109, 0.24);
 }
 
 .yt-commander-sub-manager-subtitle {
