@@ -967,6 +967,10 @@
                 <div class="action-buttons">
                     <button class="btn btn-secondary" id="openSubscriptionManager">Open Manager</button>
                 </div>
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" id="exportSubscriptionCsv">Export CSV</button>
+                    <button class="btn btn-secondary" id="importSubscriptionCsv">Import CSV</button>
+                </div>
                 <div class="setting-row" style="margin-top: 8px;">
                     <div class="setting-label">Fetch Cooldown</div>
                     <select id="subscriptionFetchCooldown" class="setting-select">
@@ -1218,6 +1222,7 @@
     </div>
 
     <input type="file" id="historyFileInput" accept=".txt,.csv" class="hidden">
+    <input type="file" id="subscriptionCsvInput" accept=".csv,text/csv" class="hidden">
     <script type="module" src="popup.js"></script>
 </body>
 </html>

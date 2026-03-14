@@ -56,6 +56,13 @@ const SUBSCRIPTION_STORAGE_KEYS = {
     AUTO_ENABLED: 'subscriptionSyncAutoEnabled',
     INTERVAL_MINUTES: 'subscriptionSyncIntervalMinutes'
 };
+const SUBSCRIPTION_MANAGER_STORAGE_KEYS = {
+    CATEGORIES: 'subscriptionManagerCategories',
+    ASSIGNMENTS: 'subscriptionManagerAssignments',
+    SNAPSHOT: 'subscriptionManagerSnapshot',
+    PENDING_KEYS: 'subscriptionSyncPendingKeys',
+    PENDING_COUNT: 'subscriptionSyncPendingCount'
+};
 const SUBSCRIPTION_COOLDOWN_KEY = 'subscriptionManagerCooldownMinutes';
 const SUBSCRIPTION_COOLDOWN_OPTIONS = [5, 10, 30, 60, 120, 240];
 const SQL_EXPORT_TABLE_NAME = 'watched_videos';
@@ -1587,6 +1594,387 @@ function normalizeVideoIdList(videoIds) {
 }
 
 /**
+ * Normalize channel URL for lookups.
+ * @param {string} url
+ * @returns {string}
+ */
+function normalizeChannelUrl(url) {
+    if (typeof url !== 'string') {
+        return '';
+    }
+    const trimmed = url.trim();
+    if (!trimmed) {
+        return '';
+    }
+    try {
+        const parsed = new URL(trimmed, 'https://www.youtube.com');
+        return parsed.pathname.replace(/\/+$/, '').toLowerCase();
+    } catch (_error) {
+        return trimmed.toLowerCase();
+    }
+}
+
+/**
+ * Normalize handle for lookups.
+ * @param {string} handle
+ * @returns {string}
+ */
+function normalizeHandle(handle) {
+    if (typeof handle !== 'string') {
+        return '';
+    }
+    const trimmed = handle.trim();
+    if (!trimmed) {
+        return '';
+    }
+    return trimmed.startsWith('@') ? trimmed.toLowerCase() : `@${trimmed.toLowerCase()}`;
+}
+
+/**
+ * Extract channel ID from a YouTube URL.
+ * @param {string} url
+ * @returns {string}
+ */
+function extractChannelIdFromUrl(url) {
+    if (typeof url !== 'string' || !url) {
+        return '';
+    }
+    try {
+        const parsed = new URL(url, 'https://www.youtube.com');
+        if (parsed.pathname.startsWith('/channel/')) {
+            return parsed.pathname.split('/')[2] || '';
+        }
+    } catch (_error) {
+        return '';
+    }
+    return '';
+}
+
+/**
+ * Extract handle from a YouTube URL.
+ * @param {string} url
+ * @returns {string}
+ */
+function extractHandleFromUrl(url) {
+    if (typeof url !== 'string' || !url) {
+        return '';
+    }
+    try {
+        const parsed = new URL(url, 'https://www.youtube.com');
+        if (parsed.pathname.startsWith('/@')) {
+            return parsed.pathname.split('/')[1] || '';
+        }
+    } catch (_error) {
+        return '';
+    }
+    return '';
+}
+
+/**
+ * Resolve channel URL for export.
+ * @param {{channelId?: string, handle?: string, url?: string}} channel
+ * @returns {string}
+ */
+function resolveChannelUrl(channel) {
+    if (!channel) {
+        return '';
+    }
+    const rawUrl = typeof channel.url === 'string' ? channel.url.trim() : '';
+    if (rawUrl) {
+        try {
+            return new URL(rawUrl, 'https://www.youtube.com').toString();
+        } catch (_error) {
+            return rawUrl;
+        }
+    }
+    const handle = normalizeHandle(channel.handle);
+    if (handle) {
+        return `https://www.youtube.com/${handle}`;
+    }
+    if (channel.channelId) {
+        return `https://www.youtube.com/channel/${channel.channelId}`;
+    }
+    return '';
+}
+
+/**
+ * Build channel lookup indexes from snapshot.
+ * @param {Array<object>} list
+ * @returns {{byId: Map<string, object>, byHandle: Map<string, string>, byUrl: Map<string, string>}}
+ */
+function buildChannelIndexes(list) {
+    const byId = new Map();
+    const byHandle = new Map();
+    const byUrl = new Map();
+
+    (list || []).forEach((channel) => {
+        const channelId = typeof channel?.channelId === 'string' ? channel.channelId : '';
+        const handle = typeof channel?.handle === 'string' ? channel.handle : '';
+        const url = typeof channel?.url === 'string' ? channel.url : '';
+        if (channelId) {
+            byId.set(channelId, channel);
+        }
+        const normalizedHandle = normalizeHandle(handle);
+        if (normalizedHandle) {
+            byHandle.set(normalizedHandle, channelId || byHandle.get(normalizedHandle) || '');
+            byHandle.set(normalizedHandle.replace(/^@/, ''), channelId || byHandle.get(normalizedHandle.replace(/^@/, '')) || '');
+        }
+        const normalizedUrl = normalizeChannelUrl(url);
+        if (normalizedUrl) {
+            byUrl.set(normalizedUrl, channelId || byUrl.get(normalizedUrl) || '');
+        }
+    });
+
+    return { byId, byHandle, byUrl };
+}
+
+/**
+ * Resolve channel ID from identity and indexes.
+ * @param {{channelId: string, handle: string, url: string}} identity
+ * @param {{byId: Map<string, object>, byHandle: Map<string, string>, byUrl: Map<string, string>}} indexes
+ * @returns {string}
+ */
+function resolveChannelIdFromIdentity(identity, indexes) {
+    if (identity.channelId && indexes.byId.has(identity.channelId)) {
+        return identity.channelId;
+    }
+    const normalizedHandle = normalizeHandle(identity.handle);
+    if (normalizedHandle && indexes.byHandle.has(normalizedHandle)) {
+        return indexes.byHandle.get(normalizedHandle) || '';
+    }
+    if (normalizedHandle && indexes.byHandle.has(normalizedHandle.replace(/^@/, ''))) {
+        return indexes.byHandle.get(normalizedHandle.replace(/^@/, '')) || '';
+    }
+    const normalizedUrl = normalizeChannelUrl(identity.url);
+    if (normalizedUrl && indexes.byUrl.has(normalizedUrl)) {
+        return indexes.byUrl.get(normalizedUrl) || '';
+    }
+    return identity.channelId || '';
+}
+
+/**
+ * Normalize categories list.
+ * @param {any} raw
+ * @returns {Array<{id: string, name: string, color: string}>}
+ */
+function normalizeCategories(raw) {
+    if (!Array.isArray(raw)) {
+        return [];
+    }
+
+    return raw
+        .map((item) => {
+            if (!item || typeof item !== 'object') {
+                return null;
+            }
+            const id = typeof item.id === 'string' ? item.id : '';
+            const name = typeof item.name === 'string' ? item.name.trim() : '';
+            const color = typeof item.color === 'string' ? item.color : '';
+            if (!id || !name) {
+                return null;
+            }
+            return {
+                id,
+                name,
+                color: color || `hsl(${Math.floor(Math.random() * 360)} 65% 45%)`
+            };
+        })
+        .filter(Boolean);
+}
+
+/**
+ * Normalize assignments map.
+ * @param {any} raw
+ * @returns {object}
+ */
+function normalizeAssignments(raw) {
+    if (!raw || typeof raw !== 'object') {
+        return {};
+    }
+
+    const next = {};
+    Object.entries(raw).forEach(([channelId, value]) => {
+        if (typeof channelId !== 'string' || !channelId) {
+            return;
+        }
+        const list = Array.isArray(value) ? value.filter((id) => typeof id === 'string' && id) : [];
+        if (list.length > 0) {
+            next[channelId] = Array.from(new Set(list));
+        }
+    });
+    return next;
+}
+
+/**
+ * Create a category object.
+ * @param {string} name
+ * @param {string} color
+ * @returns {{id: string, name: string, color: string}}
+ */
+function createCategory(name, color) {
+    const trimmed = name.trim();
+    const id = `cat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    return {
+        id,
+        name: trimmed,
+        color
+    };
+}
+
+/**
+ * Generate random category color avoiding existing values.
+ * @param {string[]} existingColors
+ * @returns {string}
+ */
+function generateRandomCategoryColor(existingColors = []) {
+    const existing = new Set(existingColors.map((color) => String(color).toLowerCase().trim()));
+    for (let i = 0; i < 12; i += 1) {
+        const hue = Math.floor(Math.random() * 360);
+        const color = `hsl(${hue} 65% 45%)`;
+        if (!existing.has(color.toLowerCase())) {
+            return color;
+        }
+    }
+    return `hsl(${Math.floor(Math.random() * 360)} 65% 45%)`;
+}
+
+/**
+ * Trigger download for text content.
+ * @param {string} content
+ * @param {string} filename
+ * @param {string} [mimeType]
+ */
+function downloadTextFile(content, filename, mimeType = 'text/plain;charset=utf-8') {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+}
+
+/**
+ * Escape CSV cell value.
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeCsvValue(value) {
+    const text = typeof value === 'string' ? value : String(value ?? '');
+    if (/[",\n]/.test(text)) {
+        return `"${text.replace(/"/g, '""')}"`;
+    }
+    return text;
+}
+
+/**
+ * Parse a CSV line into fields (simple CSV with quotes).
+ * @param {string} line
+ * @returns {string[]}
+ */
+function parseCsvLine(line) {
+    const values = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i += 1) {
+        const char = line[i];
+        if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+                current += '"';
+                i += 1;
+            } else {
+                inQuotes = !inQuotes;
+            }
+            continue;
+        }
+        if (char === ',' && !inQuotes) {
+            values.push(current);
+            current = '';
+            continue;
+        }
+        current += char;
+    }
+    values.push(current);
+    return values;
+}
+
+/**
+ * Parse subscription CSV file content.
+ * @param {string} text
+ * @returns {{rows: Array<{url: string, category: string}>, skipped: number}}
+ */
+function parseSubscriptionCsv(text) {
+    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (lines.length === 0) {
+        return { rows: [], skipped: 0 };
+    }
+    const header = lines[0].toLowerCase();
+    if (header.includes('channel') && header.includes('category')) {
+        lines.shift();
+    }
+    const rows = [];
+    let skipped = 0;
+    lines.forEach((line) => {
+        const parts = parseCsvLine(line);
+        const url = (parts[0] || '').trim();
+        const category = (parts.slice(1).join(',') || '').trim();
+        if (!url) {
+            skipped += 1;
+            return;
+        }
+        rows.push({ url, category });
+    });
+    return { rows, skipped };
+}
+
+/**
+ * Read file as text.
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+function readFileText(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
+        reader.readAsText(file);
+    });
+}
+
+/**
+ * Mark pending subscription sync keys.
+ * @param {string[]} keys
+ */
+async function markSubscriptionPending(keys) {
+    if (!Array.isArray(keys) || keys.length === 0) {
+        return;
+    }
+    const result = await chrome.storage.local.get([SUBSCRIPTION_MANAGER_STORAGE_KEYS.PENDING_KEYS]);
+    const existing = Array.isArray(result[SUBSCRIPTION_MANAGER_STORAGE_KEYS.PENDING_KEYS])
+        ? result[SUBSCRIPTION_MANAGER_STORAGE_KEYS.PENDING_KEYS]
+        : [];
+    const set = new Set(existing);
+    keys.forEach((key) => {
+        if (typeof key === 'string' && key) {
+            set.add(key);
+        }
+    });
+    const next = Array.from(set);
+    await chrome.storage.local.set({
+        [SUBSCRIPTION_MANAGER_STORAGE_KEYS.PENDING_KEYS]: next,
+        [SUBSCRIPTION_MANAGER_STORAGE_KEYS.PENDING_COUNT]: next.length
+    });
+    chrome.runtime.sendMessage({
+        type: 'SUBSCRIPTION_MANAGER_UPDATED',
+        pendingCount: next.length
+    }, () => {
+        if (chrome.runtime.lastError) {
+            return;
+        }
+    });
+}
+
+/**
  * Resolve a usable YouTube tab for watched-history operations.
  * @returns {Promise<chrome.tabs.Tab>}
  */
@@ -1690,21 +2078,6 @@ function buildSqlMigrationFile(videoIds, partIndex, totalParts) {
 }
 
 /**
- * Trigger browser download for text content.
- * @param {string} content
- * @param {string} filename
- */
-function downloadTextFile(content, filename) {
-    const blob = new Blob([content], { type: 'application/sql;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
-}
-
-/**
  * Export watched IDs as chunked SQL migration files for Cloudflare D1.
  */
 async function exportSqlMigration() {
@@ -1742,7 +2115,7 @@ async function exportSqlMigration() {
                 ? 'youtube-watched-history-d1.sql'
                 : `youtube-watched-history-d1-part-${String(partIndex).padStart(3, '0')}-of-${String(totalParts).padStart(3, '0')}.sql`;
 
-            downloadTextFile(sqlContent, filename);
+            downloadTextFile(sqlContent, filename, 'application/sql;charset=utf-8');
             exportedIds += idsChunk.length;
 
             if (partIndex < totalParts) {
@@ -1945,6 +2318,218 @@ async function openSubscriptionManagerFromPopup() {
         button.disabled = false;
         button.textContent = initialLabel;
     }
+}
+
+/**
+ * Export subscription manager data to CSV.
+ */
+async function exportSubscriptionCsvFromPopup() {
+    const button = document.getElementById('exportSubscriptionCsv');
+    if (!button) {
+        return;
+    }
+    const initialLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Exporting...';
+
+    try {
+        const stored = await chrome.storage.local.get([
+            SUBSCRIPTION_MANAGER_STORAGE_KEYS.SNAPSHOT,
+            SUBSCRIPTION_MANAGER_STORAGE_KEYS.CATEGORIES,
+            SUBSCRIPTION_MANAGER_STORAGE_KEYS.ASSIGNMENTS
+        ]);
+        const snapshot = stored[SUBSCRIPTION_MANAGER_STORAGE_KEYS.SNAPSHOT];
+        const channels = Array.isArray(snapshot?.channels) ? snapshot.channels : [];
+        if (!channels.length) {
+            throw new Error('Open the subscription manager in a YouTube tab first to fetch channels.');
+        }
+        const categories = normalizeCategories(stored[SUBSCRIPTION_MANAGER_STORAGE_KEYS.CATEGORIES]);
+        const assignments = normalizeAssignments(stored[SUBSCRIPTION_MANAGER_STORAGE_KEYS.ASSIGNMENTS]);
+        const categoryLookup = new Map(categories.map((category) => [category.id, category.name]));
+
+        const rows = [];
+        const rowMap = new Map();
+        channels.forEach((channel) => {
+            const channelId = channel?.channelId || '';
+            if (!channelId) {
+                return;
+            }
+            const url = resolveChannelUrl(channel);
+            if (!url) {
+                return;
+            }
+            const assigned = Array.isArray(assignments[channelId]) ? assignments[channelId] : [];
+            if (assigned.length === 0) {
+                if (!rowMap.has(url)) {
+                    rowMap.set(url, new Set());
+                }
+                return;
+            }
+            const set = rowMap.get(url) || new Set();
+            assigned.forEach((categoryId) => {
+                const name = categoryLookup.get(categoryId);
+                if (name) {
+                    set.add(name);
+                }
+            });
+            if (!rowMap.has(url)) {
+                rowMap.set(url, set);
+            }
+        });
+
+        rowMap.forEach((set, url) => {
+            const categoryList = Array.isArray(set) ? set : Array.from(set || []);
+            const category = categoryList.length > 0 ? categoryList.sort().join('; ') : '';
+            rows.push({ url, category });
+        });
+
+        if (rows.length === 0) {
+            throw new Error('No channels found to export.');
+        }
+
+        const lines = ['channel_url,category'];
+        rows.forEach((row) => {
+            lines.push(`${escapeCsvValue(row.url)},${escapeCsvValue(row.category)}`);
+        });
+
+        downloadTextFile(lines.join('\n'), 'yt-commander-subscriptions.csv', 'text/csv;charset=utf-8');
+        showStatus(`Exported ${rows.length} row(s).`, 'success');
+    } catch (error) {
+        showStatus(error?.message || 'Failed to export CSV', 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = initialLabel;
+    }
+}
+
+/**
+ * Import subscription manager data from CSV.
+ * @param {File} file
+ */
+async function importSubscriptionCsvFromPopup(file) {
+    if (!file) {
+        return;
+    }
+    showStatus('Importing CSV...', 'info');
+
+    const stored = await chrome.storage.local.get([
+        SUBSCRIPTION_MANAGER_STORAGE_KEYS.SNAPSHOT,
+        SUBSCRIPTION_MANAGER_STORAGE_KEYS.CATEGORIES,
+        SUBSCRIPTION_MANAGER_STORAGE_KEYS.ASSIGNMENTS
+    ]);
+    const snapshot = stored[SUBSCRIPTION_MANAGER_STORAGE_KEYS.SNAPSHOT];
+    const channels = Array.isArray(snapshot?.channels) ? snapshot.channels : [];
+    if (!channels.length) {
+        throw new Error('Open the subscription manager in a YouTube tab first to fetch channels.');
+    }
+
+    const categories = normalizeCategories(stored[SUBSCRIPTION_MANAGER_STORAGE_KEYS.CATEGORIES]);
+    const assignments = normalizeAssignments(stored[SUBSCRIPTION_MANAGER_STORAGE_KEYS.ASSIGNMENTS]);
+    const indexes = buildChannelIndexes(channels);
+
+    const text = await readFileText(file);
+    const { rows, skipped } = parseSubscriptionCsv(text);
+    if (rows.length === 0) {
+        throw new Error('No valid rows found in CSV.');
+    }
+
+    const categoryLookup = new Map(categories.map((category) => [category.name.toLowerCase(), category.id]));
+    const existingColors = categories.map((category) => category.color);
+    const newCategoryIds = [];
+    const updatedChannelIds = new Set();
+    let missingChannels = 0;
+    let applied = 0;
+
+    rows.forEach((row) => {
+        const rawUrl = row.url.trim();
+        const rawCategory = row.category.trim();
+        const identity = {
+            channelId: extractChannelIdFromUrl(rawUrl),
+            handle: extractHandleFromUrl(rawUrl),
+            url: rawUrl
+        };
+        const channelId = resolveChannelIdFromIdentity(identity, indexes);
+        if (!channelId) {
+            missingChannels += 1;
+            return;
+        }
+        if (!rawCategory) {
+            return;
+        }
+        const categoryNames = rawCategory
+            .split(/[;|]+/)
+            .map((name) => name.trim())
+            .filter(Boolean);
+        if (categoryNames.length === 0) {
+            return;
+        }
+        categoryNames.forEach((categoryName) => {
+            const key = categoryName.toLowerCase();
+            let categoryId = categoryLookup.get(key);
+            if (!categoryId) {
+                const color = generateRandomCategoryColor(existingColors);
+                const created = createCategory(categoryName, color);
+                categories.push(created);
+                existingColors.push(color);
+                categoryId = created.id;
+                categoryLookup.set(key, categoryId);
+                newCategoryIds.push(categoryId);
+            }
+            const current = Array.isArray(assignments[channelId]) ? assignments[channelId] : [];
+            if (!current.includes(categoryId)) {
+                assignments[channelId] = Array.from(new Set([...current, categoryId]));
+                updatedChannelIds.add(channelId);
+                applied += 1;
+            }
+        });
+    });
+
+    if (newCategoryIds.length === 0 && updatedChannelIds.size === 0) {
+        showStatus('No changes to import.', 'info');
+        return;
+    }
+
+    await chrome.storage.local.set({
+        [SUBSCRIPTION_MANAGER_STORAGE_KEYS.CATEGORIES]: categories,
+        [SUBSCRIPTION_MANAGER_STORAGE_KEYS.ASSIGNMENTS]: assignments
+    });
+
+    const pendingKeys = [
+        ...newCategoryIds.map((id) => `category:${id}`),
+        ...Array.from(updatedChannelIds).map((id) => `channel:${id}`)
+    ];
+    await markSubscriptionPending(pendingKeys);
+    refreshSubscriptionSyncStatus().catch(() => undefined);
+
+    const summary = [`Imported ${applied} assignment(s)`];
+    if (newCategoryIds.length > 0) {
+        summary.push(`Added ${newCategoryIds.length} category(s)`);
+    }
+    if (missingChannels > 0) {
+        summary.push(`${missingChannels} channel(s) not found`);
+    }
+    if (skipped > 0) {
+        summary.push(`${skipped} invalid row(s) skipped`);
+    }
+    showStatus(`${summary.join('. ')}.`, 'success');
+}
+
+/**
+ * Handle CSV file input change.
+ * @param {Event} event
+ */
+function handleSubscriptionCsvImport(event) {
+    const input = event.target;
+    const file = input?.files?.[0];
+    if (input) {
+        input.value = '';
+    }
+    if (!file) {
+        return;
+    }
+    importSubscriptionCsvFromPopup(file).catch((error) => {
+        showStatus(error?.message || 'Failed to import CSV.', 'error');
+    });
 }
 
 /**
@@ -2193,6 +2778,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('lockPrimarySyncAccount').addEventListener('click', lockPrimarySyncAccount);
     document.getElementById('historyFileInput').addEventListener('change', handleFileImport);
     document.getElementById('openSubscriptionManager').addEventListener('click', openSubscriptionManagerFromPopup);
+    document.getElementById('exportSubscriptionCsv').addEventListener('click', exportSubscriptionCsvFromPopup);
+    document.getElementById('importSubscriptionCsv').addEventListener('click', () => {
+        document.getElementById('subscriptionCsvInput')?.click();
+    });
+    document.getElementById('subscriptionCsvInput').addEventListener('change', handleSubscriptionCsvImport);
     document.getElementById('syncSubscriptionsNow').addEventListener('click', syncSubscriptionsNow);
     document.getElementById('restoreSubscriptions').addEventListener('click', restoreSubscriptionsFromCloudflare);
 
