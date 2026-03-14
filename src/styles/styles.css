@@ -1994,7 +1994,6 @@ body.yt-commander-windowed-lock {
     border-radius: 0;
     border: none;
     background: transparent;
-    border-left: 1px solid rgba(244, 193, 109, 0.45);
 }
 
 .yt-commander-sub-manager-selection-group .yt-commander-sub-manager-clear-selection:hover {
