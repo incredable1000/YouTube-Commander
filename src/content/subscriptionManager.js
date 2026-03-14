@@ -2342,6 +2342,7 @@ async function commitSidebarCreate(name) {
     markCategoriesDirty();
     await persistLocalState();
     await markPending([`category:${category.id}`]);
+    setStatus(`Created category "${category.name}".`, 'success');
     resetSidebarDraftState();
     renderList();
     return true;
@@ -2370,6 +2371,7 @@ async function commitSidebarRename(categoryId, name) {
         markCategoriesDirty();
         await persistLocalState();
         await markPending([`category:${categoryId}`]);
+        setStatus(`Renamed category to "${trimmed}".`, 'success');
     }
     resetSidebarDraftState();
     renderList();
@@ -2410,6 +2412,7 @@ async function updateCategoryColor(categoryId, nextColor) {
     markCategoriesDirty();
     await persistLocalState();
     await markPending([`category:${categoryId}`]);
+    setStatus(`Updated color for "${category.name}".`, 'success');
     renderList();
 }
 
@@ -2656,9 +2659,20 @@ async function removeCategory(categoryId) {
 
     await persistLocalState();
     await markPending(updatedKeys);
-    setStatus(`Removed "${category.name}" from ${affected} channel(s).`, 'success');
+    setStatus(`Deleted "${category.name}" and unassigned ${affected} channel(s).`, 'success');
     renderSidebarCategories();
     renderList();
+}
+
+function getCategoryLabel(categoryId) {
+    if (categoryId === 'all') {
+        return 'All categories';
+    }
+    if (categoryId === 'uncategorized') {
+        return 'Uncategorized';
+    }
+    const category = categories.find((item) => item.id === categoryId);
+    return category ? category.name : 'category';
 }
 
 /**
@@ -2896,6 +2910,10 @@ async function applyCategoryUpdate(channelIds, categoryId, mode) {
         return;
     }
     const isUncategorized = categoryId === 'uncategorized';
+    const categoryLabel = getCategoryLabel(categoryId);
+    const categoryDisplay = isUncategorized
+        ? 'Uncategorized'
+        : (categoryLabel === 'category' ? 'selected category' : `"${categoryLabel}"`);
 
     const ids = (channelIds || []).filter((id) => typeof id === 'string' && id);
     if (ids.length === 0) {
@@ -2907,6 +2925,8 @@ async function applyCategoryUpdate(channelIds, categoryId, mode) {
     const total = ids.length;
     const batchSize = Math.min(50, Math.max(5, Math.ceil(total / 6)));
     let processed = 0;
+    let assignedCount = 0;
+    let clearedCount = 0;
 
     for (let i = 0; i < ids.length; i += batchSize) {
         const batch = ids.slice(i, i + batchSize);
@@ -2930,25 +2950,54 @@ async function applyCategoryUpdate(channelIds, categoryId, mode) {
             if (changed) {
                 writeChannelAssignments(channelId, next);
                 updatedKeys.push(`channel:${channelId}`);
+                if (next.length === 0) {
+                    clearedCount += 1;
+                } else {
+                    assignedCount += 1;
+                }
             }
         });
 
         processed += batch.length;
         if (total > batchSize) {
-            const label = mode === 'remove' ? 'Removing' : mode === 'add' ? 'Adding' : 'Updating';
+            const label = isUncategorized
+                ? 'Clearing category'
+                : (mode === 'remove'
+                    ? `Removing ${categoryDisplay}`
+                    : mode === 'add'
+                        ? `Assigning ${categoryDisplay}`
+                        : `Updating ${categoryDisplay}`);
             setStatus(`${label} ${processed}/${total}...`, 'info');
             await new Promise((resolve) => setTimeout(resolve, 0));
         }
     }
 
     if (updatedKeys.length === 0) {
-        setStatus('No category changes.', 'info');
+        if (isUncategorized) {
+            setStatus('No changes: already uncategorized.', 'info');
+        } else if (mode === 'remove') {
+            setStatus(`No changes: not in ${categoryDisplay}.`, 'info');
+        } else if (mode === 'add') {
+            setStatus(`No changes: already in ${categoryDisplay}.`, 'info');
+        } else {
+            setStatus('No category changes.', 'info');
+        }
         return;
     }
 
     await persistLocalState();
     await markPending(updatedKeys);
-    setStatus(`Updated ${updatedKeys.length} channel(s).`, 'success');
+    let successMessage = '';
+    if (isUncategorized) {
+        successMessage = `Moved ${clearedCount || updatedKeys.length} channel(s) to Uncategorized.`;
+    } else if (assignedCount && !clearedCount) {
+        successMessage = `Assigned ${categoryDisplay} to ${assignedCount} channel(s).`;
+    } else if (clearedCount && !assignedCount) {
+        successMessage = `Removed ${categoryDisplay} from ${clearedCount} channel(s).`;
+    } else {
+        successMessage = `Updated ${categoryDisplay}: assigned ${assignedCount}, cleared ${clearedCount} channel(s).`;
+    }
+    setStatus(successMessage, 'success');
     selectedChannelIds = new Set();
     selectionAnchorId = '';
     resetScrollPending = true;

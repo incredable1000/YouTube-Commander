@@ -2669,7 +2669,7 @@ body.yt-commander-windowed-lock {
     display: flex;
     gap: 14px;
     overflow: hidden;
-    padding: 12px 16px 18px;
+    padding: 12px 16px;
 }
 
 .yt-commander-sub-manager-sidebar {
@@ -2769,7 +2769,8 @@ body.yt-commander-windowed-lock {
     display: grid;
     gap: 8px;
     min-width: 0;
-    max-height: min(52vh, 420px);
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
 }
