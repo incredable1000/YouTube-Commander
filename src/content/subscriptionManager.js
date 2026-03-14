@@ -20,6 +20,7 @@ const STORAGE_KEYS = {
     SNAPSHOT: 'subscriptionManagerSnapshot',
     VIEW: 'subscriptionManagerView',
     FILTER: 'subscriptionManagerFilter',
+    SORT: 'subscriptionManagerSort',
     COOLDOWN_MINUTES: 'subscriptionManagerCooldownMinutes',
     SIDEBAR_COLLAPSED: 'subscriptionManagerSidebarCollapsed',
     PENDING_KEYS: 'subscriptionSyncPendingKeys',
@@ -67,11 +68,13 @@ let cardsWrap = null;
 let mainWrap = null;
 let statusEl = null;
 let selectionBadgeEl = null;
+let clearSelectionButton = null;
 let pageInfoEl = null;
 let pagePrevButton = null;
 let pageNextButton = null;
 let viewTableButton = null;
 let viewCardButton = null;
+let sortButton = null;
 let sidebar = null;
 let sidebarList = null;
 let sidebarToggleButton = null;
@@ -90,6 +93,12 @@ let sidebarEditingName = '';
 let sidebarCreating = false;
 let sidebarDraftName = '';
 let sidebarDraftColor = '';
+let confirmBackdrop = null;
+let confirmTitleEl = null;
+let confirmMessageEl = null;
+let confirmResolve = null;
+let tooltipPortal = null;
+let tooltipPortalTarget = null;
 
 let channels = [];
 let channelsFetchedAt = 0;
@@ -110,6 +119,7 @@ let apiCooldownMinutes = COOLDOWN_MINUTES_OPTIONS[0];
 let apiCooldownMs = DEFAULT_API_COOLDOWN_MS;
 let viewMode = 'table';
 let filterMode = 'all';
+let sortMode = 'name';
 let currentPage = 1;
 let selectedChannelIds = new Set();
 let resetScrollPending = false;
@@ -231,6 +241,9 @@ function resetModalElements() {
     if (strayPicker) {
         strayPicker.remove();
     }
+    if (tooltipPortal && tooltipPortal.isConnected) {
+        tooltipPortal.remove();
+    }
 
     overlay = null;
     modal = null;
@@ -239,11 +252,13 @@ function resetModalElements() {
     mainWrap = null;
     statusEl = null;
     selectionBadgeEl = null;
+    clearSelectionButton = null;
     pageInfoEl = null;
     pagePrevButton = null;
     pageNextButton = null;
     viewTableButton = null;
     viewCardButton = null;
+    sortButton = null;
     sidebar = null;
     sidebarList = null;
     sidebarToggleButton = null;
@@ -255,6 +270,12 @@ function resetModalElements() {
     pickerAnchorEl = null;
     pickerTargetIds = [];
     pickerMode = 'toggle';
+    confirmBackdrop = null;
+    confirmTitleEl = null;
+    confirmMessageEl = null;
+    confirmResolve = null;
+    tooltipPortal = null;
+    tooltipPortalTarget = null;
     resetScrollPending = false;
     tableRowById.clear();
     cardById.clear();
@@ -324,6 +345,7 @@ const ICONS = {
     plus: 'M11 5h2v14h-2zM5 11h14v2H5z',
     minus: 'M5 11h14v2H5z',
     trash: 'M6 7h12v2H6V7zm2 3h8v9H8v-9zm3-7h2l1 2H10l1-2z',
+    sort: 'M3 6h10v2H3V6zm0 5h7v2H3v-2zm0 5h4v2H3v-2zm15-8v8h2V8h-2zm-3 3v5h2v-5h-2z',
     openNewTab: 'M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z',
     collapse: 'M15.41 7.41 14 6 8 12 14 18 15.41 16.59 10.83 12z',
     expand: 'M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z',
@@ -738,6 +760,7 @@ async function loadLocalState() {
         STORAGE_KEYS.ASSIGNMENTS,
         STORAGE_KEYS.VIEW,
         STORAGE_KEYS.FILTER,
+        STORAGE_KEYS.SORT,
         STORAGE_KEYS.COOLDOWN_MINUTES,
         STORAGE_KEYS.SIDEBAR_COLLAPSED
     ]);
@@ -748,6 +771,7 @@ async function loadLocalState() {
     markAssignmentsDirty();
     viewMode = result[STORAGE_KEYS.VIEW] === 'card' ? 'card' : 'table';
     filterMode = typeof result[STORAGE_KEYS.FILTER] === 'string' ? result[STORAGE_KEYS.FILTER] : 'all';
+    sortMode = result[STORAGE_KEYS.SORT] === 'subscribers' ? 'subscribers' : 'name';
     apiCooldownMinutes = normalizeCooldownMinutes(result[STORAGE_KEYS.COOLDOWN_MINUTES]);
     apiCooldownMs = apiCooldownMinutes * 60 * 1000;
     sidebarCollapsed = result[STORAGE_KEYS.SIDEBAR_COLLAPSED] === true;
@@ -771,7 +795,8 @@ async function persistLocalState() {
 async function persistViewState() {
     await storageSet({
         [STORAGE_KEYS.VIEW]: viewMode,
-        [STORAGE_KEYS.FILTER]: filterMode
+        [STORAGE_KEYS.FILTER]: filterMode,
+        [STORAGE_KEYS.SORT]: sortMode
     });
 }
 
@@ -1205,8 +1230,16 @@ function ensureModal() {
     selectionBadgeEl.setAttribute('aria-live', 'polite');
     selectionBadgeEl.style.display = 'none';
 
+    clearSelectionButton = document.createElement('button');
+    clearSelectionButton.type = 'button';
+    clearSelectionButton.className = 'yt-commander-sub-manager-clear-selection';
+    clearSelectionButton.setAttribute('data-action', 'clear-selection');
+    setIconButton(clearSelectionButton, ICONS.minus, 'Clear selection');
+    clearSelectionButton.style.display = 'none';
+
     titleRow.appendChild(title);
     titleRow.appendChild(selectionBadgeEl);
+    titleRow.appendChild(clearSelectionButton);
 
     const subtitle = document.createElement('div');
     subtitle.className = 'yt-commander-sub-manager-subtitle';
@@ -1246,10 +1279,17 @@ function ensureModal() {
     removeCategoryButton.type = 'button';
     removeCategoryButton.className = 'yt-commander-sub-manager-btn secondary';
     removeCategoryButton.setAttribute('data-action', 'remove-category-selected');
-    setIconButton(removeCategoryButton, ICONS.minus, 'Remove from category');
+    updateRemoveCategoryButton();
+
+    sortButton = document.createElement('button');
+    sortButton.type = 'button';
+    sortButton.className = 'yt-commander-sub-manager-toggle';
+    sortButton.setAttribute('data-action', 'sort-toggle');
+    updateSortButton();
 
     headerActions.appendChild(viewTableButton);
     headerActions.appendChild(viewCardButton);
+    headerActions.appendChild(sortButton);
     const actionGroup = document.createElement('div');
     actionGroup.className = 'yt-commander-sub-manager-action-group';
     actionGroup.appendChild(unsubscribeButton);
@@ -1371,6 +1411,8 @@ function ensureModal() {
     modal.addEventListener('keydown', handleModalKeydown);
 
     ensurePicker();
+    ensureTooltipPortal();
+    ensureConfirmDialog();
 }
 
 /**
@@ -1484,6 +1526,211 @@ function closePicker() {
 }
 
 /**
+ * Ensure tooltip portal exists.
+ */
+function ensureTooltipPortal() {
+    if (tooltipPortal && tooltipPortal.isConnected) {
+        return;
+    }
+
+    tooltipPortal = document.createElement('div');
+    tooltipPortal.className = 'yt-commander-sub-manager-tooltip-portal';
+    tooltipPortal.setAttribute('role', 'tooltip');
+    tooltipPortal.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(tooltipPortal);
+
+    const handleTooltipOver = (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const tooltipTarget = target?.closest('.yt-commander-sub-manager-tooltip');
+        if (!tooltipTarget || !modal?.contains(tooltipTarget)) {
+            return;
+        }
+        const label = tooltipTarget.getAttribute('data-tooltip') || tooltipTarget.getAttribute('title') || '';
+        if (!label) {
+            return;
+        }
+        tooltipPortalTarget = tooltipTarget;
+        tooltipPortal.textContent = label;
+        tooltipPortal.setAttribute('data-placement', 'top');
+        tooltipPortal.setAttribute('aria-hidden', 'false');
+        tooltipPortal.classList.add('is-visible');
+        positionTooltipPortal();
+    };
+
+    const handleTooltipOut = (event) => {
+        if (!tooltipPortalTarget) {
+            return;
+        }
+        const related = event.relatedTarget instanceof Element ? event.relatedTarget : null;
+        if (related && (tooltipPortalTarget.contains(related) || tooltipPortal.contains(related))) {
+            return;
+        }
+        hideTooltipPortal();
+    };
+
+    modal.addEventListener('mouseover', handleTooltipOver);
+    modal.addEventListener('mouseout', handleTooltipOut);
+    modal.addEventListener('focusin', handleTooltipOver);
+    modal.addEventListener('focusout', handleTooltipOut);
+    window.addEventListener('scroll', hideTooltipPortal, true);
+    window.addEventListener('resize', hideTooltipPortal);
+}
+
+/**
+ * Position tooltip portal.
+ */
+function positionTooltipPortal() {
+    if (!tooltipPortal || !tooltipPortalTarget) {
+        return;
+    }
+    const rect = tooltipPortalTarget.getBoundingClientRect();
+    tooltipPortal.style.left = '0px';
+    tooltipPortal.style.top = '0px';
+    tooltipPortal.style.transform = 'translate(-50%, -100%)';
+    const tooltipRect = tooltipPortal.getBoundingClientRect();
+    const padding = 8;
+    let left = rect.left + rect.width / 2;
+    let top = rect.top - 10;
+    let placement = 'top';
+    if (top - tooltipRect.height < padding) {
+        top = rect.bottom + 10;
+        placement = 'bottom';
+        tooltipPortal.style.transform = 'translate(-50%, 0)';
+    }
+    left = Math.max(padding + tooltipRect.width / 2, Math.min(window.innerWidth - padding - tooltipRect.width / 2, left));
+    tooltipPortal.style.left = `${left}px`;
+    tooltipPortal.style.top = `${top}px`;
+    tooltipPortal.setAttribute('data-placement', placement);
+}
+
+/**
+ * Hide tooltip portal.
+ */
+function hideTooltipPortal() {
+    if (!tooltipPortal) {
+        return;
+    }
+    tooltipPortal.classList.remove('is-visible');
+    tooltipPortal.setAttribute('aria-hidden', 'true');
+    tooltipPortalTarget = null;
+}
+
+/**
+ * Ensure confirm dialog exists.
+ */
+function ensureConfirmDialog() {
+    if (confirmBackdrop && confirmBackdrop.isConnected) {
+        return;
+    }
+
+    confirmBackdrop = document.createElement('div');
+    confirmBackdrop.className = 'yt-commander-sub-manager-confirm-backdrop';
+    confirmBackdrop.setAttribute('aria-hidden', 'true');
+
+    const dialog = document.createElement('div');
+    dialog.className = 'yt-commander-sub-manager-confirm-dialog';
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+
+    confirmTitleEl = document.createElement('div');
+    confirmTitleEl.className = 'yt-commander-sub-manager-confirm-title';
+    confirmTitleEl.textContent = 'Confirm action';
+
+    confirmMessageEl = document.createElement('div');
+    confirmMessageEl.className = 'yt-commander-sub-manager-confirm-message';
+
+    const actions = document.createElement('div');
+    actions.className = 'yt-commander-sub-manager-confirm-actions';
+
+    const cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'yt-commander-sub-manager-btn secondary';
+    cancelButton.setAttribute('data-action', 'confirm-cancel');
+    cancelButton.textContent = 'Cancel';
+
+    const confirmButton = document.createElement('button');
+    confirmButton.type = 'button';
+    confirmButton.className = 'yt-commander-sub-manager-btn danger';
+    confirmButton.setAttribute('data-action', 'confirm-accept');
+    confirmButton.textContent = 'Confirm';
+
+    actions.appendChild(cancelButton);
+    actions.appendChild(confirmButton);
+
+    dialog.appendChild(confirmTitleEl);
+    dialog.appendChild(confirmMessageEl);
+    dialog.appendChild(actions);
+
+    confirmBackdrop.appendChild(dialog);
+    modal.appendChild(confirmBackdrop);
+
+    confirmBackdrop.addEventListener('click', (event) => {
+        if (event.target === confirmBackdrop) {
+            closeConfirmDialog(false);
+        }
+    });
+
+    confirmBackdrop.addEventListener('click', (event) => {
+        const action = event.target?.closest('[data-action]');
+        const actionType = action?.getAttribute('data-action');
+        if (actionType === 'confirm-accept') {
+            closeConfirmDialog(true);
+        } else if (actionType === 'confirm-cancel') {
+            closeConfirmDialog(false);
+        }
+    });
+}
+
+/**
+ * Show confirm dialog.
+ * @param {{title?: string, message?: string, confirmLabel?: string, cancelLabel?: string}} options
+ * @returns {Promise<boolean>}
+ */
+function showConfirmDialog(options = {}) {
+    ensureConfirmDialog();
+    if (!confirmBackdrop) {
+        return Promise.resolve(false);
+    }
+    const { title, message, confirmLabel, cancelLabel } = options;
+    if (confirmTitleEl && title) {
+        confirmTitleEl.textContent = title;
+    }
+    if (confirmMessageEl && message) {
+        confirmMessageEl.textContent = message;
+    }
+    const confirmButton = confirmBackdrop.querySelector('[data-action="confirm-accept"]');
+    const cancelButton = confirmBackdrop.querySelector('[data-action="confirm-cancel"]');
+    if (confirmButton && confirmLabel) {
+        confirmButton.textContent = confirmLabel;
+    }
+    if (cancelButton && cancelLabel) {
+        cancelButton.textContent = cancelLabel;
+    }
+    confirmBackdrop.classList.add('is-visible');
+    confirmBackdrop.setAttribute('aria-hidden', 'false');
+    return new Promise((resolve) => {
+        confirmResolve = resolve;
+    });
+}
+
+/**
+ * Close confirm dialog.
+ * @param {boolean} accepted
+ */
+function closeConfirmDialog(accepted) {
+    if (!confirmBackdrop) {
+        return;
+    }
+    confirmBackdrop.classList.remove('is-visible');
+    confirmBackdrop.setAttribute('aria-hidden', 'true');
+    if (confirmResolve) {
+        const resolve = confirmResolve;
+        confirmResolve = null;
+        resolve(Boolean(accepted));
+    }
+}
+
+/**
  * Position picker near anchor.
  */
 function positionPicker() {
@@ -1560,6 +1807,32 @@ function updateSidebarToggleButton() {
     const icon = sidebarCollapsed ? ICONS.expand : ICONS.collapse;
     const label = sidebarCollapsed ? 'Expand categories' : 'Collapse categories';
     setIconButton(sidebarToggleButton, icon, label);
+}
+
+function updateSortButton() {
+    if (!sortButton) {
+        return;
+    }
+    const isSubscribers = sortMode === 'subscribers';
+    const label = isSubscribers ? 'Sort by name' : 'Sort by subscribers';
+    setIconButton(sortButton, ICONS.sort, label);
+    sortButton.classList.toggle('active', isSubscribers);
+}
+
+function updateRemoveCategoryButton() {
+    if (!removeCategoryButton) {
+        return;
+    }
+    const hasSelection = selectedChannelIds.size > 0;
+    const isActiveCategory = filterMode !== 'all' && filterMode !== 'uncategorized';
+    removeCategoryButton.disabled = !hasSelection || !isActiveCategory;
+    let label = 'Remove from active category';
+    if (!hasSelection) {
+        label = 'Select channels to remove';
+    } else if (!isActiveCategory) {
+        label = 'Select a category filter to remove';
+    }
+    setIconButton(removeCategoryButton, ICONS.minus, label);
 }
 
 function applySidebarState() {
@@ -2039,8 +2312,9 @@ function updateSelectionSummary() {
     if (addCategoryButton) {
         addCategoryButton.disabled = disabled;
     }
-    if (removeCategoryButton) {
-        removeCategoryButton.disabled = disabled;
+    updateRemoveCategoryButton();
+    if (clearSelectionButton) {
+        clearSelectionButton.style.display = disabled ? 'none' : 'inline-flex';
     }
 }
 
@@ -2139,6 +2413,7 @@ async function applyCategoryUpdate(channelIds, categoryId, mode) {
     await persistLocalState();
     await markPending(updatedKeys);
     setStatus(`Updated ${updatedKeys.length} channel(s).`, 'success');
+    selectedChannelIds = new Set();
     resetScrollPending = true;
     renderList();
 }
@@ -2149,6 +2424,10 @@ async function applyCategoryUpdate(channelIds, categoryId, mode) {
  */
 function handleOverlayClick(event) {
     if (event.target === overlay) {
+        if (confirmBackdrop?.classList.contains('is-visible')) {
+            closeConfirmDialog(false);
+            return;
+        }
         closeModal();
     }
 }
@@ -2198,6 +2477,13 @@ function handleModalClick(event) {
             return;
         }
 
+        if (action === 'sort-toggle') {
+            sortMode = sortMode === 'subscribers' ? 'name' : 'subscribers';
+            persistViewState().catch(() => undefined);
+            renderList();
+            return;
+        }
+
         if (action === 'page-prev') {
             currentPage = Math.max(1, currentPage - 1);
             resetScrollPending = true;
@@ -2225,7 +2511,17 @@ function handleModalClick(event) {
         }
 
         if (action === 'remove-category-selected') {
-            openPicker(actionTarget, 'remove', Array.from(selectedChannelIds));
+            if (filterMode === 'all' || filterMode === 'uncategorized') {
+                setStatus('Select a category filter to remove from.', 'error');
+                return;
+            }
+            applyCategoryUpdate(Array.from(selectedChannelIds), filterMode, 'remove').catch(() => undefined);
+            return;
+        }
+
+        if (action === 'clear-selection') {
+            selectedChannelIds = new Set();
+            renderList();
             return;
         }
 
@@ -2519,6 +2815,68 @@ function buildChannelMeta(channel) {
         bits.push(channel.videoCount);
     }
     return bits.join(' | ');
+}
+
+/**
+ * Parse count label to numeric value.
+ * @param {string | number | null | undefined} value
+ * @returns {number}
+ */
+function parseCountValue(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+    const text = String(value ?? '').trim();
+    if (!text || text === '-' || text.startsWith('@')) {
+        return 0;
+    }
+    const cleaned = text.replace(/,/g, '').replace(/subscribers?/i, '').trim();
+    const match = cleaned.match(/([\d.]+)\s*([kmb])?/i);
+    if (!match) {
+        return 0;
+    }
+    let numberValue = parseFloat(match[1]);
+    if (!Number.isFinite(numberValue)) {
+        return 0;
+    }
+    const suffix = (match[2] || '').toLowerCase();
+    if (suffix === 'k') {
+        numberValue *= 1000;
+    } else if (suffix === 'm') {
+        numberValue *= 1000000;
+    } else if (suffix === 'b') {
+        numberValue *= 1000000000;
+    }
+    return numberValue;
+}
+
+/**
+ * Compare channel names.
+ * @param {object} a
+ * @param {object} b
+ * @returns {number}
+ */
+function compareChannelName(a, b) {
+    return (a?.title || '').localeCompare(b?.title || '', undefined, { sensitivity: 'base' });
+}
+
+/**
+ * Sort channels based on active mode.
+ * @param {Array<object>} list
+ * @returns {Array<object>}
+ */
+function sortChannels(list) {
+    if (sortMode !== 'subscribers') {
+        return list;
+    }
+    return [...list].sort((a, b) => {
+        const aValue = parseCountValue(resolveChannelCounts(a).subscribers);
+        const bValue = parseCountValue(resolveChannelCounts(b).subscribers);
+        if (bValue !== aValue) {
+            return bValue - aValue;
+        }
+        return compareChannelName(a, b);
+    });
 }
 
 /**
@@ -2934,13 +3292,15 @@ function renderCards(pageItems) {
  * @returns {Array<object>}
  */
 function filterChannels() {
+    let list = channels;
     if (filterMode === 'all') {
-        return channels;
+        list = channels;
+    } else if (filterMode === 'uncategorized') {
+        list = channels.filter((channel) => readChannelAssignments(channel.channelId).length === 0);
+    } else {
+        list = channels.filter((channel) => readChannelAssignments(channel.channelId).includes(filterMode));
     }
-    if (filterMode === 'uncategorized') {
-        return channels.filter((channel) => readChannelAssignments(channel.channelId).length === 0);
-    }
-    return channels.filter((channel) => readChannelAssignments(channel.channelId).includes(filterMode));
+    return sortChannels(list);
 }
 
 /**
@@ -2967,6 +3327,8 @@ function renderList() {
     cardsWrap.style.display = viewMode === 'card' ? 'grid' : 'none';
     viewTableButton.classList.toggle('active', viewMode === 'table');
     viewCardButton.classList.toggle('active', viewMode === 'card');
+    updateSortButton();
+    updateRemoveCategoryButton();
 
     renderTable(pageItems);
     renderCards(pageItems);
@@ -2999,6 +3361,8 @@ function closeModal() {
     overlay.classList.remove('is-visible');
     closePicker();
     closeFilterMenu();
+    closeConfirmDialog(false);
+    hideTooltipPortal();
     resetSidebarDraftState();
 }
 
@@ -3041,8 +3405,13 @@ async function unsubscribeSelected() {
         return;
     }
 
-    const confirmText = `Unsubscribe from ${ids.length} channel(s)?`;
-    if (!window.confirm(confirmText)) {
+    const confirmed = await showConfirmDialog({
+        title: 'Unsubscribe selected channels?',
+        message: `Unsubscribe from ${ids.length} channel(s)? This action cannot be undone.`,
+        confirmLabel: 'Unsubscribe',
+        cancelLabel: 'Cancel'
+    });
+    if (!confirmed) {
         return;
     }
 
@@ -3070,6 +3439,10 @@ async function unsubscribeSelected() {
  */
 function handleKeydown(event) {
     if (event.key !== 'Escape') {
+        return;
+    }
+    if (confirmBackdrop?.classList.contains('is-visible')) {
+        closeConfirmDialog(false);
         return;
     }
     if (picker && picker.style.display === 'block') {
