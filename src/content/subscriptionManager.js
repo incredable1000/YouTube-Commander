@@ -48,6 +48,7 @@ const ITEMS_PER_PAGE = 100;
 const SNAPSHOT_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_API_COOLDOWN_MS = 5 * 60 * 1000;
 const COOLDOWN_MINUTES_OPTIONS = [5, 10, 30, 60, 120, 240];
+const DRAG_PREVIEW_SCALE = 0.5;
 
 const bridgeClient = createBridgeClient({
     source: BRIDGE_SOURCE,
@@ -106,6 +107,16 @@ let confirmResolve = null;
 let tooltipPortal = null;
 let tooltipPortalTarget = null;
 
+let dragPayloadIds = [];
+let dragSourceEl = null;
+let dropTargetEl = null;
+let dragPreviewEl = null;
+let dragPointerId = null;
+let dragStartX = 0;
+let dragStartY = 0;
+let dragActive = false;
+let dragHiddenEls = [];
+
 let channels = [];
 let channelsFetchedAt = 0;
 let lastFetchAttemptAt = 0;
@@ -150,6 +161,338 @@ function setTooltip(el, label) {
     el.setAttribute('title', label);
     el.setAttribute('data-tooltip', label);
     el.classList.add('yt-commander-sub-manager-tooltip');
+}
+
+function resolveDragPayloadIds(channelId) {
+    if (!channelId) {
+        return [];
+    }
+    if (selectedChannelIds.has(channelId) && selectedChannelIds.size > 1) {
+        return Array.from(selectedChannelIds);
+    }
+    return [channelId];
+}
+
+function setDropTarget(item, label) {
+    if (!item) {
+        return;
+    }
+    if (dropTargetEl && dropTargetEl !== item) {
+        dropTargetEl.classList.remove('is-drop-target');
+        dropTargetEl.removeAttribute('data-drop-label');
+    }
+    dropTargetEl = item;
+    dropTargetEl.classList.add('is-drop-target');
+    dropTargetEl.setAttribute('data-drop-label', label);
+}
+
+function clearDropTarget() {
+    if (!dropTargetEl) {
+        return;
+    }
+    dropTargetEl.classList.remove('is-drop-target');
+    dropTargetEl.removeAttribute('data-drop-label');
+    dropTargetEl = null;
+}
+
+function extractDragPayload(event) {
+    const dataTransfer = event?.dataTransfer;
+    if (!dataTransfer) {
+        return [];
+    }
+    const custom = dataTransfer.getData('application/x-ytc-channels');
+    if (custom) {
+        try {
+            const parsed = JSON.parse(custom);
+            if (Array.isArray(parsed)) {
+                return parsed.filter((id) => typeof id === 'string' && id);
+            }
+        } catch (_error) {
+            return [];
+        }
+    }
+    const text = dataTransfer.getData('text/plain') || '';
+    if (text) {
+        return text.split(',').map((part) => part.trim()).filter(Boolean);
+    }
+    return [];
+}
+
+function createDragPreview(source, count) {
+    if (!source) {
+        return null;
+    }
+    const preview = source.cloneNode(true);
+    preview.classList.remove('is-dragging', 'is-dragging-hidden');
+    preview.classList.add('yt-commander-sub-manager-drag-preview');
+    preview.setAttribute('aria-hidden', 'true');
+    preview.style.position = 'fixed';
+    preview.style.top = '-1000px';
+    preview.style.left = '-1000px';
+    preview.style.transform = `scale(${DRAG_PREVIEW_SCALE})`;
+    preview.style.transformOrigin = 'top left';
+    preview.style.pointerEvents = 'none';
+    preview.style.opacity = '0.85';
+    preview.style.visibility = 'visible';
+    const rect = source.getBoundingClientRect();
+    const previewWidth = Math.max(220, rect.width);
+    preview.style.width = `${previewWidth}px`;
+    preview.style.maxWidth = '320px';
+    preview.dataset.dragWidth = String(previewWidth);
+    preview.dataset.dragHeight = String(rect.height || 0);
+    if (count > 1) {
+        const badge = document.createElement('div');
+        badge.className = 'yt-commander-sub-manager-drag-count';
+        badge.textContent = `+${count}`;
+        preview.appendChild(badge);
+    }
+    document.body.appendChild(preview);
+    return preview;
+}
+
+function positionDragPreview(x, y) {
+    if (!dragPreviewEl) {
+        return;
+    }
+    const width = Number(dragPreviewEl.dataset.dragWidth || 0);
+    const height = Number(dragPreviewEl.dataset.dragHeight || 0);
+    const scaledWidth = width * DRAG_PREVIEW_SCALE;
+    const scaledHeight = height * DRAG_PREVIEW_SCALE;
+    const left = Math.round(x - scaledWidth / 2);
+    const top = Math.round(y - scaledHeight / 2);
+    dragPreviewEl.style.left = `${left}px`;
+    dragPreviewEl.style.top = `${top}px`;
+    dragPreviewEl.style.transform = `scale(${DRAG_PREVIEW_SCALE})`;
+}
+
+function hideMultiDragSources() {
+    dragHiddenEls = [];
+    if (!dragSourceEl || dragPayloadIds.length <= 1) {
+        return;
+    }
+    dragPayloadIds.forEach((channelId) => {
+        if (!channelId) {
+            return;
+        }
+        const row = tableRowById.get(channelId);
+        if (row && row !== dragSourceEl) {
+            row.classList.add('is-dragging-hidden');
+            dragHiddenEls.push(row);
+        }
+        const card = cardById.get(channelId);
+        if (card && card !== dragSourceEl) {
+            card.classList.add('is-dragging-hidden');
+            dragHiddenEls.push(card);
+        }
+    });
+}
+
+function resetDragState() {
+    if (dragSourceEl) {
+        dragSourceEl.classList.remove('is-dragging', 'is-dragging-hidden');
+        dragSourceEl.setAttribute('aria-grabbed', 'false');
+        if (dragPointerId !== null && dragSourceEl.releasePointerCapture) {
+            try {
+                dragSourceEl.releasePointerCapture(dragPointerId);
+            } catch (_error) {
+                // Ignore release errors.
+            }
+        }
+    }
+    dragSourceEl = null;
+    dragPayloadIds = [];
+    dragPointerId = null;
+    dragStartX = 0;
+    dragStartY = 0;
+    dragActive = false;
+    dragHiddenEls.forEach((el) => el.classList.remove('is-dragging-hidden'));
+    dragHiddenEls = [];
+    sidebar?.classList.remove('is-dragging');
+    modal?.classList.remove('is-dragging');
+    if (dragPreviewEl) {
+        dragPreviewEl.remove();
+        dragPreviewEl = null;
+    }
+    clearDropTarget();
+}
+
+function commitDropToCategory(item, categoryId, payload) {
+    if (!item || !categoryId || !Array.isArray(payload) || payload.length === 0) {
+        return;
+    }
+    item.classList.remove('is-drop-success');
+    void item.offsetWidth;
+    item.classList.add('is-drop-success');
+    window.setTimeout(() => {
+        item.classList.remove('is-drop-success');
+    }, 700);
+    window.setTimeout(() => {
+        applyCategoryUpdate(payload, categoryId, 'add').catch(() => undefined);
+    }, 450);
+}
+
+function resolveDropTargetFromPoint(x, y) {
+    const element = document.elementFromPoint(x, y);
+    const item = element?.closest('.yt-commander-sub-manager-sidebar-item[data-filter-id]');
+    if (!item) {
+        return null;
+    }
+    const categoryId = item.getAttribute('data-filter-id') || '';
+    const category = categories.find((entry) => entry.id === categoryId);
+    if (!category) {
+        return null;
+    }
+    return { item, category };
+}
+
+function startManualDrag() {
+    if (!dragSourceEl) {
+        return;
+    }
+    dragActive = true;
+    dragSourceEl.setAttribute('aria-grabbed', 'true');
+    dragSourceEl.classList.add('is-dragging', 'is-dragging-hidden');
+    sidebar?.classList.add('is-dragging');
+    modal?.classList.add('is-dragging');
+    if (dragPreviewEl) {
+        dragPreviewEl.remove();
+        dragPreviewEl = null;
+    }
+    dragPreviewEl = createDragPreview(dragSourceEl, dragPayloadIds.length);
+    if (dragPreviewEl) {
+        positionDragPreview(dragStartX, dragStartY);
+    }
+    hideMultiDragSources();
+}
+
+function handleItemPointerDown(event) {
+    if (event.button !== 0) {
+        return;
+    }
+    const source = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    if (!source || source.classList.contains('header')) {
+        return;
+    }
+    const target = event.target instanceof Element ? event.target : null;
+    const interactive = target?.closest(
+        'button, a, input, select, textarea, .yt-commander-sub-manager-badge, .yt-commander-sub-manager-categories'
+    );
+    if (interactive) {
+        return;
+    }
+    const channelId = source.getAttribute('data-channel-id') || '';
+    if (!channelId) {
+        return;
+    }
+    dragPointerId = event.pointerId;
+    dragStartX = event.clientX;
+    dragStartY = event.clientY;
+    dragActive = false;
+    dragSourceEl = source;
+    dragPayloadIds = resolveDragPayloadIds(channelId);
+    if (source.setPointerCapture) {
+        source.setPointerCapture(event.pointerId);
+    }
+}
+
+function handleItemPointerMove(event) {
+    if (!dragSourceEl || dragPointerId !== event.pointerId) {
+        return;
+    }
+    const dx = event.clientX - dragStartX;
+    const dy = event.clientY - dragStartY;
+    if (!dragActive) {
+        if (Math.hypot(dx, dy) < 6) {
+            return;
+        }
+        startManualDrag();
+    }
+    if (dragPreviewEl) {
+        positionDragPreview(event.clientX, event.clientY);
+    }
+    const match = resolveDropTargetFromPoint(event.clientX, event.clientY);
+    if (match) {
+        setDropTarget(match.item, `Drop to ${match.category.name}`);
+    } else {
+        clearDropTarget();
+    }
+    event.preventDefault();
+}
+
+function handleItemPointerUp(event) {
+    if (!dragSourceEl || dragPointerId !== event.pointerId) {
+        return;
+    }
+    const payload = dragPayloadIds.slice();
+    const match = dragActive ? resolveDropTargetFromPoint(event.clientX, event.clientY) : null;
+    resetDragState();
+    if (match && payload.length > 0) {
+        commitDropToCategory(match.item, match.category.id, payload);
+    }
+}
+
+function handleItemPointerCancel(event) {
+    if (!dragSourceEl || dragPointerId !== event.pointerId) {
+        return;
+    }
+    resetDragState();
+}
+
+function handleSidebarDragOver(event) {
+    const target = event.target instanceof Element ? event.target : null;
+    const item = target?.closest('.yt-commander-sub-manager-sidebar-item[data-filter-id]');
+    if (!item) {
+        clearDropTarget();
+        return;
+    }
+    const categoryId = item.getAttribute('data-filter-id') || '';
+    const category = categories.find((entry) => entry.id === categoryId);
+    if (!category) {
+        clearDropTarget();
+        return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move';
+    }
+    setDropTarget(item, `Drop to ${category.name}`);
+}
+
+function handleSidebarDragLeave(event) {
+    if (!dropTargetEl) {
+        return;
+    }
+    const related = event.relatedTarget;
+    if (related instanceof Element && dropTargetEl.contains(related)) {
+        return;
+    }
+    const target = event.target instanceof Element ? event.target : null;
+    const item = target?.closest('.yt-commander-sub-manager-sidebar-item');
+    if (item && item !== dropTargetEl) {
+        return;
+    }
+    clearDropTarget();
+}
+
+function handleSidebarDrop(event) {
+    const target = event.target instanceof Element ? event.target : null;
+    const item = target?.closest('.yt-commander-sub-manager-sidebar-item[data-filter-id]');
+    if (!item) {
+        return;
+    }
+    const categoryId = item.getAttribute('data-filter-id') || '';
+    const category = categories.find((entry) => entry.id === categoryId);
+    if (!category) {
+        clearDropTarget();
+        return;
+    }
+    event.preventDefault();
+    const payload = (dragPayloadIds.length ? dragPayloadIds : extractDragPayload(event)).slice();
+    resetDragState();
+    if (payload.length === 0) {
+        return;
+    }
+    commitDropToCategory(item, category.id, payload);
 }
 
 /**
@@ -293,6 +636,10 @@ function resetModalElements() {
     confirmResolve = null;
     tooltipPortal = null;
     tooltipPortalTarget = null;
+    dragPayloadIds = [];
+    dragSourceEl = null;
+    dropTargetEl = null;
+    dragPreviewEl = null;
     resetScrollPending = false;
     selectionAnchorId = '';
     currentPageIds = [];
@@ -1456,6 +1803,12 @@ function ensureModal() {
     modal.addEventListener('change', handleModalChange);
     modal.addEventListener('input', handleModalInput);
     modal.addEventListener('keydown', handleModalKeydown);
+    if (sidebarList) {
+        sidebarList.addEventListener('dragenter', handleSidebarDragOver);
+        sidebarList.addEventListener('dragover', handleSidebarDragOver);
+        sidebarList.addEventListener('dragleave', handleSidebarDragLeave);
+        sidebarList.addEventListener('drop', handleSidebarDrop);
+    }
 
     ensurePicker();
     ensureTooltipPortal();
@@ -2737,15 +3090,6 @@ function handleModalClick(event) {
             return;
         }
 
-        if (action === 'category-add') {
-            const channelId = actionTarget.getAttribute('data-channel-id') || '';
-            if (!channelId) {
-                return;
-            }
-            openPicker(actionTarget, 'toggle', [channelId]);
-            return;
-        }
-
         if (action === 'remove-category') {
             const channelId = actionTarget.getAttribute('data-channel-id') || '';
             const categoryId = actionTarget.getAttribute('data-category-id') || '';
@@ -3162,20 +3506,6 @@ function buildCategoryBadges(channelId) {
         wrapper.appendChild(badge);
     });
 
-    const add = document.createElement('button');
-    add.type = 'button';
-    add.className = 'yt-commander-sub-manager-category-add';
-    add.setAttribute('data-action', 'category-add');
-    add.setAttribute('data-channel-id', channelId);
-    add.setAttribute('aria-label', 'Add to category');
-    add.setAttribute('title', 'Add to category');
-    add.setAttribute('data-tooltip', 'Add to category');
-    add.classList.add('yt-commander-sub-manager-tooltip');
-    const addIcon = createIcon(ICONS.plus);
-    addIcon.classList.add('yt-commander-sub-manager-icon');
-    add.appendChild(addIcon);
-    wrapper.appendChild(add);
-
     return wrapper;
 }
 function buildTableHeader(pageItems) {
@@ -3219,6 +3549,11 @@ function buildTableRow(channel) {
     const row = document.createElement('div');
     row.className = 'yt-commander-sub-manager-row';
     row.setAttribute('data-channel-id', channel.channelId || '');
+    row.setAttribute('aria-grabbed', 'false');
+    row.addEventListener('pointerdown', handleItemPointerDown);
+    row.addEventListener('pointermove', handleItemPointerMove);
+    row.addEventListener('pointerup', handleItemPointerUp);
+    row.addEventListener('pointercancel', handleItemPointerCancel);
     if (selectedChannelIds.has(channel.channelId)) {
         row.classList.add('is-selected');
     }
@@ -3315,6 +3650,11 @@ function buildCard(channel) {
     const card = document.createElement('div');
     card.className = 'yt-commander-sub-manager-card';
     card.setAttribute('data-channel-id', channel.channelId || '');
+    card.setAttribute('aria-grabbed', 'false');
+    card.addEventListener('pointerdown', handleItemPointerDown);
+    card.addEventListener('pointermove', handleItemPointerMove);
+    card.addEventListener('pointerup', handleItemPointerUp);
+    card.addEventListener('pointercancel', handleItemPointerCancel);
     if (selectedChannelIds.has(channel.channelId)) {
         card.classList.add('is-selected');
     }
