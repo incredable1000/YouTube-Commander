@@ -1249,7 +1249,7 @@ function ensureModal() {
 
     const subtitle = document.createElement('div');
     subtitle.className = 'yt-commander-sub-manager-subtitle';
-    subtitle.textContent = 'Manage subscriptions with categories and bulk actions.';
+    subtitle.textContent = '';
 
     titleWrap.appendChild(titleRow);
     titleWrap.appendChild(subtitle);
