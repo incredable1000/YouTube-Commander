@@ -91,13 +91,17 @@ function isTrackDubbed(track, decodedInfo) {
 function normalizeTrack(track, index, currentTrackId) {
     const decodedInfo = decodeTrackId(track?.id);
     const label = track?.displayName || track?.name || track?.label || `Track ${index + 1}`;
+    const explicitEnabled = track?.enabled === true
+        || track?.isDefault === true
+        || track?.isActive === true
+        || track?.isSelected === true;
 
     return {
         id: track?.id || String(index),
         label,
         language: decodedInfo.language || track?.languageCode || track?.language || 'unknown',
         kind: track?.kind || 'main',
-        enabled: !!currentTrackId && currentTrackId === track?.id,
+        enabled: currentTrackId ? currentTrackId === track?.id : explicitEnabled,
         isOriginal: isTrackOriginal(track, decodedInfo),
         isDubbed: isTrackDubbed(track, decodedInfo)
     };

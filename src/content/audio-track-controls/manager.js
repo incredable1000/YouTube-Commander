@@ -3,7 +3,13 @@
  */
 
 import { createLogger } from '../utils/logger.js';
-import { isShortsPage, isVideoPage } from '../utils/youtube.js';
+import {
+    getActivePlayer,
+    getActiveVideo,
+    getYouTubePlayer,
+    isShortsPage,
+    isVideoPage
+} from '../utils/youtube.js';
 import { AUDIO_MESSAGE_TYPES, AUTO_SWITCH_DELAYS, RETRY_DELAYS_MS } from './constants.js';
 import { normalizeTrack, pickPreferredTrack } from './trackUtils.js';
 
@@ -87,8 +93,11 @@ class YouTubeAudioTrackManager {
     }
 
     getPlayer() {
-        return document.getElementById('movie_player')
-            || document.querySelector('.html5-video-player');
+        if (this.isShortsPage()) {
+            return getActivePlayer() || getYouTubePlayer();
+        }
+
+        return getYouTubePlayer() || getActivePlayer();
     }
 
     refreshPlayerReference() {
@@ -101,6 +110,11 @@ class YouTubeAudioTrackManager {
     }
 
     getVideoElement() {
+        const activeVideo = getActiveVideo();
+        if (activeVideo) {
+            return activeVideo;
+        }
+
         const player = this.refreshPlayerReference();
         if (player) {
             const scopedVideo = player.querySelector('video.html5-main-video, video');
@@ -161,7 +175,8 @@ class YouTubeAudioTrackManager {
             }
 
             const player = this.refreshPlayerReference();
-            if (!player || typeof player.getAvailableAudioTracks !== 'function') {
+            const video = this.getVideoElement();
+            if (!player && !video) {
                 this.audioTracks = [];
                 return [];
             }
@@ -176,12 +191,44 @@ class YouTubeAudioTrackManager {
                 }
             }
 
-            const availableTracks = player.getAvailableAudioTracks() || [];
+            let availableTracks = [];
+            if (player && typeof player.getAvailableAudioTracks === 'function') {
+                availableTracks = player.getAvailableAudioTracks() || [];
+            }
+
+            if ((!availableTracks || availableTracks.length === 0) && video?.audioTracks?.length > 0) {
+                availableTracks = Array.from(video.audioTracks).map((track, index) => ({
+                    id: track?.id || String(index),
+                    label: track?.label || track?.language || track?.id || `Track ${index + 1}`,
+                    language: track?.language,
+                    kind: track?.kind || 'main',
+                    enabled: track?.enabled === true
+                }));
+            }
+
+            if (!availableTracks.length) {
+                this.audioTracks = [];
+                return [];
+            }
+
+            if (!currentTrackId) {
+                const explicit = availableTracks.find((track) =>
+                    track?.enabled === true
+                    || track?.isDefault === true
+                    || track?.isActive === true
+                    || track?.isSelected === true
+                );
+                currentTrackId = explicit?.id || null;
+            }
             const normalizedTracks = availableTracks.map((track, index) =>
                 normalizeTrack(track, index, currentTrackId)
             );
 
             this.audioTracks = normalizedTracks;
+            if (!currentTrackId) {
+                const active = normalizedTracks.find((track) => track.enabled);
+                currentTrackId = active?.id || null;
+            }
             this.currentTrackId = currentTrackId;
             return normalizedTracks;
         } catch (error) {
