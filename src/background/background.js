@@ -41,6 +41,7 @@ const CLOUD_SYNC_DEFAULTS = {
     pendingCount: 0
 };
 const SUBSCRIPTION_SYNC_ALARM_NAME = 'ytCommanderSubscriptionAutoSync';
+const EXTENSION_TITLE = 'YouTube Commander';
 const SUBSCRIPTION_SYNC_CHECK_PERIOD_MINUTES = 1;
 
 const SUBSCRIPTION_SYNC_STORAGE_KEYS = {
@@ -76,6 +77,8 @@ let subscriptionSyncInProgress = false;
 let subscriptionRestoreInProgress = false;
 let pendingQueueMutationChain = Promise.resolve();
 const DEFAULT_ACCOUNT_KEY = 'default';
+let lastWatchedPendingCount = 0;
+let lastSubscriptionPendingCount = 0;
 
 /**
  * Sleep helper.
@@ -113,17 +116,41 @@ function formatBadgeCount(count) {
 }
 
 /**
+ * Update extension tooltip title with pending counts.
+ */
+function updateExtensionTitle() {
+    const parts = [];
+    if (lastWatchedPendingCount > 0) {
+        parts.push(`Watched pending: ${lastWatchedPendingCount}`);
+    }
+    if (lastSubscriptionPendingCount > 0) {
+        parts.push(`Subscriptions pending: ${lastSubscriptionPendingCount}`);
+    }
+    const title = parts.length > 0
+        ? `${EXTENSION_TITLE} • ${parts.join(' | ')}`
+        : EXTENSION_TITLE;
+    try {
+        chrome.action.setTitle({ title });
+    } catch (error) {
+        console.warn('[YT-Commander][Badge] Failed to update title', error);
+    }
+}
+
+/**
  * Update extension badge with pending watched IDs count.
  * @param {number} count
  */
 function updateWatchedHistoryBadge(count) {
-    const text = formatBadgeCount(count);
+    const numericCount = Number(count) || 0;
+    lastWatchedPendingCount = numericCount;
+    const text = formatBadgeCount(numericCount);
     try {
         chrome.action.setBadgeText({ text });
         chrome.action.setBadgeBackgroundColor({ color: BADGE_BACKGROUND_COLOR });
         if (chrome.action.setBadgeTextColor) {
             chrome.action.setBadgeTextColor({ color: BADGE_TEXT_COLOR });
         }
+        updateExtensionTitle();
     } catch (error) {
         console.warn('[YT-Commander][Badge] Failed to update badge', error);
     }
@@ -133,8 +160,12 @@ function updateWatchedHistoryBadge(count) {
  * Refresh badge from stored pending count.
  */
 function refreshWatchedHistoryBadge() {
-    chrome.storage.local.get([CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT], (result) => {
+    chrome.storage.local.get([
+        CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT,
+        SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_COUNT
+    ], (result) => {
         const count = Number(result?.[CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT]) || 0;
+        lastSubscriptionPendingCount = Number(result?.[SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_COUNT]) || 0;
         updateWatchedHistoryBadge(count);
     });
 }
@@ -2411,9 +2442,16 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') {
         return;
     }
+    if (changes[SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_COUNT]) {
+        lastSubscriptionPendingCount = Number(changes[SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_COUNT].newValue) || 0;
+    }
     if (changes[CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT]) {
         const next = Number(changes[CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT].newValue) || 0;
         updateWatchedHistoryBadge(next);
+        return;
+    }
+    if (changes[SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_COUNT]) {
+        updateExtensionTitle();
     }
 });
 
