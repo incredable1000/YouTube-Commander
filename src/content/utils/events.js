@@ -182,6 +182,13 @@ export function waitForNavigation(timeout = 5000) {
  * @returns {function} Cleanup function
  */
 export function createKeyboardShortcut(shortcut, handler, target = document) {
+    const matchesShortcut = (event) => (
+        (shortcut.ctrl === undefined || shortcut.ctrl === event.ctrlKey) &&
+        (shortcut.shift === undefined || shortcut.shift === event.shiftKey) &&
+        (shortcut.alt === undefined || shortcut.alt === event.altKey) &&
+        (shortcut.key === event.key)
+    );
+
     const keyHandler = (event) => {
         // Check if any input element is focused
         if (document.activeElement.tagName === 'INPUT' || 
@@ -190,23 +197,25 @@ export function createKeyboardShortcut(shortcut, handler, target = document) {
             return;
         }
         
-        const matches = (
-            (shortcut.ctrl === undefined || shortcut.ctrl === event.ctrlKey) &&
-            (shortcut.shift === undefined || shortcut.shift === event.shiftKey) &&
-            (shortcut.alt === undefined || shortcut.alt === event.altKey) &&
-            (shortcut.key === event.key)
-        );
-        
-        if (matches) {
+        if (matchesShortcut(event)) {
             event.preventDefault();
-            event.stopPropagation();
+            event.stopImmediatePropagation();
             handler(event);
+        }
+    };
+
+    const keyUpHandler = (event) => {
+        if (matchesShortcut(event)) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
         }
     };
     
     target.addEventListener('keydown', keyHandler, true);
+    target.addEventListener('keyup', keyUpHandler, true);
     
     return () => {
         target.removeEventListener('keydown', keyHandler, true);
+        target.removeEventListener('keyup', keyUpHandler, true);
     };
 }
