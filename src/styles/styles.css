@@ -2941,6 +2941,21 @@ body.yt-commander-windowed-lock {
     gap: 6px;
 }
 
+.yt-commander-sub-manager-card-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.yt-commander-sub-manager-card-name {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .yt-commander-sub-manager-card-metrics {
     display: flex;
     flex-wrap: wrap;
@@ -2954,6 +2969,11 @@ body.yt-commander-windowed-lock {
     padding: 4px 10px;
     font-size: 13px;
     color: #d4dbea;
+    white-space: nowrap;
+}
+
+.yt-commander-sub-manager-card-title-row .yt-commander-sub-manager-card-metric {
+    flex: 0 0 auto;
 }
 
 .yt-commander-sub-manager-card-header {

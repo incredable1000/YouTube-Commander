@@ -3282,25 +3282,21 @@ function buildCard(channel) {
     const stats = document.createElement('div');
     stats.className = 'yt-commander-sub-manager-card-stats';
     const name = document.createElement('div');
-    name.className = 'yt-commander-sub-manager-name';
+    name.className = 'yt-commander-sub-manager-name yt-commander-sub-manager-card-name';
     name.setAttribute('data-field', 'name');
     name.textContent = channel.title || 'Untitled channel';
-    const handle = document.createElement('div');
-    handle.className = 'yt-commander-sub-manager-handle';
-    handle.setAttribute('data-field', 'handle');
-    handle.textContent = channel.handle || channel.url || '';
-
-    const metrics = document.createElement('div');
-    metrics.className = 'yt-commander-sub-manager-card-metrics';
+    setTooltip(name, channel.title || 'Untitled channel');
     const counts = resolveChannelCounts(channel);
     const subscribers = document.createElement('div');
     subscribers.className = 'yt-commander-sub-manager-card-metric';
     subscribers.setAttribute('data-field', 'subscribers');
     subscribers.textContent = counts.subscribers;
-    metrics.appendChild(subscribers);
+    const nameRow = document.createElement('div');
+    nameRow.className = 'yt-commander-sub-manager-card-title-row';
+    nameRow.appendChild(name);
+    nameRow.appendChild(subscribers);
 
-    stats.appendChild(name);
-    stats.appendChild(metrics);
+    stats.appendChild(nameRow);
     card.appendChild(stats);
 
     const categoriesWrap = document.createElement('div');
@@ -3316,6 +3312,7 @@ function updateCard(card, channel) {
     const name = card.querySelector('[data-field="name"]');
     if (name) {
         name.textContent = channel.title || 'Untitled channel';
+        setTooltip(name, channel.title || 'Untitled channel');
     }
     const handle = card.querySelector('[data-field="handle"]');
     if (handle) {
