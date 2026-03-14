@@ -79,6 +79,7 @@ let sidebar = null;
 let sidebarList = null;
 let sidebarToggleButton = null;
 let sidebarAddButton = null;
+let sidebarCountEl = null;
 let addCategoryButton = null;
 let removeCategoryButton = null;
 let unsubscribeButton = null;
@@ -265,6 +266,7 @@ function resetModalElements() {
     sidebarList = null;
     sidebarToggleButton = null;
     sidebarAddButton = null;
+    sidebarCountEl = null;
     addCategoryButton = null;
     removeCategoryButton = null;
     unsubscribeButton = null;
@@ -1317,6 +1319,10 @@ function ensureModal() {
     const sidebarTitle = document.createElement('div');
     sidebarTitle.className = 'yt-commander-sub-manager-sidebar-title';
     sidebarTitle.textContent = 'Categories';
+    sidebarCountEl = document.createElement('span');
+    sidebarCountEl.className = 'yt-commander-sub-manager-sidebar-count';
+    sidebarCountEl.textContent = '0';
+    sidebarTitle.appendChild(sidebarCountEl);
 
     const sidebarActions = document.createElement('div');
     sidebarActions.className = 'yt-commander-sub-manager-sidebar-actions';
@@ -2012,6 +2018,10 @@ async function updateCategoryColor(categoryId, nextColor) {
 function renderSidebarCategories() {
     if (!sidebarList) {
         return;
+    }
+
+    if (sidebarCountEl) {
+        sidebarCountEl.textContent = String(categories.length);
     }
 
     const counts = getCategoryCounts();
