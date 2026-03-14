@@ -2755,6 +2755,8 @@ body.yt-commander-windowed-lock {
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     background: #171f2b;
     font-size: 15px;
+    position: relative;
+    transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
 .yt-commander-sub-manager-row:not(.header):nth-child(even) {
@@ -2766,7 +2768,21 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-sub-manager-row.is-selected {
-    background: #212c3f;
+    background: linear-gradient(90deg, rgba(244, 193, 109, 0.22) 0%, rgba(33, 44, 63, 0.96) 35%, #212c3f 100%);
+    box-shadow: inset 0 0 0 1px rgba(244, 193, 109, 0.35), 0 10px 20px rgba(0, 0, 0, 0.28);
+    transform: translateY(-1px);
+}
+
+.yt-commander-sub-manager-row.is-selected::before {
+    content: '';
+    position: absolute;
+    left: 6px;
+    top: 8px;
+    bottom: 8px;
+    width: 4px;
+    border-radius: 999px;
+    background: #f4c16d;
+    box-shadow: 0 0 10px rgba(244, 193, 109, 0.7);
 }
 
 .yt-commander-sub-manager-row.header {
@@ -2857,11 +2873,14 @@ body.yt-commander-windowed-lock {
     gap: 12px;
     box-shadow: 0 16px 32px rgba(0, 0, 0, 0.25);
     cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
 .yt-commander-sub-manager-card.is-selected {
-    border-color: rgba(244, 193, 109, 0.55);
-    box-shadow: 0 0 0 1px rgba(244, 193, 109, 0.45), 0 16px 32px rgba(0, 0, 0, 0.25);
+    border-color: rgba(244, 193, 109, 0.75);
+    background: linear-gradient(180deg, rgba(244, 193, 109, 0.16) 0%, rgba(27, 35, 50, 0.96) 45%, #1b2332 100%);
+    box-shadow: 0 0 0 2px rgba(244, 193, 109, 0.3), 0 18px 38px rgba(0, 0, 0, 0.35);
+    transform: translateY(-2px);
 }
 
 .yt-commander-sub-manager-card-media {
