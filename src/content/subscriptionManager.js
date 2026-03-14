@@ -3200,7 +3200,6 @@ function buildTableRow(channel) {
     const handle = document.createElement('div');
     handle.className = 'yt-commander-sub-manager-handle';
     handle.setAttribute('data-field', 'handle');
-    handle.textContent = channel.handle || channel.url || '';
     nameRow.appendChild(name);
     nameRow.appendChild(openButton);
     nameWrap.appendChild(nameRow);
@@ -3301,7 +3300,6 @@ function buildCard(channel) {
     metrics.appendChild(subscribers);
 
     stats.appendChild(name);
-    stats.appendChild(handle);
     stats.appendChild(metrics);
     card.appendChild(stats);
 
@@ -3321,7 +3319,7 @@ function updateCard(card, channel) {
     }
     const handle = card.querySelector('[data-field="handle"]');
     if (handle) {
-        handle.textContent = channel.handle || channel.url || '';
+        handle.remove();
     }
     const openButton = card.querySelector('.yt-commander-sub-manager-open-channel');
     if (openButton) {
