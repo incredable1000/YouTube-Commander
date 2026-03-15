@@ -28,8 +28,36 @@ const STORAGE_KEYS = {
 };
 
 const SUBSCRIPTION_BUTTON_CLASS = 'yt-commander-subscription-masthead-button';
-const QUICK_ADD_CONTEXT_SELECTOR = 'ytd-video-owner-renderer, ytd-reel-player-overlay-renderer, ytd-reel-channel-renderer, ytd-c4-tabbed-header-renderer';
-const SUBSCRIBE_RENDERER_SELECTOR = 'ytd-subscribe-button-renderer';
+const QUICK_ADD_PAGES = [
+    /^https?:\/\/(www\.)?youtube\.com\/watch/i,
+    /^https?:\/\/(www\.)?youtube\.com\/shorts/i,
+    /^https?:\/\/(www\.)?youtube\.com\/@/i,
+    /^https?:\/\/(www\.)?youtube\.com\/channel\//i,
+    /^https?:\/\/(www\.)?youtube\.com\/c\//i,
+    /^https?:\/\/(www\.)?youtube\.com\/user\//i
+];
+const QUICK_ADD_CONTEXT_SELECTOR = [
+    'ytd-video-owner-renderer',
+    'ytd-watch-metadata',
+    'ytd-reel-player-header-renderer',
+    'ytd-reel-player-overlay-renderer',
+    'ytd-reel-channel-renderer',
+    'ytd-channel-header-renderer',
+    'ytd-channel-tagline-renderer',
+    'ytd-channel-metadata',
+    'ytd-channel-name',
+    'ytd-channel-renderer',
+    'ytd-c4-tabbed-header-renderer',
+    'yt-flexible-actions-view-model',
+    '#subscribe-button',
+    '.ytReelChannelBarViewModelReelSubscribeButton'
+].join(', ');
+const QUICK_ADD_HOST_SELECTOR = [
+    '.ytReelChannelBarViewModelReelSubscribeButton',
+    '#subscribe-button',
+    '.ytFlexibleActionsViewModelAction'
+].join(', ');
+const SUBSCRIBE_RENDERER_SELECTOR = 'ytd-subscribe-button-renderer, yt-subscribe-button-view-model, ytd-subscribe-button-view-model';
 const OVERLAY_CLASS = 'yt-commander-sub-manager-overlay';
 const MODAL_CLASS = 'yt-commander-sub-manager-modal';
 const TABLE_CLASS = 'yt-commander-sub-manager-table';
@@ -144,6 +172,7 @@ let selectionAnchorId = '';
 let currentPageIds = [];
 let tableRowById = new Map();
 let cardById = new Map();
+let quickAddRetryTimer = 0;
 
 let quickAddObserver = null;
 let quickAddPending = false;
@@ -739,7 +768,8 @@ const ICONS = {
     collapse: 'M15.41 7.41 14 6 8 12 14 18 15.41 16.59 10.83 12z',
     expand: 'M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z',
     prev: 'M15.41 7.41 14 6 8 12 14 18 15.41 16.59 10.83 12z',
-    next: 'M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z'
+    next: 'M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z',
+    chevronDown: 'M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z'
 };
 
 /**
@@ -1002,6 +1032,21 @@ function applyCategoryItemColors(item, color) {
     item.style.setProperty('--ytc-category-text', contrast.text);
     item.style.setProperty('--ytc-category-pill-bg', contrast.pillBg);
     item.style.setProperty('--ytc-category-pill-border', contrast.pillBorder);
+}
+
+/**
+ * Reset category background + contrast colors on an item.
+ * @param {HTMLElement} item
+ */
+function clearCategoryItemColors(item) {
+    if (!item) {
+        return;
+    }
+    item.classList.remove('is-colored');
+    item.style.removeProperty('--ytc-category-bg');
+    item.style.removeProperty('--ytc-category-text');
+    item.style.removeProperty('--ytc-category-pill-bg');
+    item.style.removeProperty('--ytc-category-pill-border');
 }
 
 /**
@@ -1281,6 +1326,7 @@ async function hydrateSnapshotFromStorage() {
     channelsFetchedAt = fetchedAt;
     lastSnapshotHash = typeof snapshot.hash === 'string' ? snapshot.hash : computeSnapshotHash(channels);
     rebuildChannelIndexes(channels);
+    refreshQuickAddButtons();
     return true;
 }
 
@@ -1419,33 +1465,67 @@ function extractHandleFromUrl(url) {
  * @param {Element|null} renderer
  * @returns {{channelId: string, handle: string, url: string}}
  */
+function readChannelIdFromElement(element) {
+    if (!element) {
+        return '';
+    }
+    return element.getAttribute('channel-external-id')
+        || element.getAttribute('channel-id')
+        || element.getAttribute('data-channel-external-id')
+        || element.getAttribute('data-channel-id')
+        || element.dataset?.channelExternalId
+        || element.dataset?.channelId
+        || '';
+}
+
 function resolveChannelIdentityFromContext(renderer) {
     let channelId = '';
     let handle = '';
     let url = '';
 
     if (renderer) {
-        channelId = renderer.getAttribute('channel-external-id')
-            || renderer.getAttribute('channel-id')
-            || renderer.dataset?.channelExternalId
-            || renderer.dataset?.channelId
-            || '';
+        channelId = readChannelIdFromElement(renderer);
     }
 
     if (!channelId) {
-        const flexy = document.querySelector('ytd-watch-flexy[channel-id]');
-        channelId = flexy?.getAttribute('channel-id') || '';
+        const flexy = document.querySelector('ytd-watch-flexy');
+        channelId = readChannelIdFromElement(flexy);
     }
 
     if (!channelId) {
-        const reel = document.querySelector('ytd-reel-video-renderer[is-active][channel-id]');
-        channelId = reel?.getAttribute('channel-id') || '';
+        const reelHost = renderer?.closest('ytd-reel-video-renderer');
+        channelId = readChannelIdFromElement(reelHost);
+    }
+
+    if (!channelId) {
+        const reel = document.querySelector('ytd-reel-video-renderer[is-active], ytd-reel-video-renderer[active]');
+        channelId = readChannelIdFromElement(reel);
+    }
+
+    if (!channelId) {
+        const reelHeader = document.querySelector('ytd-reel-player-header-renderer, ytd-reel-player-overlay-renderer');
+        channelId = readChannelIdFromElement(reelHeader);
+    }
+
+    if (!channelId) {
+        const owner = document.querySelector('ytd-video-owner-renderer, ytd-channel-name, ytd-channel-header-renderer');
+        channelId = readChannelIdFromElement(owner);
+    }
+
+    if (!channelId) {
+        const metaChannel = document.querySelector('meta[itemprop="channelId"]');
+        channelId = metaChannel?.getAttribute('content') || '';
     }
 
     const context = renderer?.closest(QUICK_ADD_CONTEXT_SELECTOR) || renderer;
-    const link = context?.querySelector('a[href^="/channel/"], a[href^="/@@"]');
+    const link = context?.querySelector('a[href^="/channel/"], a[href^="/@"]');
     if (link) {
         url = link.getAttribute('href') || '';
+    }
+
+    if (!url) {
+        const ownerLink = document.querySelector('ytd-video-owner-renderer a[href^="/channel/"], ytd-video-owner-renderer a[href^="/@"], ytd-channel-name a[href^="/channel/"], ytd-channel-name a[href^="/@"]');
+        url = ownerLink?.getAttribute('href') || '';
     }
 
     if (!url) {
@@ -1454,6 +1534,11 @@ function resolveChannelIdentityFromContext(renderer) {
     }
 
     handle = extractHandleFromUrl(url) || '';
+    if (!handle && renderer) {
+        const labelText = renderer.querySelector('button[aria-label]')?.getAttribute('aria-label') || '';
+        const handleMatch = labelText.match(/@[\w.-]+/i);
+        handle = handleMatch ? handleMatch[0] : '';
+    }
     if (!channelId) {
         channelId = extractChannelIdFromUrl(url);
     }
@@ -1495,7 +1580,23 @@ function buildQuickAddButton(identity) {
     button.className = QUICK_ADD_CLASS;
     button.setAttribute('aria-label', 'Add to category');
     button.setAttribute('title', 'Add to category');
-    button.appendChild(createQuickAddIcon());
+
+    const iconWrap = document.createElement('span');
+    iconWrap.className = 'yt-commander-sub-manager-quick-add-icon';
+    iconWrap.setAttribute('data-role', 'quick-add-icon');
+    iconWrap.appendChild(createQuickAddIcon());
+
+    const label = document.createElement('span');
+    label.className = 'yt-commander-sub-manager-quick-add-label';
+    label.setAttribute('data-role', 'quick-add-label');
+
+    const caret = createIcon(ICONS.chevronDown);
+    caret.classList.add('yt-commander-sub-manager-icon');
+    caret.classList.add('yt-commander-sub-manager-quick-add-caret');
+
+    button.appendChild(iconWrap);
+    button.appendChild(label);
+    button.appendChild(caret);
     if (identity.channelId) {
         button.setAttribute('data-channel-id', identity.channelId);
     }
@@ -1506,7 +1607,110 @@ function buildQuickAddButton(identity) {
         button.setAttribute('data-channel-url', identity.url);
     }
     button.addEventListener('click', handleQuickAddClick);
+    updateQuickAddButtonState(button, identity);
     return button;
+}
+
+function getQuickAddIdentityFromButton(button) {
+    if (!button) {
+        return { channelId: '', handle: '', url: '' };
+    }
+    return {
+        channelId: button.getAttribute('data-channel-id') || '',
+        handle: button.getAttribute('data-channel-handle') || '',
+        url: button.getAttribute('data-channel-url') || ''
+    };
+}
+
+function setQuickAddIcon(button, assigned, color) {
+    const iconWrap = button?.querySelector('[data-role="quick-add-icon"]');
+    if (!iconWrap) {
+        return;
+    }
+    iconWrap.textContent = '';
+    if (assigned && color) {
+        const dot = document.createElement('span');
+        dot.className = 'yt-commander-sub-manager-quick-add-dot';
+        dot.style.backgroundColor = color;
+        iconWrap.appendChild(dot);
+        return;
+    }
+    iconWrap.appendChild(createQuickAddIcon());
+}
+
+function updateQuickAddButtonState(button, identityOverride = null) {
+    if (!button) {
+        return;
+    }
+    const identity = identityOverride || getQuickAddIdentityFromButton(button);
+    let channelId = identity.channelId;
+    if (!channelId) {
+        const renderer = resolveSubscribeRendererForQuickAdd(button);
+        const resolved = resolveChannelIdentityFromContext(renderer);
+        channelId = resolveChannelIdFromIdentity(resolved);
+        if (channelId) {
+            button.setAttribute('data-channel-id', channelId);
+        }
+        if (!identity.handle && resolved.handle) {
+            button.setAttribute('data-channel-handle', resolved.handle);
+        }
+        if (!identity.url && resolved.url) {
+            button.setAttribute('data-channel-url', resolved.url);
+        }
+    }
+
+    const labelEl = button.querySelector('[data-role="quick-add-label"]');
+    const assignedId = channelId ? readChannelAssignments(channelId)[0] : '';
+    const category = assignedId ? categories.find((item) => item.id === assignedId) : null;
+    if (category) {
+        applyCategoryItemColors(button, category.color);
+        button.classList.add('is-assigned');
+        button.classList.remove('is-empty');
+        button.setAttribute('data-category-id', category.id);
+        if (labelEl) {
+            labelEl.textContent = category.name;
+        }
+        setQuickAddIcon(button, true, category.color);
+        button.setAttribute('aria-label', `Category: ${category.name}`);
+        button.setAttribute('title', `Change category (${category.name})`);
+        return;
+    }
+
+    clearCategoryItemColors(button);
+    button.classList.remove('is-assigned');
+    button.classList.add('is-empty');
+    button.removeAttribute('data-category-id');
+    if (labelEl) {
+        labelEl.textContent = '';
+    }
+    setQuickAddIcon(button, false);
+    button.setAttribute('aria-label', 'Add to category');
+    button.setAttribute('title', 'Add to category');
+}
+
+function refreshQuickAddButtons() {
+    const buttons = document.querySelectorAll(`.${QUICK_ADD_CLASS}`);
+    buttons.forEach((button) => {
+        updateQuickAddButtonState(button);
+    });
+}
+
+function resolveSubscribeRendererForQuickAdd(button) {
+    if (!button) {
+        return null;
+    }
+    const sibling = button.previousElementSibling;
+    if (sibling && sibling.matches(SUBSCRIBE_RENDERER_SELECTOR)) {
+        return sibling;
+    }
+    const parent = button.parentElement;
+    if (parent) {
+        const candidate = parent.querySelector(SUBSCRIBE_RENDERER_SELECTOR);
+        if (candidate) {
+            return candidate;
+        }
+    }
+    return button.closest(SUBSCRIBE_RENDERER_SELECTOR);
 }
 
 /**
@@ -1518,14 +1722,14 @@ function ensureQuickAddButtons() {
         if (!renderer.closest(QUICK_ADD_CONTEXT_SELECTOR)) {
             return;
         }
-        if (renderer.dataset.ytcQuickAdd === 'true') {
-            return;
-        }
-        const parent = renderer.parentElement;
+        const parent = renderer.closest(QUICK_ADD_HOST_SELECTOR) || renderer.parentElement;
         if (!parent) {
             return;
         }
-        if (parent.querySelector(`.${QUICK_ADD_CLASS}`)) {
+        const existing = parent.querySelector(`.${QUICK_ADD_CLASS}`);
+        if (existing) {
+            parent.classList.add('yt-commander-sub-manager-quick-add-host');
+            updateQuickAddButtonState(existing, resolveChannelIdentityFromContext(renderer));
             renderer.dataset.ytcQuickAdd = 'true';
             return;
         }
@@ -1533,6 +1737,7 @@ function ensureQuickAddButtons() {
         const identity = resolveChannelIdentityFromContext(renderer);
         const button = buildQuickAddButton(identity);
         renderer.insertAdjacentElement('afterend', button);
+        parent.classList.add('yt-commander-sub-manager-quick-add-host');
         renderer.dataset.ytcQuickAdd = 'true';
     });
 }
@@ -1557,12 +1762,17 @@ function startQuickAddObserver() {
     scheduleQuickAddScan();
 }
 
+function isQuickAddPage() {
+    const href = String(location.href || '');
+    return QUICK_ADD_PAGES.some((pattern) => pattern.test(href));
+}
+
 async function handleQuickAddClick(event) {
     event.preventDefault();
     event.stopPropagation();
 
     const button = event.currentTarget;
-    const renderer = button.closest(SUBSCRIBE_RENDERER_SELECTOR);
+    const renderer = resolveSubscribeRendererForQuickAdd(button);
     const identity = resolveChannelIdentityFromContext(renderer);
 
     let channelId = button.getAttribute('data-channel-id') || '';
@@ -1575,11 +1785,35 @@ async function handleQuickAddClick(event) {
         channelId = resolveChannelIdFromIdentity(identity);
     }
 
+    if (channelId) {
+        button.setAttribute('data-channel-id', channelId);
+    }
+    if (identity.handle) {
+        button.setAttribute('data-channel-handle', identity.handle);
+    }
+    if (identity.url) {
+        button.setAttribute('data-channel-url', identity.url);
+    }
+
     if (!channelId) {
+        if (isQuickAddPage()) {
+            setStatus('Select a category to retry channel lookup.', 'info');
+            ensurePicker();
+            openPicker(button, 'toggle', []);
+            if (quickAddRetryTimer) {
+                window.clearTimeout(quickAddRetryTimer);
+            }
+            quickAddRetryTimer = window.setTimeout(() => {
+                quickAddRetryTimer = 0;
+                closePicker();
+            }, 5000);
+            return;
+        }
         setStatus('Unable to resolve channel for category.', 'error');
         return;
     }
 
+    updateQuickAddButtonState(button, { channelId, handle: identity.handle, url: identity.url });
     ensurePicker();
     openPicker(button, 'toggle', [channelId]);
 }
@@ -1845,6 +2079,22 @@ function ensurePicker() {
 /**
  * Render category picker options.
  */
+function resolvePickerActiveCategoryId() {
+    if (!Array.isArray(pickerTargetIds) || pickerTargetIds.length === 0) {
+        return '';
+    }
+    const firstAssigned = readChannelAssignments(pickerTargetIds[0]);
+    const firstId = firstAssigned[0] || '';
+    const allMatch = pickerTargetIds.every((channelId) => {
+        const assigned = readChannelAssignments(channelId);
+        return (assigned[0] || '') === firstId;
+    });
+    if (!allMatch) {
+        return '';
+    }
+    return firstId || 'uncategorized';
+}
+
 function renderPicker() {
     if (!picker) {
         return;
@@ -1854,10 +2104,51 @@ function renderPicker() {
 
     const title = document.createElement('div');
     title.className = 'yt-commander-sub-manager-picker-title';
-    title.textContent = pickerMode === 'remove' ? 'Remove from category' : 'Add to category';
+    title.textContent = pickerMode === 'remove'
+        ? 'Remove from category'
+        : pickerMode === 'add'
+            ? 'Add to category'
+            : 'Set category';
 
     const list = document.createElement('div');
     list.className = 'yt-commander-sub-manager-picker-list';
+    const activeCategoryId = resolvePickerActiveCategoryId();
+
+    const addPickerItem = (options) => {
+        const { id, label, color, isActive, isUncategorized } = options;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'yt-commander-sub-manager-picker-item';
+        button.setAttribute('data-category-id', id);
+        const dot = document.createElement('span');
+        dot.className = 'yt-commander-sub-manager-picker-dot';
+        dot.style.backgroundColor = color || '#788195';
+        const labelEl = document.createElement('span');
+        labelEl.textContent = label;
+        button.appendChild(dot);
+        button.appendChild(labelEl);
+        if (isUncategorized) {
+            button.classList.add('is-uncategorized');
+        }
+        if (isActive) {
+            button.classList.add('is-active');
+            const check = createIcon(ICONS.check);
+            check.classList.add('yt-commander-sub-manager-icon');
+            check.classList.add('yt-commander-sub-manager-picker-check');
+            button.appendChild(check);
+        }
+        list.appendChild(button);
+    };
+
+    if (pickerMode !== 'remove') {
+        addPickerItem({
+            id: 'uncategorized',
+            label: 'Uncategorized',
+            color: '#7c8698',
+            isActive: activeCategoryId === 'uncategorized',
+            isUncategorized: true
+        });
+    }
 
     if (categories.length === 0) {
         const empty = document.createElement('div');
@@ -1866,33 +2157,29 @@ function renderPicker() {
         list.appendChild(empty);
     } else {
         categories.forEach((category) => {
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.className = 'yt-commander-sub-manager-picker-item';
-            button.setAttribute('data-category-id', category.id);
-            const dot = document.createElement('span');
-            dot.className = 'yt-commander-sub-manager-picker-dot';
-            dot.style.backgroundColor = category.color;
-            const label = document.createElement('span');
-            label.textContent = category.name;
-            button.appendChild(dot);
-            button.appendChild(label);
-            list.appendChild(button);
+            addPickerItem({
+                id: category.id,
+                label: category.name,
+                color: category.color,
+                isActive: activeCategoryId === category.id,
+                isUncategorized: false
+            });
         });
     }
 
-    const footer = document.createElement('div');
-    footer.className = 'yt-commander-sub-manager-picker-footer';
-    const newButton = document.createElement('button');
-    newButton.type = 'button';
-    newButton.className = 'yt-commander-sub-manager-btn secondary';
-    newButton.setAttribute('data-action', 'picker-new-category');
-    setIconButton(newButton, ICONS.plus, 'New category');
-    footer.appendChild(newButton);
-
     picker.appendChild(title);
     picker.appendChild(list);
-    picker.appendChild(footer);
+    if (overlay?.classList.contains('is-visible')) {
+        const footer = document.createElement('div');
+        footer.className = 'yt-commander-sub-manager-picker-footer';
+        const newButton = document.createElement('button');
+        newButton.type = 'button';
+        newButton.className = 'yt-commander-sub-manager-btn secondary';
+        newButton.setAttribute('data-action', 'picker-new-category');
+        setIconButton(newButton, ICONS.plus, 'New category');
+        footer.appendChild(newButton);
+        picker.appendChild(footer);
+    }
 }
 
 /**
@@ -3291,17 +3578,41 @@ function handleModalKeydown(event) {
  * Handle picker clicks.
  * @param {MouseEvent} event
  */
-function handlePickerClick(event) {
+async function handlePickerClick(event) {
     const baseTarget = event.target instanceof Element ? event.target : event.target?.parentElement;
     const target = baseTarget?.closest('[data-category-id]');
     if (target) {
         const categoryId = target.getAttribute('data-category-id') || '';
+        let targetIds = pickerTargetIds;
+        if (!Array.isArray(targetIds) || targetIds.length === 0) {
+            const anchor = pickerAnchorEl;
+            const renderer = resolveSubscribeRendererForQuickAdd(anchor);
+            const anchorIdentity = anchor?.classList.contains(QUICK_ADD_CLASS)
+                ? getQuickAddIdentityFromButton(anchor)
+                : null;
+            const identity = anchorIdentity && (anchorIdentity.channelId || anchorIdentity.handle || anchorIdentity.url)
+                ? anchorIdentity
+                : resolveChannelIdentityFromContext(renderer);
+            let channelId = resolveChannelIdFromIdentity(identity);
+            if (!channelId && (identity.handle || identity.url)) {
+                await loadSubscriptions({ force: true, background: true });
+                channelId = resolveChannelIdFromIdentity(identity);
+            }
+            if (channelId) {
+                targetIds = [channelId];
+            }
+        }
+        if (!Array.isArray(targetIds) || targetIds.length === 0) {
+            setStatus('Unable to resolve channel for category.', 'error');
+            closePicker();
+            return;
+        }
         if (pickerMode === 'remove') {
-            applyCategoryUpdate(pickerTargetIds, categoryId, 'remove').catch(() => undefined);
+            applyCategoryUpdate(targetIds, categoryId, 'remove').catch(() => undefined);
         } else if (pickerMode === 'add') {
-            applyCategoryUpdate(pickerTargetIds, categoryId, 'add').catch(() => undefined);
+            applyCategoryUpdate(targetIds, categoryId, 'add').catch(() => undefined);
         } else {
-            applyCategoryUpdate(pickerTargetIds, categoryId, 'toggle').catch(() => undefined);
+            applyCategoryUpdate(targetIds, categoryId, 'toggle').catch(() => undefined);
         }
         closePicker();
         return;
@@ -3355,6 +3666,8 @@ async function loadSubscriptions(options = {}) {
 
         channels = list;
         channelsFetchedAt = Date.now();
+        rebuildChannelIndexes(channels);
+        refreshQuickAddButtons();
         const hash = computeSnapshotHash(list);
         const prevHash = prevSnapshot?.hash || '';
         await persistSnapshot(list, hash);
@@ -3864,6 +4177,7 @@ function filterChannels() {
  */
 function renderList() {
     if (!modal) {
+        refreshQuickAddButtons();
         return;
     }
 
@@ -3908,6 +4222,8 @@ function renderList() {
         mainWrap.scrollTop = 0;
         resetScrollPending = false;
     }
+
+    refreshQuickAddButtons();
 }
 
 /**
@@ -4023,7 +4339,9 @@ export async function initSubscriptionManager() {
     }
 
     await loadLocalState();
+    await hydrateSnapshotFromStorage();
     ensureMastheadButton();
+    startQuickAddObserver();
 
     window.addEventListener('yt-navigate-finish', () => {
         ensureMastheadButton();
