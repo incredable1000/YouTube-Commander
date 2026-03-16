@@ -761,6 +761,8 @@ const ICONS = {
     card: 'M4 6h16v12H4V6zm2 2h12v3H6V8zm0 5h8v3H6v-3z',
     plus: 'M11 5h2v14h-2zM5 11h14v2H5z',
     minus: 'M5 11h14v2H5z',
+    categoryAdd: 'M17.63 5.84 11.63 1.84C11.43 1.73 11.22 1.67 11 1.67H4C2.9 1.67 2 2.57 2 3.67v7c0 .53.21 1.04.59 1.41l6 6c.39.39.9.59 1.41.59s1.02-.2 1.41-.59l8.59-8.59c.38-.38.59-.9.59-1.41 0-.53-.21-1.04-.59-1.41l-2.38-2.34zM7 7.5C6.17 7.5 5.5 6.83 5.5 6S6.17 4.5 7 4.5 8.5 5.17 8.5 6 7.83 7.5 7 7.5zM15 10h2v2h2v2h-2v2h-2v-2h-2v-2h2z',
+    categoryMove: 'M17.63 5.84 11.63 1.84C11.43 1.73 11.22 1.67 11 1.67H4C2.9 1.67 2 2.57 2 3.67v7c0 .53.21 1.04.59 1.41l6 6c.39.39.9.59 1.41.59s1.02-.2 1.41-.59l8.59-8.59c.38-.38.59-.9.59-1.41 0-.53-.21-1.04-.59-1.41l-2.38-2.34zM7 7.5C6.17 7.5 5.5 6.83 5.5 6S6.17 4.5 7 4.5 8.5 5.17 8.5 6 7.83 7.5 7 7.5zM14 11h4.17l-1.59-1.59L18 8l4 4-4 4-1.41-1.41 1.59-1.59H14v-2z',
     check: 'M9 16.2 4.8 12 3.4 13.4 9 19 21 7 19.6 5.6z',
     close: 'M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.29 19.71 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29 10.59 10.6 16.89 4.29z',
     trash: 'M6 7h12v2H6V7zm2 3h8v9H8v-9zm3-7h2l1 2H10l1-2z',
@@ -2020,13 +2022,13 @@ function ensureModal() {
     addCategoryButton.type = 'button';
     addCategoryButton.className = 'yt-commander-sub-manager-btn secondary';
     addCategoryButton.setAttribute('data-action', 'add-to-category');
-    setIconButton(addCategoryButton, ICONS.plus, 'Add to category');
+    setIconButton(addCategoryButton, ICONS.categoryAdd, 'Add to category');
 
     removeCategoryButton = document.createElement('button');
     removeCategoryButton.type = 'button';
     removeCategoryButton.className = 'yt-commander-sub-manager-btn secondary';
     removeCategoryButton.setAttribute('data-action', 'remove-from-category');
-    setIconButton(removeCategoryButton, ICONS.minus, 'Move to category');
+    setIconButton(removeCategoryButton, ICONS.categoryMove, 'Move to category');
 
     sortButton = document.createElement('button');
     sortButton.type = 'button';
@@ -2227,7 +2229,9 @@ function renderPicker() {
         ? 'Remove from category'
         : pickerMode === 'add'
             ? 'Add to category'
-            : 'Set category';
+            : pickerMode === 'move'
+                ? 'Move to category'
+                : 'Set category';
 
     const list = document.createElement('div');
     list.className = 'yt-commander-sub-manager-picker-list';
@@ -2641,7 +2645,15 @@ function updateRemoveCategoryButton() {
     const hasSelection = selectedChannelIds.size > 0;
     removeCategoryButton.disabled = !hasSelection;
     const label = hasSelection ? 'Move to category' : 'Select channels to move';
-    setIconButton(removeCategoryButton, ICONS.minus, label);
+    setIconButton(removeCategoryButton, ICONS.categoryMove, label);
+}
+
+function updateCategoryActionButtons() {
+    const showAddButton = filterMode === 'all' || filterMode === 'uncategorized';
+    if (addCategoryButton) {
+        addCategoryButton.style.display = showAddButton ? 'inline-flex' : 'none';
+    }
+    updateRemoveCategoryButton();
 }
 
 function applySidebarState() {
@@ -3179,7 +3191,7 @@ function updateSelectionSummary() {
     if (addCategoryButton) {
         addCategoryButton.disabled = disabled;
     }
-    updateRemoveCategoryButton();
+    updateCategoryActionButtons();
     if (clearSelectionButton) {
         clearSelectionButton.style.display = disabled ? 'none' : 'inline-flex';
     }
@@ -3495,11 +3507,11 @@ function handleModalClick(event) {
         if (action === 'remove-from-category') {
             const ids = Array.from(selectedChannelIds);
             if (ids.length === 0) {
-                setStatus('Select channels to remove.', 'info');
+                setStatus('Select channels to move.', 'info');
                 return;
             }
             ensurePicker();
-            openPicker(actionTarget, 'remove', ids);
+            openPicker(actionTarget, 'move', ids);
             return;
         }
 
@@ -3755,7 +3767,7 @@ async function handlePickerClick(event) {
         }
         if (pickerMode === 'remove') {
             applyCategoryUpdate(targetIds, categoryId, 'remove').catch(() => undefined);
-        } else if (pickerMode === 'add') {
+        } else if (pickerMode === 'add' || pickerMode === 'move') {
             applyCategoryUpdate(targetIds, categoryId, 'add').catch(() => undefined);
         } else {
             applyCategoryUpdate(targetIds, categoryId, 'toggle').catch(() => undefined);
@@ -4347,7 +4359,6 @@ function renderList() {
     viewTableButton.classList.toggle('active', viewMode === 'table');
     viewCardButton.classList.toggle('active', viewMode === 'card');
     updateSortButton();
-    updateRemoveCategoryButton();
 
     renderTable(pageItems);
     renderCards(pageItems);
