@@ -5,6 +5,7 @@ import { normalizeQualityId } from '../shared/quality.js';
 const defaultSettings = {
     // Popup-managed settings
     deleteVideosEnabled: false,
+    subscriptionAutoCategorizeEnabled: true,
     autoSwitchToOriginal: true,
     rotationShortcut: 'r',
     windowedFullscreenShortcut: 'Enter',
@@ -104,6 +105,29 @@ function setupDeleteVideosToggle() {
             saveSyncSettings();
         });
     }
+}
+
+/**
+ * Setup subscription auto-categorize toggle.
+ */
+function setupSubscriptionAutoCategorizeToggle() {
+    const toggle = document.getElementById('subscriptionAutoCategorizeToggle');
+    if (!toggle) {
+        return;
+    }
+
+    toggle.addEventListener('click', (event) => {
+        event.stopPropagation();
+
+        const enabled = !toggle.classList.contains('active');
+        setToggleState(toggle, enabled);
+        currentSettings.subscriptionAutoCategorizeEnabled = enabled;
+        saveSyncSettings();
+        showStatus(
+            enabled ? 'Auto categorize enabled' : 'Auto categorize disabled',
+            'success'
+        );
+    });
 }
 /**
  * Setup show/hide toggle for sensitive token inputs.
@@ -609,6 +633,10 @@ function loadSettings() {
         setToggleState(
             document.getElementById('windowedFullscreenAutoToggle'),
             currentSettings.windowedFullscreenAuto === true
+        );
+        setToggleState(
+            document.getElementById('subscriptionAutoCategorizeToggle'),
+            currentSettings.subscriptionAutoCategorizeEnabled !== false
         );
 
         loadWatchedHistoryStats();
@@ -2727,6 +2755,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupAudioSettingToggle();
     setupWindowedAutoToggle();
     setupDeleteVideosToggle();
+    setupSubscriptionAutoCategorizeToggle();
     setupCloudflareSyncControls();
     setupSubscriptionSyncControls();
     setupSubscriptionCooldownControl();

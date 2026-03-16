@@ -2,6 +2,7 @@ import { createLogger } from './utils/logger.js';
 import { createBridgeClient } from './playlist-multi-select/bridge.js';
 import { resolveMastheadMountPoint, isEligiblePage } from './playlist-multi-select/pageContext.js';
 import { MASTHEAD_SLOT_CLASS, MASTHEAD_BUTTON_CLASS } from './playlist-multi-select/constants.js';
+import { autoCategorizeSubscriptions } from './subscriptionAutoCategorize.js';
 
 const logger = createLogger('SubscriptionManager');
 
@@ -177,6 +178,8 @@ let quickAddRetryTimer = 0;
 
 let quickAddObserver = null;
 let quickAddPending = false;
+let autoCategorizeInFlight = false;
+let lastAutoCategorizeSignature = '';
 
 /**
  * Tooltip helper.
@@ -3848,6 +3851,49 @@ async function loadSubscriptions(options = {}) {
         return { status: 'error' };
     }
 }
+
+function buildAutoCategorizeSignature() {
+    const categoryKey = categories.map((category) => category.id).join('|');
+    return `${lastSnapshotHash}:${channels.length}:${categoriesVersion}:${assignmentsVersion}:${categoryKey}`;
+}
+
+async function maybeAutoCategorizeSubscriptions() {
+    if (autoCategorizeInFlight) {
+        return;
+    }
+    if (!overlay?.classList.contains('is-visible')) {
+        return;
+    }
+    if (!channels.length || !categories.length) {
+        return;
+    }
+
+    const signature = buildAutoCategorizeSignature();
+    if (signature && signature === lastAutoCategorizeSignature) {
+        return;
+    }
+
+    autoCategorizeInFlight = true;
+    lastAutoCategorizeSignature = signature;
+    try {
+        const result = await autoCategorizeSubscriptions({
+            channels,
+            categories,
+            assignments,
+            applyCategoryUpdate,
+            setStatus
+        });
+        if (result?.appliedCount) {
+            renderList();
+        }
+    } catch (error) {
+        logger.warn('Auto-categorize failed', error);
+        setStatus(error?.message || 'Auto-categorize failed.', 'error');
+    } finally {
+        autoCategorizeInFlight = false;
+        lastAutoCategorizeSignature = buildAutoCategorizeSignature();
+    }
+}
 /**
  * Build meta label for channel.
  * @param {object} channel
@@ -4412,13 +4458,16 @@ async function openModal() {
     overlay.classList.add('is-visible');
     if (hydrated) {
         renderList();
+        void maybeAutoCategorizeSubscriptions();
         loadSubscriptions({ force: true, background: true }).then(() => {
             renderList();
+            void maybeAutoCategorizeSubscriptions();
         }).catch(() => undefined);
         return;
     }
     await loadSubscriptions({ force: true });
     renderList();
+    void maybeAutoCategorizeSubscriptions();
 }
 
 /**

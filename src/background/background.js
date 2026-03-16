@@ -2196,6 +2196,81 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     }
 });
 
+function buildGeminiEndpoint(endpoint, model, apiKey) {
+    const fallbackBase = 'https://generativelanguage.googleapis.com/v1beta/models';
+    const base = typeof endpoint === 'string' && endpoint.trim()
+        ? endpoint.trim()
+        : fallbackBase;
+    let url = base.replace(/\/+$/, '');
+    if (!url.includes(':generateContent')) {
+        const safeModel = typeof model === 'string' && model.trim()
+            ? model.trim()
+            : 'gemini-1.5-flash';
+        url = `${url}/${safeModel}:generateContent`;
+    }
+    if (apiKey && !url.includes('key=')) {
+        const separator = url.includes('?') ? '&' : '?';
+        url = `${url}${separator}key=${encodeURIComponent(apiKey)}`;
+    }
+    return url;
+}
+
+async function requestGeminiAutoCategorize(payload) {
+    const apiKey = typeof payload?.apiKey === 'string' ? payload.apiKey.trim() : '';
+    if (!apiKey) {
+        throw new Error('Missing Gemini API key');
+    }
+    const prompt = typeof payload?.prompt === 'string' ? payload.prompt : '';
+    if (!prompt) {
+        throw new Error('Missing Gemini prompt');
+    }
+
+    const temperature = Number.isFinite(payload?.temperature) ? payload.temperature : 0.2;
+    const maxOutputTokens = Number.isFinite(payload?.maxOutputTokens) ? payload.maxOutputTokens : 1024;
+    const timeoutMs = Number.isFinite(payload?.timeoutMs) ? payload.timeoutMs : 20000;
+
+    const url = buildGeminiEndpoint(payload?.endpoint, payload?.model, apiKey);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+    try {
+        response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                contents: [
+                    {
+                        role: 'user',
+                        parts: [{ text: prompt }]
+                    }
+                ],
+                generationConfig: {
+                    temperature,
+                    maxOutputTokens
+                }
+            }),
+            signal: controller.signal
+        });
+    } finally {
+        clearTimeout(timeout);
+    }
+
+    let data = null;
+    try {
+        data = await response.json();
+    } catch (_error) {
+        data = null;
+    }
+
+    if (!response.ok) {
+        const message = data?.error?.message || `Gemini request failed (${response.status})`;
+        throw new Error(message);
+    }
+    return data || {};
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!message || typeof message.type !== 'string') {
         return false;
@@ -2338,6 +2413,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (message.type === 'GET_ALL_WATCHED_VIDEOS') {
         proxyGetAllWatchedVideos().then(sendResponse);
+        return true;
+    }
+
+    if (message.type === 'AUTO_CATEGORIZE_SUBSCRIPTIONS') {
+        requestGeminiAutoCategorize(message)
+            .then((data) => sendResponse({ success: true, data }))
+            .catch((error) => sendResponse({ success: false, error: error.message }));
         return true;
     }
 
