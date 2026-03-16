@@ -28,17 +28,18 @@ export function createIndicatorElement(direction) {
     const content = document.createElement('div');
     content.className = 'modern-seek-indicator__content';
 
-    const amount = document.createElement('div');
-    amount.className = 'modern-seek-indicator__amount';
-
-    const edgeArrow = document.createElement('div');
-    edgeArrow.className = 'modern-seek-indicator__edge-arrow';
-
     const valueRow = document.createElement('div');
     valueRow.className = 'modern-seek-indicator__value-row';
 
+    const amount = document.createElement('div');
+    amount.className = 'modern-seek-indicator__amount';
+
+    const chevrons = document.createElement('div');
+    chevrons.className = 'modern-seek-indicator__chevrons';
+    chevrons.appendChild(createChevronGroup(direction, 'modern-seek-indicator__chevrons-static'));
+
     valueRow.appendChild(amount);
-    valueRow.appendChild(edgeArrow);
+    valueRow.appendChild(chevrons);
     content.appendChild(valueRow);
     root.appendChild(content);
 
@@ -55,7 +56,7 @@ export function createIndicatorElement(direction) {
  */
 export function updateIndicatorElement(element, direction, totalSeconds) {
     const amount = element.querySelector('.modern-seek-indicator__amount');
-    const edgeArrow = element.querySelector('.modern-seek-indicator__edge-arrow');
+    const chevrons = element.querySelector('.modern-seek-indicator__chevrons');
     if (!amount) {
         return;
     }
@@ -63,7 +64,38 @@ export function updateIndicatorElement(element, direction, totalSeconds) {
     const prefix = direction === 'forward' ? '+' : '-';
     amount.textContent = `${prefix}${totalSeconds}`;
 
-    if (edgeArrow) {
-        edgeArrow.textContent = direction === 'forward' ? '>' : '<';
+    if (chevrons) {
+        chevrons.querySelectorAll('.modern-seek-indicator__chevrons-burst').forEach((node) => {
+            node.remove();
+        });
+
+        const burst = createChevronGroup(direction, 'modern-seek-indicator__chevrons-burst');
+        chevrons.appendChild(burst);
+
+        const cleanup = () => {
+            if (burst.parentNode) {
+                burst.remove();
+            }
+        };
+
+        burst.addEventListener('animationend', cleanup, { once: true });
+        window.setTimeout(cleanup, 900);
     }
+}
+
+/**
+ * Create a chevron group for the seek indicator.
+ * @param {'forward'|'backward'} direction
+ * @param {string} className
+ * @returns {HTMLDivElement}
+ */
+function createChevronGroup(direction, className) {
+    const group = document.createElement('div');
+    group.className = className;
+
+    const chevron = document.createElement('span');
+    chevron.className = 'modern-seek-indicator__chevron';
+    group.appendChild(chevron);
+
+    return group;
 }
