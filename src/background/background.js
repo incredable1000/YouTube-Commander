@@ -1612,6 +1612,22 @@ async function performCloudflareSync(options = {}) {
         };
     }
 
+    const pendingBefore = await readPendingQueue(syncAccountKey);
+    if (pendingBefore.length === 0) {
+        await storageLocalSet({
+            [CLOUD_SYNC_STORAGE_KEYS.STATUS]: 'idle',
+            [CLOUD_SYNC_STORAGE_KEYS.ERROR]: '',
+            [CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT]: 0
+        });
+
+        return {
+            success: true,
+            skipped: true,
+            reason: 'No changes to sync',
+            pendingCount: 0
+        };
+    }
+
     cloudSyncInProgress = true;
     console.info('[YT-Commander][CloudSync] Sync started', {
         endpoint: endpoint.origin + endpoint.pathname,
