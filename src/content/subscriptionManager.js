@@ -2016,6 +2016,18 @@ function ensureModal() {
     unsubscribeButton.setAttribute('data-action', 'unsubscribe-selected');
     setIconButton(unsubscribeButton, ICONS.trash, 'Unsubscribe selected');
 
+    addCategoryButton = document.createElement('button');
+    addCategoryButton.type = 'button';
+    addCategoryButton.className = 'yt-commander-sub-manager-btn secondary';
+    addCategoryButton.setAttribute('data-action', 'add-to-category');
+    setIconButton(addCategoryButton, ICONS.plus, 'Add to category');
+
+    removeCategoryButton = document.createElement('button');
+    removeCategoryButton.type = 'button';
+    removeCategoryButton.className = 'yt-commander-sub-manager-btn secondary';
+    removeCategoryButton.setAttribute('data-action', 'remove-from-category');
+    setIconButton(removeCategoryButton, ICONS.minus, 'Move to category');
+
     sortButton = document.createElement('button');
     sortButton.type = 'button';
     sortButton.className = 'yt-commander-sub-manager-toggle';
@@ -2024,6 +2036,8 @@ function ensureModal() {
 
     const actionGroup = document.createElement('div');
     actionGroup.className = 'yt-commander-sub-manager-action-group';
+    actionGroup.appendChild(addCategoryButton);
+    actionGroup.appendChild(removeCategoryButton);
     actionGroup.appendChild(unsubscribeButton);
     const headerDivider = document.createElement('div');
     headerDivider.className = 'yt-commander-sub-manager-header-divider';
@@ -2625,14 +2639,8 @@ function updateRemoveCategoryButton() {
         return;
     }
     const hasSelection = selectedChannelIds.size > 0;
-    const isActiveCategory = filterMode !== 'all' && filterMode !== 'uncategorized';
-    removeCategoryButton.disabled = !hasSelection || !isActiveCategory;
-    let label = 'Remove from active category';
-    if (!hasSelection) {
-        label = 'Select channels to remove';
-    } else if (!isActiveCategory) {
-        label = 'Select a category filter to remove';
-    }
+    removeCategoryButton.disabled = !hasSelection;
+    const label = hasSelection ? 'Move to category' : 'Select channels to move';
     setIconButton(removeCategoryButton, ICONS.minus, label);
 }
 
@@ -3470,6 +3478,28 @@ function handleModalClick(event) {
             sortMode = sortMode === 'subscribers' ? 'name' : 'subscribers';
             persistViewState().catch(() => undefined);
             renderList();
+            return;
+        }
+
+        if (action === 'add-to-category') {
+            const ids = Array.from(selectedChannelIds);
+            if (ids.length === 0) {
+                setStatus('Select channels to add.', 'info');
+                return;
+            }
+            ensurePicker();
+            openPicker(actionTarget, 'add', ids);
+            return;
+        }
+
+        if (action === 'remove-from-category') {
+            const ids = Array.from(selectedChannelIds);
+            if (ids.length === 0) {
+                setStatus('Select channels to remove.', 'info');
+                return;
+            }
+            ensurePicker();
+            openPicker(actionTarget, 'remove', ids);
             return;
         }
 
