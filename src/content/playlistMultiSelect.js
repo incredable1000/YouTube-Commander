@@ -2285,6 +2285,14 @@ function setupObserver() {
         const found = new Set();
         mutations.forEach((mutation) => {
             if (mutation.type === 'childList') {
+                if (mutation.target instanceof Element) {
+                    const targetRenderer = mutation.target.matches(FEED_RENDERER_SELECTOR)
+                        ? mutation.target
+                        : mutation.target.closest(FEED_RENDERER_SELECTOR);
+                    if (targetRenderer) {
+                        found.add(targetRenderer);
+                    }
+                }
                 mutation.addedNodes.forEach((node) => collectRenderers(node, found));
                 return;
             }
