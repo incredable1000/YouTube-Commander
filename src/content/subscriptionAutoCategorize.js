@@ -9,7 +9,7 @@ const STORAGE_KEYS = {
     ENDPOINT: 'subscriptionAutoCategorizeEndpoint'
 };
 
-const DEFAULT_MODEL = 'gemini-3-pro';
+const DEFAULT_MODEL = 'auto';
 const DEFAULT_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_MAX_CHANNELS = 20;
 const DEFAULT_BATCH_SIZE = 3;

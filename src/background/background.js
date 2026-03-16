@@ -2196,6 +2196,16 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     }
 });
 
+const GEMINI_MODEL_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+let geminiModelCache = { fetchedAt: 0, models: [] };
+
+function normalizeGeminiModelName(name) {
+    if (typeof name !== 'string') {
+        return '';
+    }
+    return name.replace(/^models\//i, '').trim();
+}
+
 function buildGeminiEndpoint(endpoint, model, apiKey) {
     const fallbackBase = 'https://generativelanguage.googleapis.com/v1beta/models';
     const base = typeof endpoint === 'string' && endpoint.trim()
@@ -2203,9 +2213,10 @@ function buildGeminiEndpoint(endpoint, model, apiKey) {
         : fallbackBase;
     let url = base.replace(/\/+$/, '');
     if (!url.includes(':generateContent')) {
-        const safeModel = typeof model === 'string' && model.trim()
-            ? model.trim()
-            : 'gemini-3-pro';
+        const normalizedModel = normalizeGeminiModelName(model);
+        const safeModel = normalizedModel && normalizedModel.toLowerCase() !== 'auto'
+            ? normalizedModel
+            : 'gemini-1.5-pro';
         url = `${url}/${safeModel}:generateContent`;
     }
     if (apiKey && !url.includes('key=')) {
@@ -2213,6 +2224,116 @@ function buildGeminiEndpoint(endpoint, model, apiKey) {
         url = `${url}${separator}key=${encodeURIComponent(apiKey)}`;
     }
     return url;
+}
+
+function buildGeminiModelsEndpoint(endpoint, apiKey) {
+    const fallbackBase = 'https://generativelanguage.googleapis.com/v1beta/models';
+    let base = typeof endpoint === 'string' && endpoint.trim()
+        ? endpoint.trim()
+        : fallbackBase;
+
+    if (base.includes('/models/')) {
+        base = `${base.split('/models/')[0]}/models`;
+    } else if (base.includes('/models')) {
+        base = `${base.split('/models')[0]}/models`;
+    } else if (base.endsWith('/v1beta')) {
+        base = `${base}/models`;
+    } else if (!base.includes('/v1beta')) {
+        base = fallbackBase;
+    }
+
+    if (apiKey && !base.includes('key=')) {
+        const separator = base.includes('?') ? '&' : '?';
+        base = `${base}${separator}key=${encodeURIComponent(apiKey)}`;
+    }
+    return base;
+}
+
+function scoreGeminiModel(modelName) {
+    const name = modelName.toLowerCase();
+    const versionMatch = name.match(/gemini-(\d+)(?:\.(\d+))?/);
+    let score = 0;
+    if (versionMatch) {
+        const major = Number(versionMatch[1]) || 0;
+        const minor = Number(versionMatch[2]) || 0;
+        score += (major * 100) + (minor * 10);
+    }
+    if (name.includes('pro')) {
+        score += 20;
+    }
+    if (name.includes('flash')) {
+        score += 10;
+    }
+    if (name.includes('lite')) {
+        score -= 5;
+    }
+    if (name.includes('latest')) {
+        score += 5;
+    }
+    return score;
+}
+
+async function listGeminiModels(apiKey, endpoint) {
+    const urlBase = buildGeminiModelsEndpoint(endpoint, apiKey);
+    const models = [];
+    let pageToken = '';
+    let pageCount = 0;
+
+    while (pageCount < 4) {
+        const url = pageToken ? `${urlBase}&pageToken=${encodeURIComponent(pageToken)}` : urlBase;
+        const response = await fetch(url);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const message = data?.error?.message || `ListModels failed (${response.status})`;
+            throw new Error(message);
+        }
+        const items = Array.isArray(data?.models) ? data.models : [];
+        items.forEach((model) => {
+            if (model?.name && Array.isArray(model?.supportedGenerationMethods)) {
+                models.push(model);
+            }
+        });
+        pageToken = data?.nextPageToken || '';
+        if (!pageToken) {
+            break;
+        }
+        pageCount += 1;
+    }
+
+    return models;
+}
+
+async function resolveGeminiModel(requestedModel, apiKey, endpoint) {
+    const requested = normalizeGeminiModelName(requestedModel);
+    const requestedIsAuto = !requested || requested.toLowerCase() === 'auto';
+    const now = Date.now();
+    if (now - geminiModelCache.fetchedAt > GEMINI_MODEL_CACHE_TTL_MS) {
+        try {
+            const models = await listGeminiModels(apiKey, endpoint);
+            geminiModelCache = { fetchedAt: now, models };
+        } catch (_error) {
+            geminiModelCache = { fetchedAt: now, models: [] };
+        }
+    }
+
+    const available = geminiModelCache.models
+        .filter((model) => model.supportedGenerationMethods.includes('generateContent'))
+        .map((model) => normalizeGeminiModelName(model.name))
+        .filter(Boolean);
+
+    if (!requestedIsAuto && available.includes(requested)) {
+        return requested;
+    }
+
+    if (available.length > 0) {
+        const sorted = available.slice().sort((a, b) => scoreGeminiModel(b) - scoreGeminiModel(a));
+        return sorted[0];
+    }
+
+    if (!requestedIsAuto && requested) {
+        return requested;
+    }
+    return 'gemini-1.5-pro';
 }
 
 async function requestGeminiAutoCategorize(payload) {
@@ -2230,7 +2351,8 @@ async function requestGeminiAutoCategorize(payload) {
     const maxOutputTokens = Number.isFinite(payload?.maxOutputTokens) ? payload.maxOutputTokens : 1024;
     const timeoutMs = Number.isFinite(payload?.timeoutMs) ? payload.timeoutMs : 20000;
 
-    const url = buildGeminiEndpoint(payload?.endpoint, payload?.model, apiKey);
+    const resolvedModel = await resolveGeminiModel(payload?.model, apiKey, payload?.endpoint);
+    const url = buildGeminiEndpoint(payload?.endpoint, resolvedModel, apiKey);
     const contentParts = parts.length > 0 ? parts : [{ text: prompt }];
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
