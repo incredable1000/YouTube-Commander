@@ -705,6 +705,42 @@ function setStatusMessage(message, kind = STATUS_KIND.INFO) {
     }, 4500);
 }
 
+function isBridgeTimeoutError(error) {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+    return error.message.toLowerCase().includes('timed out');
+}
+
+async function confirmPlaylistSelection(playlistId, videoIds, attempts = 3) {
+    const probeVideoId = Array.isArray(videoIds)
+        ? videoIds.find((id) => VIDEO_ID_PATTERN.test(id))
+        : '';
+    if (!playlistId || !probeVideoId) {
+        return false;
+    }
+
+    for (let i = 0; i < attempts; i += 1) {
+        if (i > 0) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+        try {
+            const response = await sendBridgeRequest(ACTIONS.GET_PLAYLISTS, {
+                videoIds: [probeVideoId]
+            });
+            const playlists = Array.isArray(response?.playlists) ? response.playlists : [];
+            const match = playlists.find((playlist) => playlist?.id === playlistId);
+            if (match?.isSelected === true) {
+                return true;
+            }
+        } catch (_error) {
+            // Ignore probe errors and retry.
+        }
+    }
+
+    return false;
+}
+
 /**
  * Clear all status texts.
  */
@@ -1047,6 +1083,18 @@ async function saveSelectionToPlaylist(playlistId) {
         setStatusMessage('No playlist was updated.', STATUS_KIND.ERROR);
     } catch (error) {
         logger.warn('Failed to save selected videos', error);
+        if (isBridgeTimeoutError(error)) {
+            setStatusMessage('Save is taking longer than expected. Checking playlist...', STATUS_KIND.INFO);
+            const confirmed = await confirmPlaylistSelection(playlistId, videoIds);
+            if (confirmed) {
+                selectedPlaylistIds.add(playlistId);
+                syncPlaylistSelectionVisuals();
+                setStatusMessage(`Saved to ${playlistTitle}.`, STATUS_KIND.SUCCESS);
+                return;
+            }
+            setStatusMessage('Save is still processing. Check the playlist shortly.', STATUS_KIND.INFO);
+            return;
+        }
         setStatusMessage(error instanceof Error ? error.message : 'Failed to save videos.', STATUS_KIND.ERROR);
     } finally {
         submitting = false;
@@ -1342,6 +1390,10 @@ async function submitCreatePlaylist() {
         setStatusMessage(`Created "${title}" and saved ${addedCount} video(s).`, STATUS_KIND.SUCCESS);
     } catch (error) {
         logger.warn('Failed to create playlist', error);
+        if (isBridgeTimeoutError(error)) {
+            setCreateStatus('Playlist creation is taking longer than expected. Check playlists shortly.', STATUS_KIND.INFO);
+            return;
+        }
         setCreateStatus(error instanceof Error ? error.message : 'Failed to create playlist.', STATUS_KIND.ERROR);
     } finally {
         createSubmitting = false;
