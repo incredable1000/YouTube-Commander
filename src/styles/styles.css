@@ -316,6 +316,51 @@
     object-fit: contain !important;
 }
 
+/* Shorts player: keep progress bar visible */
+ytd-shorts .html5-video-player .ytp-chrome-bottom {
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    transform: none !important;
+}
+
+ytd-shorts .html5-video-player .ytp-progress-bar-container,
+ytd-shorts .html5-video-player .ytp-progress-bar,
+ytd-shorts desktop-shorts-player-controls yt-progress-bar,
+ytd-shorts desktop-shorts-player-controls .ytPlayerProgressBarDragContainer,
+ytd-shorts desktop-shorts-player-controls .ytPlayerProgressBarProgressBar,
+ytd-shorts desktop-shorts-player-controls .ytProgressBarLineProgressBarLine,
+ytd-shorts desktop-shorts-player-controls .ytProgressBarLineProgressBarPlayed,
+ytd-shorts ytd-reel-player-overlay-renderer #progress-bar,
+ytd-shorts ytd-reel-player-overlay-renderer #progress,
+ytd-shorts ytd-reel-player-overlay-renderer .progress-bar,
+ytd-shorts ytd-reel-player-overlay-renderer .progress,
+ytd-shorts ytd-reel-player-header-renderer #progress-bar,
+ytd-shorts ytd-reel-player-header-renderer #progress,
+ytd-shorts ytd-reel-player-header-renderer .progress-bar,
+ytd-shorts ytd-reel-player-header-renderer .progress {
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+ytd-shorts ytd-reel-player-overlay-renderer #progress-bar,
+ytd-shorts ytd-reel-player-header-renderer #progress-bar,
+ytd-shorts desktop-shorts-player-controls yt-progress-bar {
+    display: block !important;
+}
+
+ytd-shorts desktop-shorts-player-controls .ytPlayerProgressBarHostHidden {
+    opacity: 1 !important;
+    visibility: visible !important;
+    display: block !important;
+}
+
+ytd-shorts desktop-shorts-player-controls .ytPlayerProgressBarDragContainer {
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+}
+
 html.yt-commander-windowed-lock,
 body.yt-commander-windowed-lock {
     overflow: hidden !important;

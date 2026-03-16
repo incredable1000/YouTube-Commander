@@ -100,6 +100,7 @@ async function initializeModules() {
             import('./scrollToTop.js').catch(e => { logger.warn('Failed to import scrollToTop:', e); throw e; }),
             import('./shortsCounter.js').catch(e => { logger.warn('Failed to import shortsCounter:', e); throw e; }),
             import('./shortsUploadAge.js').catch(e => { logger.warn('Failed to import shortsUploadAge:', e); throw e; }),
+            import('./shortsProgressBar.js').catch(e => { logger.warn('Failed to import shortsProgressBar:', e); throw e; }),
             import('./videoRotation.js').catch(e => { logger.warn('Failed to import videoRotation:', e); throw e; }),
             import('./windowedFullscreen.js').catch(e => { logger.warn('Failed to import windowedFullscreen:', e); throw e; }),
             import('./playlistControls.js').catch(e => { logger.warn('Failed to import playlistControls:', e); throw e; }),
@@ -119,6 +120,7 @@ async function initializeModules() {
                     'scrollToTop', 
                     'shortsCounter',
                     'shortsUploadAge',
+                    'shortsProgressBar',
                     'videoRotation',
                     'windowedFullscreen',
                     'playlistControls',
@@ -141,6 +143,7 @@ async function initializeModules() {
                 if (module.initScrollToTop) initPromises.push(module.initScrollToTop());
                 if (module.initShortsCounter) initPromises.push(module.initShortsCounter());
                 if (module.initShortsUploadAge) initPromises.push(module.initShortsUploadAge());
+                if (module.initShortsProgressBar) initPromises.push(module.initShortsProgressBar());
                 if (module.initVideoRotation) initPromises.push(module.initVideoRotation());
                 if (module.initWindowedFullscreen) initPromises.push(module.initWindowedFullscreen());
                 if (module.initPlaylistControls) initPromises.push(module.initPlaylistControls());
@@ -155,6 +158,7 @@ async function initializeModules() {
                     'scrollToTop', 
                     'shortsCounter',
                     'shortsUploadAge',
+                    'shortsProgressBar',
                     'videoRotation',
                     'windowedFullscreen',
                     'playlistControls',
