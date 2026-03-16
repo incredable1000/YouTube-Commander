@@ -2205,7 +2205,7 @@ function buildGeminiEndpoint(endpoint, model, apiKey) {
     if (!url.includes(':generateContent')) {
         const safeModel = typeof model === 'string' && model.trim()
             ? model.trim()
-            : 'gemini-1.5-flash';
+            : 'gemini-3-pro';
         url = `${url}/${safeModel}:generateContent`;
     }
     if (apiKey && !url.includes('key=')) {
@@ -2221,7 +2221,8 @@ async function requestGeminiAutoCategorize(payload) {
         throw new Error('Missing Gemini API key');
     }
     const prompt = typeof payload?.prompt === 'string' ? payload.prompt : '';
-    if (!prompt) {
+    const parts = Array.isArray(payload?.parts) ? payload.parts.filter(Boolean) : [];
+    if (!prompt && parts.length === 0) {
         throw new Error('Missing Gemini prompt');
     }
 
@@ -2230,6 +2231,7 @@ async function requestGeminiAutoCategorize(payload) {
     const timeoutMs = Number.isFinite(payload?.timeoutMs) ? payload.timeoutMs : 20000;
 
     const url = buildGeminiEndpoint(payload?.endpoint, payload?.model, apiKey);
+    const contentParts = parts.length > 0 ? parts : [{ text: prompt }];
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let response;
@@ -2243,7 +2245,7 @@ async function requestGeminiAutoCategorize(payload) {
                 contents: [
                     {
                         role: 'user',
-                        parts: [{ text: prompt }]
+                        parts: contentParts
                     }
                 ],
                 generationConfig: {

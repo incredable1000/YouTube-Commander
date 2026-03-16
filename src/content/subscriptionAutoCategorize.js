@@ -9,13 +9,16 @@ const STORAGE_KEYS = {
     ENDPOINT: 'subscriptionAutoCategorizeEndpoint'
 };
 
-const DEFAULT_MODEL = 'gemini-1.5-flash';
+const DEFAULT_MODEL = 'gemini-3-pro';
 const DEFAULT_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
-const DEFAULT_MAX_CHANNELS = 60;
-const DEFAULT_BATCH_SIZE = 20;
+const DEFAULT_MAX_CHANNELS = 20;
+const DEFAULT_BATCH_SIZE = 3;
 const DEFAULT_TEMPERATURE = 0.2;
 const DEFAULT_MAX_OUTPUT_TOKENS = 1024;
-const DEFAULT_TIMEOUT_MS = 20000;
+const DEFAULT_TIMEOUT_MS = 60000;
+const DEFAULT_VIDEO_SAMPLE_COUNT = 2;
+const DEFAULT_VIDEO_FETCH_CONCURRENCY = 4;
+const VIDEO_FEED_BASE_URL = 'https://www.youtube.com/feeds/videos.xml?channel_id=';
 
 /**
  * Load auto-categorize settings from storage.
@@ -55,6 +58,69 @@ function normalizeCategories(list) {
         .filter((category) => category.id && category.name);
 }
 
+function buildVideoFeedUrl(channelId) {
+    return `${VIDEO_FEED_BASE_URL}${encodeURIComponent(channelId)}`;
+}
+
+function parseVideoFeed(xmlText, limit) {
+    if (!xmlText) {
+        return [];
+    }
+    const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
+    const entries = Array.from(doc.getElementsByTagName('entry'));
+    return entries.slice(0, limit).map((entry) => {
+        const videoIdNode = entry.getElementsByTagName('yt:videoId')[0]
+            || entry.getElementsByTagName('videoId')[0];
+        const videoId = videoIdNode?.textContent?.trim() || '';
+        const title = entry.getElementsByTagName('title')[0]?.textContent?.trim() || '';
+        const linkNode = entry.getElementsByTagName('link')[0];
+        const href = linkNode?.getAttribute('href') || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : '');
+        if (!href) {
+            return null;
+        }
+        return {
+            videoId,
+            title,
+            url: href
+        };
+    }).filter(Boolean);
+}
+
+async function fetchChannelVideoSamples(channelId, limit) {
+    if (!channelId) {
+        return [];
+    }
+    try {
+        const response = await fetch(buildVideoFeedUrl(channelId));
+        if (!response.ok) {
+            return [];
+        }
+        const text = await response.text();
+        return parseVideoFeed(text, limit);
+    } catch (error) {
+        logger.warn('Failed to fetch channel video feed', error);
+        return [];
+    }
+}
+
+async function fetchVideoSamplesForChannels(channels, limit) {
+    const queue = Array.isArray(channels) ? channels.slice() : [];
+    const results = new Map();
+    const workers = Array.from({ length: DEFAULT_VIDEO_FETCH_CONCURRENCY }, async () => {
+        while (queue.length > 0) {
+            const channel = queue.shift();
+            const channelId = channel?.channelId || '';
+            if (!channelId) {
+                continue;
+            }
+            const samples = await fetchChannelVideoSamples(channelId, limit);
+            results.set(channelId, samples);
+        }
+    });
+    await Promise.all(workers);
+    return results;
+}
+
 function normalizeChannel(channel) {
     return {
         channelId: channel?.channelId || '',
@@ -66,15 +132,27 @@ function normalizeChannel(channel) {
     };
 }
 
-function buildPrompt(categories, channels) {
+function buildChannelPayload(channel, videoSamplesById) {
+    const base = normalizeChannel(channel);
+    const samples = videoSamplesById?.get(base.channelId);
+    return {
+        ...base,
+        videos: Array.isArray(samples) ? samples : []
+    };
+}
+
+function buildPrompt(categories, channels, videoSamplesById) {
     const categoryPayload = categories.map((category) => ({
         id: category.id,
         name: category.name
     }));
-    const channelPayload = channels.map(normalizeChannel);
+    const channelPayload = channels.map((channel) => buildChannelPayload(channel, videoSamplesById));
 
     return [
         'You are classifying YouTube channels into user-defined categories.',
+        'Use the provided video samples to determine the actual content.',
+        'If videos are missing or unclear, fall back to channel metadata.',
+        'Each video sample is preceded by a label that includes the channelId it belongs to.',
         'Rules:',
         '- Only choose from the provided categories by id.',
         '- If there is no strong match, use "uncategorized".',
@@ -87,6 +165,32 @@ function buildPrompt(categories, channels) {
         'Channels:',
         JSON.stringify(channelPayload, null, 2)
     ].join('\n');
+}
+
+function buildGeminiParts(categories, channels, videoSamplesById) {
+    const parts = [{ text: buildPrompt(categories, channels, videoSamplesById) }];
+    channels.forEach((channel) => {
+        const channelId = channel?.channelId || '';
+        if (!channelId) {
+            return;
+        }
+        const samples = videoSamplesById?.get(channelId) || [];
+        samples.forEach((sample, index) => {
+            if (!sample?.url) {
+                return;
+            }
+            const title = sample.title || 'Untitled video';
+            parts.push({
+                text: `Video sample ${index + 1} for channelId ${channelId} (${channel?.title || 'Untitled channel'}): ${title}`
+            });
+            parts.push({
+                file_data: {
+                    file_uri: sample.url
+                }
+            });
+        });
+    });
+    return parts;
 }
 
 function normalizeJsonText(text) {
@@ -142,6 +246,7 @@ async function requestGeminiCompletion(payload) {
                 endpoint: payload.endpoint,
                 model: payload.model,
                 prompt: payload.prompt,
+                parts: payload.parts,
                 temperature: payload.temperature,
                 maxOutputTokens: payload.maxOutputTokens,
                 timeoutMs: payload.timeoutMs
@@ -220,23 +325,28 @@ export async function autoCategorizeSubscriptions(options) {
         return { status: 'empty', appliedCount: 0, remainingCount: uncategorized.length };
     }
 
+    if (setStatus) {
+        setStatus(`Fetching recent videos for ${targets.length} channel(s)...`, 'info');
+    }
+    const videoSamplesById = await fetchVideoSamplesForChannels(targets, DEFAULT_VIDEO_SAMPLE_COUNT);
+
     const targetIds = new Set(targets.map((channel) => channel?.channelId).filter(Boolean));
     const categoryIds = new Set(categories.map((category) => category.id));
     const batches = chunk(targets, DEFAULT_BATCH_SIZE);
     const assignedChannelIds = new Set();
 
     if (setStatus) {
-        setStatus(`Auto-categorizing ${targets.length} channel(s)...`, 'info');
+        setStatus(`Analyzing ${targets.length} channel(s) with Gemini...`, 'info');
     }
 
     for (let index = 0; index < batches.length; index += 1) {
         const batch = batches[index];
-        const prompt = buildPrompt(categories, batch);
+        const parts = buildGeminiParts(categories, batch, videoSamplesById);
         const responseData = await requestGeminiCompletion({
             apiKey: settings.apiKey,
             endpoint: settings.endpoint,
             model: settings.model,
-            prompt,
+            parts,
             temperature: DEFAULT_TEMPERATURE,
             maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
             timeoutMs: DEFAULT_TIMEOUT_MS
