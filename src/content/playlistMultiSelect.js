@@ -759,13 +759,41 @@ function clearStatusMessage() {
     });
 }
 
+function resolveActivePageRoot() {
+    const pageManager = document.querySelector('ytd-page-manager');
+    if (!pageManager) {
+        return document;
+    }
+
+    const candidates = pageManager.querySelectorAll('ytd-browse, ytd-search, ytd-channel');
+    for (const candidate of candidates) {
+        if (!(candidate instanceof Element)) {
+            continue;
+        }
+        if (candidate.hasAttribute('hidden') || candidate.getAttribute('hidden') === 'true') {
+            continue;
+        }
+        const style = window.getComputedStyle(candidate);
+        if (style.display === 'none' || style.visibility === 'hidden') {
+            continue;
+        }
+        if (candidate.getClientRects().length === 0) {
+            continue;
+        }
+        return candidate;
+    }
+
+    return pageManager;
+}
+
 /**
  * Collect currently rendered selectable video ids.
  * @returns {string[]}
  */
 function collectRenderedVideoIds() {
     const ids = new Set();
-    document.querySelectorAll(`.${HOST_CLASS}[data-yt-commander-video-id]`).forEach((host) => {
+    const root = resolveActivePageRoot();
+    root.querySelectorAll(`.${HOST_CLASS}[data-yt-commander-video-id]`).forEach((host) => {
         const videoId = host.getAttribute('data-yt-commander-video-id') || '';
         if (VIDEO_ID_PATTERN.test(videoId)) {
             ids.add(videoId);
@@ -1751,7 +1779,8 @@ function queueFullRescan() {
     }
 
     const all = new Set();
-    document.querySelectorAll(FEED_RENDERER_SELECTOR).forEach((container) => {
+    const root = resolveActivePageRoot();
+    root.querySelectorAll(FEED_RENDERER_SELECTOR).forEach((container) => {
         all.add(container);
     });
     queueContainers(all);
