@@ -58,6 +58,7 @@ const QUICK_ADD_HOST_SELECTOR = [
     '.ytFlexibleActionsViewModelAction'
 ].join(', ');
 const SUBSCRIBE_RENDERER_SELECTOR = 'ytd-subscribe-button-renderer, yt-subscribe-button-view-model, ytd-subscribe-button-view-model';
+const DEFAULT_QUICK_ADD_LABEL = 'Add';
 const OVERLAY_CLASS = 'yt-commander-sub-manager-overlay';
 const MODAL_CLASS = 'yt-commander-sub-manager-modal';
 const TABLE_CLASS = 'yt-commander-sub-manager-table';
@@ -1094,9 +1095,23 @@ function normalizeChannelUrl(url) {
     }
     try {
         const parsed = new URL(trimmed, location.origin);
-        return parsed.pathname.replace(/\/+$/, '').toLowerCase();
+        const parts = parsed.pathname.split('/').filter(Boolean);
+        if (parts.length === 0) {
+            return '';
+        }
+        const [first, second] = parts;
+        if (first.startsWith('@')) {
+            return `/${first.toLowerCase()}`;
+        }
+        if (first === 'channel' && second) {
+            return `/channel/${second.toLowerCase()}`;
+        }
+        if ((first === 'c' || first === 'user') && second) {
+            return `/${first}/${second.toLowerCase()}`;
+        }
+        return '';
     } catch (_error) {
-        return trimmed.toLowerCase();
+        return '';
     }
 }
 
@@ -1529,6 +1544,11 @@ function resolveChannelIdentityFromContext(renderer) {
     }
 
     if (!url) {
+        const reelLink = document.querySelector('ytd-reel-player-header-renderer a[href^="/channel/"], ytd-reel-player-header-renderer a[href^="/@"], ytd-reel-player-overlay-renderer a[href^="/channel/"], ytd-reel-player-overlay-renderer a[href^="/@"]');
+        url = reelLink?.getAttribute('href') || '';
+    }
+
+    if (!url) {
         const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || '';
         url = canonical;
     }
@@ -1567,6 +1587,71 @@ function resolveChannelIdFromIdentity(identity) {
         return channelsByUrl.get(normalizedUrl) || '';
     }
     return identity.channelId || '';
+}
+
+function getHandleAssignmentKey(handle) {
+    const normalized = normalizeHandle(handle);
+    if (!normalized) {
+        return '';
+    }
+    return `handle:${normalized.replace(/^@/, '')}`;
+}
+
+function getUrlAssignmentKey(url) {
+    const normalized = normalizeChannelUrl(url);
+    if (!normalized) {
+        return '';
+    }
+    return `url:${normalized}`;
+}
+
+function resolveAssignmentKeyForRead(identity, channelId) {
+    const handleKey = getHandleAssignmentKey(identity.handle);
+    const urlKey = getUrlAssignmentKey(identity.url);
+    if (channelId && readChannelAssignments(channelId).length > 0) {
+        return channelId;
+    }
+    if (handleKey && readChannelAssignments(handleKey).length > 0) {
+        return handleKey;
+    }
+    if (urlKey && readChannelAssignments(urlKey).length > 0) {
+        return urlKey;
+    }
+    return channelId || handleKey || urlKey || '';
+}
+
+function resolveAssignmentKeyForWrite(identity, channelId) {
+    const handleKey = getHandleAssignmentKey(identity.handle);
+    const urlKey = getUrlAssignmentKey(identity.url);
+    return channelId || handleKey || urlKey || '';
+}
+
+function migrateAssignmentKeyIfNeeded(channelId, identity) {
+    if (!channelId) {
+        return;
+    }
+    const handleKey = getHandleAssignmentKey(identity.handle);
+    const urlKey = getUrlAssignmentKey(identity.url);
+    const fallbackKeys = [handleKey, urlKey].filter(Boolean);
+    if (fallbackKeys.length === 0) {
+        return;
+    }
+    const existing = readChannelAssignments(channelId);
+    let migrated = false;
+    fallbackKeys.forEach((key) => {
+        const fallback = readChannelAssignments(key);
+        if (fallback.length === 0) {
+            return;
+        }
+        if (existing.length === 0) {
+            writeChannelAssignments(channelId, fallback);
+        }
+        writeChannelAssignments(key, []);
+        migrated = true;
+    });
+    if (migrated) {
+        void persistLocalState();
+    }
 }
 
 /**
@@ -1622,6 +1707,13 @@ function getQuickAddIdentityFromButton(button) {
     };
 }
 
+function getQuickAddAssignmentKeyFromButton(button) {
+    if (!button) {
+        return '';
+    }
+    return button.getAttribute('data-channel-key') || '';
+}
+
 function setQuickAddIcon(button, assigned, color) {
     const iconWrap = button?.querySelector('[data-role="quick-add-icon"]');
     if (!iconWrap) {
@@ -1644,6 +1736,8 @@ function updateQuickAddButtonState(button, identityOverride = null) {
     }
     const identity = identityOverride || getQuickAddIdentityFromButton(button);
     let channelId = identity.channelId;
+    let handle = identity.handle;
+    let url = identity.url;
     if (!channelId) {
         const renderer = resolveSubscribeRendererForQuickAdd(button);
         const resolved = resolveChannelIdentityFromContext(renderer);
@@ -1651,16 +1745,25 @@ function updateQuickAddButtonState(button, identityOverride = null) {
         if (channelId) {
             button.setAttribute('data-channel-id', channelId);
         }
-        if (!identity.handle && resolved.handle) {
+        if (!handle && resolved.handle) {
+            handle = resolved.handle;
             button.setAttribute('data-channel-handle', resolved.handle);
         }
-        if (!identity.url && resolved.url) {
+        if (!url && resolved.url) {
+            url = resolved.url;
             button.setAttribute('data-channel-url', resolved.url);
         }
     }
 
     const labelEl = button.querySelector('[data-role="quick-add-label"]');
-    const assignedId = channelId ? readChannelAssignments(channelId)[0] : '';
+    migrateAssignmentKeyIfNeeded(channelId, { channelId, handle, url });
+    const assignmentKey = resolveAssignmentKeyForRead({ channelId, handle, url }, channelId);
+    if (assignmentKey) {
+        button.setAttribute('data-channel-key', assignmentKey);
+    } else {
+        button.removeAttribute('data-channel-key');
+    }
+    const assignedId = assignmentKey ? readChannelAssignments(assignmentKey)[0] : '';
     const category = assignedId ? categories.find((item) => item.id === assignedId) : null;
     if (category) {
         applyCategoryItemColors(button, category.color);
@@ -1681,7 +1784,7 @@ function updateQuickAddButtonState(button, identityOverride = null) {
     button.classList.add('is-empty');
     button.removeAttribute('data-category-id');
     if (labelEl) {
-        labelEl.textContent = '';
+        labelEl.textContent = DEFAULT_QUICK_ADD_LABEL;
     }
     setQuickAddIcon(button, false);
     button.setAttribute('aria-label', 'Add to category');
@@ -1795,7 +1898,8 @@ async function handleQuickAddClick(event) {
         button.setAttribute('data-channel-url', identity.url);
     }
 
-    if (!channelId) {
+    const assignmentKey = resolveAssignmentKeyForWrite({ channelId, handle: identity.handle, url: identity.url }, channelId);
+    if (!assignmentKey) {
         if (isQuickAddPage()) {
             setStatus('Select a category to retry channel lookup.', 'info');
             ensurePicker();
@@ -1813,9 +1917,10 @@ async function handleQuickAddClick(event) {
         return;
     }
 
+    button.setAttribute('data-channel-key', assignmentKey);
     updateQuickAddButtonState(button, { channelId, handle: identity.handle, url: identity.url });
     ensurePicker();
-    openPicker(button, 'toggle', [channelId]);
+    openPicker(button, 'toggle', [assignmentKey]);
 }
 
 /**
@@ -3586,6 +3691,13 @@ async function handlePickerClick(event) {
         let targetIds = pickerTargetIds;
         if (!Array.isArray(targetIds) || targetIds.length === 0) {
             const anchor = pickerAnchorEl;
+            const anchorKey = getQuickAddAssignmentKeyFromButton(anchor);
+            if (anchorKey) {
+                targetIds = [anchorKey];
+            }
+        }
+        if (!Array.isArray(targetIds) || targetIds.length === 0) {
+            const anchor = pickerAnchorEl;
             const renderer = resolveSubscribeRendererForQuickAdd(anchor);
             const anchorIdentity = anchor?.classList.contains(QUICK_ADD_CLASS)
                 ? getQuickAddIdentityFromButton(anchor)
@@ -3598,8 +3710,12 @@ async function handlePickerClick(event) {
                 await loadSubscriptions({ force: true, background: true });
                 channelId = resolveChannelIdFromIdentity(identity);
             }
-            if (channelId) {
-                targetIds = [channelId];
+            const assignmentKey = resolveAssignmentKeyForWrite(identity, channelId);
+            if (assignmentKey) {
+                if (anchor) {
+                    anchor.setAttribute('data-channel-key', assignmentKey);
+                }
+                targetIds = [assignmentKey];
             }
         }
         if (!Array.isArray(targetIds) || targetIds.length === 0) {
