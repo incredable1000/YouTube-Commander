@@ -2114,7 +2114,6 @@ function ensureModal() {
     sidebarToggleButton.setAttribute('data-action', 'sidebar-toggle');
 
     sidebarActions.appendChild(sidebarAddButton);
-    sidebarActions.appendChild(sidebarToggleButton);
 
     sidebarHeader.appendChild(sidebarTitle);
     sidebarHeader.appendChild(sidebarActions);
@@ -2124,6 +2123,10 @@ function ensureModal() {
 
     sidebar.appendChild(sidebarHeader);
     sidebar.appendChild(sidebarList);
+    const sidebarFooter = document.createElement('div');
+    sidebarFooter.className = 'yt-commander-sub-manager-sidebar-footer';
+    sidebarFooter.appendChild(sidebarToggleButton);
+    sidebar.appendChild(sidebarFooter);
     applySidebarState();
 
     tableWrap = document.createElement('div');
