@@ -851,23 +851,81 @@ function collectPlaylistOptions(node, output, visited) {
  * @returns {string}
  */
 function readPlaylistThumbnailUrl(renderer) {
-    const directThumb = pickThumbnailUrl(renderer?.thumbnail?.thumbnails);
+    const directThumb = normalizeThumbnailUrl(pickThumbnailUrl(renderer?.thumbnail?.thumbnails));
     if (directThumb) {
         return directThumb;
     }
 
-    const playlistThumb = pickThumbnailUrl(
+    const playlistThumb = normalizeThumbnailUrl(pickThumbnailUrl(
         renderer?.thumbnailRenderer?.playlistThumbnailRenderer?.thumbnail?.thumbnails
-    );
+    ));
     if (playlistThumb) {
         return playlistThumb;
     }
 
-    const fallbackThumb = pickThumbnailUrl(
+    const fallbackThumb = normalizeThumbnailUrl(pickThumbnailUrl(
         renderer?.thumbnailRenderer?.playlistThumbnailRenderer?.defaultThumbnail?.thumbnails
-    );
+    ));
     if (fallbackThumb) {
         return fallbackThumb;
+    }
+
+    return findThumbnailUrlDeep(renderer, new WeakSet(), 0);
+}
+
+/**
+ * Normalize a thumbnail URL.
+ * @param {string} url
+ * @returns {string}
+ */
+function normalizeThumbnailUrl(url) {
+    if (!url || typeof url !== 'string') {
+        return '';
+    }
+    if (url.startsWith('//')) {
+        return `https:${url}`;
+    }
+    return url;
+}
+
+/**
+ * Recursively find a thumbnail URL inside an object.
+ * @param {any} node
+ * @param {WeakSet<object>} visited
+ * @param {number} depth
+ * @returns {string}
+ */
+function findThumbnailUrlDeep(node, visited, depth) {
+    if (!node || typeof node !== 'object' || depth > 6) {
+        return '';
+    }
+    if (visited.has(node)) {
+        return '';
+    }
+    visited.add(node);
+
+    if (Array.isArray(node)) {
+        for (const item of node) {
+            const found = findThumbnailUrlDeep(item, visited, depth + 1);
+            if (found) {
+                return found;
+            }
+        }
+        return '';
+    }
+
+    const directThumb = normalizeThumbnailUrl(pickThumbnailUrl(node?.thumbnails));
+    if (directThumb) {
+        return directThumb;
+    }
+
+    for (const value of Object.values(node)) {
+        if (value && typeof value === 'object') {
+            const found = findThumbnailUrlDeep(value, visited, depth + 1);
+            if (found) {
+                return found;
+            }
+        }
     }
 
     return '';
