@@ -13,6 +13,7 @@ const RESPONSE_TYPE = 'YT_COMMANDER_PLAYLIST_BRIDGE_RESPONSE';
 
 const ACTIONS = {
     GET_PLAYLISTS: 'GET_PLAYLISTS',
+    GET_PLAYLIST_THUMBNAILS: 'GET_PLAYLIST_THUMBNAILS',
     ADD_TO_PLAYLISTS: 'ADD_TO_PLAYLISTS',
     CREATE_PLAYLIST_AND_ADD: 'CREATE_PLAYLIST_AND_ADD',
     REMOVE_FROM_PLAYLIST: 'REMOVE_FROM_PLAYLIST',
@@ -33,6 +34,7 @@ const SHORTS_TIMESTAMP_PLAYER_FALLBACK_CONCURRENCY = 3;
 const SUBSCRIPTION_BROWSE_ID = 'FEchannels';
 const SUBSCRIPTION_PAGE_LIMIT = 600;
 const SUBSCRIPTION_BATCH_SIZE = 50;
+const PLAYLIST_THUMBNAIL_CONCURRENCY = 3;
 
 let isInitialized = false;
 let cachedAuthHeader = null;
@@ -874,6 +876,36 @@ function readPlaylistThumbnailUrl(renderer) {
 }
 
 /**
+ * Read a playlist thumbnail from a browse response payload.
+ * @param {any} body
+ * @returns {string}
+ */
+function readPlaylistThumbnailFromBrowse(body) {
+    const microThumb = normalizeThumbnailUrl(
+        pickThumbnailUrl(body?.microformat?.microformatDataRenderer?.thumbnail?.thumbnails)
+    );
+    if (microThumb) {
+        return microThumb;
+    }
+
+    const headerThumb = normalizeThumbnailUrl(
+        pickThumbnailUrl(body?.header?.playlistHeaderRenderer?.thumbnail?.thumbnails)
+    );
+    if (headerThumb) {
+        return headerThumb;
+    }
+
+    const bannerThumb = normalizeThumbnailUrl(
+        pickThumbnailUrl(body?.header?.playlistHeaderRenderer?.playlistHeaderBanner?.heroImage?.thumbnails)
+    );
+    if (bannerThumb) {
+        return bannerThumb;
+    }
+
+    return findThumbnailUrlDeep(body, new WeakSet(), 0);
+}
+
+/**
  * Normalize a thumbnail URL.
  * @param {string} url
  * @returns {string}
@@ -1330,6 +1362,48 @@ async function getPlaylists(payload) {
     playlists.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
 
     return { playlists };
+}
+
+/**
+ * Load playlist thumbnails via browse API.
+ * @param {{playlistIds?: string[]}} payload
+ * @returns {Promise<{thumbnailsById: Record<string, string>}>}
+ */
+async function getPlaylistThumbnails(payload) {
+    const playlistIds = sanitizePlaylistIds(payload?.playlistIds || []);
+    if (playlistIds.length === 0) {
+        return { thumbnailsById: {} };
+    }
+
+    const config = await getInnertubeConfig();
+    const thumbnailsById = {};
+    const queue = [...playlistIds];
+
+    const workers = new Array(Math.min(PLAYLIST_THUMBNAIL_CONCURRENCY, queue.length))
+        .fill(0)
+        .map(async () => {
+            while (queue.length > 0) {
+                const playlistId = queue.shift();
+                if (!playlistId) {
+                    continue;
+                }
+
+                const browseId = playlistId.startsWith('VL') ? playlistId : `VL${playlistId}`;
+                try {
+                    const response = await postInnertube('browse', { context: config.context, browseId }, config);
+                    const thumb = readPlaylistThumbnailFromBrowse(response?.body);
+                    if (thumb) {
+                        thumbnailsById[playlistId] = thumb;
+                    }
+                } catch (error) {
+                    logger.debug('Failed to fetch playlist thumbnail', { playlistId, error });
+                }
+            }
+        });
+
+    await Promise.all(workers);
+
+    return { thumbnailsById };
 }
 
 /**
@@ -2135,6 +2209,8 @@ async function handleBridgeRequest(message) {
         let result = null;
         if (action === ACTIONS.GET_PLAYLISTS) {
             result = await getPlaylists(payload);
+        } else if (action === ACTIONS.GET_PLAYLIST_THUMBNAILS) {
+            result = await getPlaylistThumbnails(payload);
         } else if (action === ACTIONS.ADD_TO_PLAYLISTS) {
             result = await addToPlaylists(payload);
         } else if (action === ACTIONS.REMOVE_FROM_PLAYLIST) {

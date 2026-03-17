@@ -113,6 +113,7 @@ let statusTimer = null;
 let lastPlaylistProbeVideoId = '';
 let createVisibility = 'PRIVATE';
 let selectAllMode = false;
+const playlistThumbnailRequestedIds = new Set();
 
 const selectedVideoIds = new Set();
 const selectedPlaylistIds = new Set();
@@ -1035,6 +1036,85 @@ function renderPlaylistOptions() {
 }
 
 /**
+ * Update a playlist row thumbnail in-place.
+ * @param {string} playlistId
+ * @param {string} thumbnailUrl
+ */
+function updatePlaylistRowThumbnail(playlistId, thumbnailUrl) {
+    if (!playlistPanelList || !playlistId || !thumbnailUrl) {
+        return;
+    }
+
+    const row = playlistPanelList.querySelector(
+        `.yt-commander-playlist-panel__item[data-playlist-id="${playlistId}"]`
+    );
+    if (!row) {
+        return;
+    }
+
+    const thumb = row.querySelector('.yt-commander-playlist-panel__item-thumb');
+    if (!(thumb instanceof Element)) {
+        return;
+    }
+
+    const titleNode = row.querySelector('.yt-commander-playlist-panel__item-title');
+    const titleInitial = readPlaylistInitial(titleNode?.textContent || '');
+
+    while (thumb.firstChild) {
+        thumb.removeChild(thumb.firstChild);
+    }
+
+    const image = document.createElement('img');
+    image.src = thumbnailUrl;
+    image.alt = '';
+    image.loading = 'lazy';
+    image.decoding = 'async';
+    image.addEventListener('error', () => {
+        image.remove();
+        thumb.textContent = titleInitial;
+    });
+    thumb.appendChild(image);
+}
+
+/**
+ * Fetch missing thumbnails for playlists shown in the panel.
+ */
+async function loadPlaylistThumbnailsForPanel() {
+    if (!playlistPanelVisible || loadingPlaylists || !Array.isArray(playlistOptions)) {
+        return;
+    }
+
+    const missing = playlistOptions
+        .filter((playlist) => playlist?.id && !playlist.thumbnailUrl && !playlistThumbnailRequestedIds.has(playlist.id))
+        .map((playlist) => playlist.id);
+
+    if (missing.length === 0) {
+        return;
+    }
+
+    missing.forEach((playlistId) => playlistThumbnailRequestedIds.add(playlistId));
+
+    try {
+        const response = await sendBridgeRequest(ACTIONS.GET_PLAYLIST_THUMBNAILS, {
+            playlistIds: missing
+        });
+        const thumbnailsById = response?.thumbnailsById || {};
+        Object.entries(thumbnailsById).forEach(([playlistId, thumbnailUrl]) => {
+            if (typeof thumbnailUrl !== 'string' || !thumbnailUrl) {
+                return;
+            }
+            const entry = playlistOptions.find((playlist) => playlist?.id === playlistId);
+            if (entry) {
+                entry.thumbnailUrl = thumbnailUrl;
+            }
+            updatePlaylistRowThumbnail(playlistId, thumbnailUrl);
+        });
+    } catch (error) {
+        logger.debug('Failed to load playlist thumbnails', error);
+    }
+}
+
+/**
  * Sync selected class for playlist rows.
  */
 function syncPlaylistSelectionVisuals() {
@@ -1064,6 +1144,7 @@ async function loadPlaylistsForPanel() {
 
     if (probeVideoId && probeVideoId === lastPlaylistProbeVideoId && playlistOptions.length > 0) {
         renderPlaylistOptions();
+        void loadPlaylistThumbnailsForPanel();
         return;
     }
 
@@ -1079,6 +1160,7 @@ async function loadPlaylistsForPanel() {
         playlistOptions = Array.isArray(response?.playlists) ? response.playlists : [];
         playlistMap.clear();
         selectedPlaylistIds.clear();
+        playlistThumbnailRequestedIds.clear();
 
         playlistOptions.forEach((playlist) => {
             if (!playlist?.id) {
@@ -1092,6 +1174,7 @@ async function loadPlaylistsForPanel() {
 
         lastPlaylistProbeVideoId = probeVideoId;
         renderPlaylistOptions();
+        void loadPlaylistThumbnailsForPanel();
     } catch (error) {
         logger.warn('Failed to load playlists', error);
         renderPlaylistEmpty('Failed to load playlists.');
