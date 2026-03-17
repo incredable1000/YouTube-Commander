@@ -63,7 +63,11 @@ function forcePlayerRelayout(player) {
 }
 
 function ensureOverlayHost() {
-    return createWindowedOverlayHost(OVERLAY_CLASS);
+    if (overlayHost && overlayHost.isConnected) {
+        return overlayHost;
+    }
+    overlayHost = createWindowedOverlayHost(OVERLAY_CLASS);
+    return overlayHost;
 }
 
 /**
@@ -152,10 +156,8 @@ function ensureButton() {
         controls.insertBefore(windowedButton, preferredAnchor.nextSibling);
     }
 
-    if (isWindowed) {
-        if (activePlayer && activePlayer !== player) {
-            exitWindowedMode();
-        }
+    if (isWindowed && activePlayer && activePlayer !== player) {
+        activePlayer = player;
     }
 
     updateButtonState();
@@ -296,10 +298,68 @@ function enterWindowedMode() {
     forcePlayerRelayout(rootPlayer);
 }
 
+function findRootPlayers() {
+    return Array.from(document.querySelectorAll('#movie_player'));
+}
+
+function findExternalRootPlayer() {
+    const roots = findRootPlayers();
+    if (roots.length === 0) {
+        return null;
+    }
+    if (!overlayHost || !overlayHost.isConnected) {
+        return roots[0];
+    }
+    return roots.find((root) => !overlayHost.contains(root)) || null;
+}
+
+function resolvePlayerFromRoot(rootPlayer) {
+    if (!(rootPlayer instanceof Element)) {
+        return null;
+    }
+    const player = rootPlayer.querySelector('.html5-video-player');
+    return player instanceof Element ? player : null;
+}
+
+function remountWindowedRoot(nextRoot) {
+    if (!(nextRoot instanceof Element)) {
+        return;
+    }
+    overlayHost = ensureOverlayHost();
+    if (!overlayHost) {
+        exitWindowedMode();
+        return;
+    }
+
+    if (mountedRootPlayer && mountedRootPlayer !== nextRoot) {
+        mountedRootPlayer.classList.remove(PLAYER_ACTIVE_CLASS);
+    }
+    if (restoreAnchor && restoreAnchor.parentNode) {
+        restoreAnchor.remove();
+    }
+    restoreAnchor = createRestoreAnchor(nextRoot);
+    originalRootParent = nextRoot.parentNode;
+    originalRootNextSibling = nextRoot.nextSibling;
+    overlayHost.appendChild(nextRoot);
+    nextRoot.classList.add(PLAYER_ACTIVE_CLASS);
+    mountedRootPlayer = nextRoot;
+    activePlayer = resolvePlayerFromRoot(nextRoot) || activePlayer;
+
+    document.documentElement.classList.add(ROOT_LOCK_CLASS);
+    document.body.classList.add(ROOT_LOCK_CLASS);
+    isWindowed = true;
+    updateButtonState();
+    forcePlayerRelayout(nextRoot);
+}
+
 /**
  * Exit windowed fullscreen mode.
  */
 function exitWindowedMode() {
+    const externalRoot = findExternalRootPlayer();
+    const hasExternalReplacement = externalRoot instanceof Element
+        && (!(mountedRootPlayer instanceof Element) || externalRoot !== mountedRootPlayer);
+
     if (mountedRootPlayer) {
         mountedRootPlayer.classList.remove(PLAYER_ACTIVE_CLASS);
     }
@@ -309,7 +369,12 @@ function exitWindowedMode() {
     });
 
     const rootToRestore = mountedRootPlayer instanceof Element ? mountedRootPlayer : null;
-    const restored = restoreMountedRootPlayer();
+    let restored = false;
+    if (!hasExternalReplacement) {
+        restored = restoreMountedRootPlayer();
+    } else {
+        restored = true;
+    }
 
     if (restoreAnchor && restoreAnchor.parentNode) {
         restoreAnchor.remove();
@@ -323,15 +388,25 @@ function exitWindowedMode() {
     document.documentElement.classList.remove(ROOT_LOCK_CLASS);
     document.body.classList.remove(ROOT_LOCK_CLASS);
 
-    const relayoutTarget = mountedRootPlayer || getRootPlayerHost(getActivePlayer());
+    const relayoutTarget = hasExternalReplacement
+        ? externalRoot
+        : (mountedRootPlayer || getRootPlayerHost(getActivePlayer()));
 
     if (!restored && rootToRestore) {
         scheduleDeferredRestore(rootToRestore);
         logger.warn('Windowed player restore deferred until mount target becomes available');
     }
 
-    activePlayer = null;
-    mountedRootPlayer = null;
+    if (hasExternalReplacement) {
+        if (rootToRestore && rootToRestore.parentNode === overlayHost) {
+            rootToRestore.remove();
+        }
+        mountedRootPlayer = null;
+        activePlayer = resolvePlayerFromRoot(externalRoot) || null;
+    } else {
+        activePlayer = null;
+        mountedRootPlayer = null;
+    }
     originalRootParent = null;
     originalRootNextSibling = null;
     restoreAnchor = null;
@@ -509,10 +584,19 @@ function syncUiState() {
 
     if (isWindowed) {
         const player = getActivePlayer();
-        if (!player) {
+        const rootPlayer = getRootPlayerHost(player);
+        const externalRoot = findExternalRootPlayer();
+        if (externalRoot && externalRoot !== mountedRootPlayer) {
+            remountWindowedRoot(externalRoot);
+        } else if (!player || !rootPlayer) {
             exitWindowedMode();
-        } else if (activePlayer && activePlayer !== player) {
-            exitWindowedMode();
+        } else if (mountedRootPlayer && rootPlayer !== mountedRootPlayer) {
+            mountedRootPlayer = rootPlayer;
+            activePlayer = player;
+        } else if (mountedRootPlayer && overlayHost && !overlayHost.contains(mountedRootPlayer)) {
+            overlayHost.appendChild(mountedRootPlayer);
+            mountedRootPlayer.classList.add(PLAYER_ACTIVE_CLASS);
+            forcePlayerRelayout(mountedRootPlayer);
         }
     }
 
