@@ -1172,62 +1172,6 @@ function removeSelectedCardsFromDom(videoIds) {
 }
 
 /**
- * Detect whether a selected video id is currently rendered as a Shorts row/card.
- * @param {string} videoId
- * @returns {boolean}
- */
-function isVideoIdRenderedAsShort(videoId) {
-    if (!VIDEO_ID_PATTERN.test(videoId)) {
-        return false;
-    }
-
-    const hosts = document.querySelectorAll(`.${HOST_CLASS}[data-yt-commander-video-id="${videoId}"]`);
-    for (const host of hosts) {
-        if (!(host instanceof Element)) {
-            continue;
-        }
-
-        const shortLink = host.querySelector('a[href*="/shorts/"]');
-        const shortsBadge = host.querySelector(
-            'ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"], [overlay-style="SHORTS"], [is-shorts], [is-shorts-grid]'
-        );
-
-        if (shortLink || shortsBadge) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-/**
- * Determine if playlist view needs a full refresh after remove.
- * YouTube currently keeps Shorts playlist lists capped and may not rehydrate rows after removal.
- * @param {string[]} removedOrRequestedIds
- * @returns {boolean}
- */
-function shouldRefreshPlaylistAfterRemove(removedOrRequestedIds) {
-    if (!isPlaylistCollectionPage()) {
-        return false;
-    }
-
-    if (!Array.isArray(removedOrRequestedIds) || removedOrRequestedIds.length === 0) {
-        return false;
-    }
-
-    return removedOrRequestedIds.some((videoId) => isVideoIdRenderedAsShort(videoId));
-}
-
-/**
- * Force playlist refresh so Shorts rows are re-requested from YouTube after removal.
- */
-function refreshPlaylistAfterRemove() {
-    window.setTimeout(() => {
-        window.location.reload();
-    }, 80);
-}
-
-/**
  * Remove selected videos from the currently opened playlist page.
  */
 async function removeSelectionFromCurrentPlaylist() {
@@ -1247,7 +1191,6 @@ async function removeSelectionFromCurrentPlaylist() {
     }
 
     const videoIds = Array.from(selectedVideoIds);
-    const shouldForceRefresh = shouldRefreshPlaylistAfterRemove(videoIds);
     if (videoIds.length === 0) {
         setStatusMessage('Select at least one video.', STATUS_KIND.ERROR);
         return;
@@ -1285,10 +1228,6 @@ async function removeSelectionFromCurrentPlaylist() {
             STATUS_KIND.SUCCESS
         );
 
-        if (shouldForceRefresh) {
-            setStatusMessage('Removed videos. Refreshing playlist...', STATUS_KIND.INFO);
-            refreshPlaylistAfterRemove();
-        }
     } catch (error) {
         logger.warn('Failed to remove selected videos from playlist', error);
         setStatusMessage(error instanceof Error ? error.message : 'Failed to remove videos.', STATUS_KIND.ERROR);
