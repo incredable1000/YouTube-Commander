@@ -916,6 +916,7 @@ async function openPlaylistPanel() {
     playlistPanelVisible = true;
     updateActionUiState();
     positionPlaylistPanel();
+    renderPlaylistLoading();
     await loadPlaylistsForPanel();
 }
 
@@ -925,6 +926,10 @@ async function openPlaylistPanel() {
 function closePlaylistPanel() {
     playlistPanelVisible = false;
     playlistPanel?.classList.remove('is-visible');
+    lastPlaylistProbeVideoId = '';
+    playlistOptions = [];
+    playlistMap.clear();
+    selectedPlaylistIds.clear();
 }
 
 /**

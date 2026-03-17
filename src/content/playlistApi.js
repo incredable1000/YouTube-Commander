@@ -935,6 +935,71 @@ function readPlaylistFirstVideoThumbnail(body) {
 }
 
 /**
+ * Read the first video id from a playlist payload.
+ * @param {any} body
+ * @returns {string}
+ */
+function readPlaylistFirstVideoId(body) {
+    if (!body || typeof body !== 'object') {
+        return '';
+    }
+
+    const rendererKeys = [
+        'playlistVideoRenderer',
+        'playlistPanelVideoRenderer',
+        'videoRenderer',
+        'compactVideoRenderer',
+        'gridVideoRenderer'
+    ];
+
+    for (const key of rendererKeys) {
+        const nodes = [];
+        collectNodesByKey(body, key, nodes, new WeakSet(), 0, 8);
+        for (const renderer of nodes) {
+            const videoId = readVideoIdFromRenderer(renderer);
+            if (videoId) {
+                return videoId;
+            }
+        }
+    }
+
+    return '';
+}
+
+/**
+ * Extract video id from a renderer.
+ * @param {any} renderer
+ * @returns {string}
+ */
+function readVideoIdFromRenderer(renderer) {
+    if (!renderer || typeof renderer !== 'object') {
+        return '';
+    }
+
+    const direct = typeof renderer.videoId === 'string' ? renderer.videoId : '';
+    if (VIDEO_ID_PATTERN.test(direct)) {
+        return direct;
+    }
+
+    const nested = typeof renderer?.navigationEndpoint?.watchEndpoint?.videoId === 'string'
+        ? renderer.navigationEndpoint.watchEndpoint.videoId
+        : '';
+    return VIDEO_ID_PATTERN.test(nested) ? nested : '';
+}
+
+/**
+ * Build a thumbnail URL from a video id.
+ * @param {string} videoId
+ * @returns {string}
+ */
+function buildVideoThumbnailUrl(videoId) {
+    if (!VIDEO_ID_PATTERN.test(videoId)) {
+        return '';
+    }
+    return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+}
+
+/**
  * Collect renderer nodes by key.
  * @param {any} node
  * @param {string} key
@@ -1457,6 +1522,15 @@ async function getPlaylistThumbnails(payload) {
                     let thumb = readPlaylistThumbnailFromBrowse(response?.body);
                     if (!thumb) {
                         thumb = readPlaylistFirstVideoThumbnail(response?.body);
+                    }
+                    if (!thumb) {
+                        const videoId = readPlaylistFirstVideoId(response?.body);
+                        thumb = buildVideoThumbnailUrl(videoId);
+                    }
+                    if (!thumb) {
+                        const nextResponse = await postInnertube('next', { context: config.context, playlistId }, config);
+                        const nextVideoId = readPlaylistFirstVideoId(nextResponse?.body);
+                        thumb = buildVideoThumbnailUrl(nextVideoId);
                     }
                     if (thumb) {
                         thumbnailsById[playlistId] = thumb;
