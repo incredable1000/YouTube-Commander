@@ -526,6 +526,17 @@ function ensureActionUi() {
 }
 
 /**
+ * Position the playlist panel relative to the save action.
+ */
+function positionPlaylistPanel() {
+    if (!playlistPanelVisible || !playlistPanel || !actionSaveButton) {
+        return;
+    }
+
+    positionElementAboveAnchor(playlistPanel, actionSaveButton);
+}
+
+/**
  * Position a floating element above an anchor.
  * @param {HTMLElement} element
  * @param {HTMLElement} anchor
@@ -904,7 +915,7 @@ async function openPlaylistPanel() {
     playlistPanel.classList.add('is-visible');
     playlistPanelVisible = true;
     updateActionUiState();
-    positionElementAboveAnchor(playlistPanel, actionSaveButton);
+    positionPlaylistPanel();
     await loadPlaylistsForPanel();
 }
 
@@ -925,6 +936,7 @@ function renderPlaylistLoading() {
     }
 
     playlistPanelList.innerHTML = '<div class="yt-commander-playlist-panel__empty">Loading playlists...</div>';
+    positionPlaylistPanel();
 }
 
 /**
@@ -937,6 +949,7 @@ function renderPlaylistEmpty(message) {
     }
 
     playlistPanelList.innerHTML = `<div class="yt-commander-playlist-panel__empty">${message}</div>`;
+    positionPlaylistPanel();
 }
 
 /**
@@ -976,7 +989,22 @@ function renderPlaylistOptions() {
 
         const thumb = document.createElement('span');
         thumb.className = 'yt-commander-playlist-panel__item-thumb';
-        thumb.textContent = readPlaylistInitial(playlist.title);
+        const thumbnailUrl = typeof playlist.thumbnailUrl === 'string' ? playlist.thumbnailUrl : '';
+        const titleInitial = readPlaylistInitial(playlist.title);
+        if (thumbnailUrl) {
+            const image = document.createElement('img');
+            image.src = thumbnailUrl;
+            image.alt = '';
+            image.loading = 'lazy';
+            image.decoding = 'async';
+            image.addEventListener('error', () => {
+                image.remove();
+                thumb.textContent = titleInitial;
+            });
+            thumb.appendChild(image);
+        } else {
+            thumb.textContent = titleInitial;
+        }
 
         const body = document.createElement('span');
         body.className = 'yt-commander-playlist-panel__item-body';
@@ -1003,6 +1031,7 @@ function renderPlaylistOptions() {
     });
 
     syncPlaylistSelectionVisuals();
+    positionPlaylistPanel();
 }
 
 /**
@@ -2199,9 +2228,7 @@ function handleRouteChange() {
  * Handle viewport resize.
  */
 function handleResize() {
-    if (playlistPanelVisible && playlistPanel && actionSaveButton) {
-        positionElementAboveAnchor(playlistPanel, actionSaveButton);
-    }
+    positionPlaylistPanel();
 }
 
 /**

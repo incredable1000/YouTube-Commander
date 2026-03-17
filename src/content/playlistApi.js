@@ -793,7 +793,7 @@ function normalizePrivacyStatus(raw) {
 /**
  * Recursively collect playlist options from a get_add_to_playlist payload.
  * @param {any} node
- * @param {Map<string, {id: string, title: string, privacy: string, isSelected: boolean}>} output
+ * @param {Map<string, {id: string, title: string, privacy: string, isSelected: boolean, thumbnailUrl?: string}>} output
  * @param {WeakSet<object>} visited
  */
 function collectPlaylistOptions(node, output, visited) {
@@ -817,13 +817,15 @@ function collectPlaylistOptions(node, output, visited) {
             const title = readText(renderer.title) || readText(renderer.untoggledServiceEndpoint?.commandMetadata) || 'Untitled playlist';
             const privacy = readText(renderer.shortBylineText) || '';
             const isSelected = renderer.isSelected === true || renderer.containsSelectedVideos === true;
+            const thumbnailUrl = readPlaylistThumbnailUrl(renderer);
 
             if (!output.has(playlistId)) {
                 output.set(playlistId, {
                     id: playlistId,
                     title,
                     privacy,
-                    isSelected
+                    isSelected,
+                    thumbnailUrl
                 });
             } else if (isSelected) {
                 output.get(playlistId).isSelected = true;
@@ -841,6 +843,34 @@ function collectPlaylistOptions(node, output, visited) {
             collectPlaylistOptions(value, output, visited);
         }
     });
+}
+
+/**
+ * Read a playlist thumbnail url from the renderer payload.
+ * @param {any} renderer
+ * @returns {string}
+ */
+function readPlaylistThumbnailUrl(renderer) {
+    const directThumb = pickThumbnailUrl(renderer?.thumbnail?.thumbnails);
+    if (directThumb) {
+        return directThumb;
+    }
+
+    const playlistThumb = pickThumbnailUrl(
+        renderer?.thumbnailRenderer?.playlistThumbnailRenderer?.thumbnail?.thumbnails
+    );
+    if (playlistThumb) {
+        return playlistThumb;
+    }
+
+    const fallbackThumb = pickThumbnailUrl(
+        renderer?.thumbnailRenderer?.playlistThumbnailRenderer?.defaultThumbnail?.thumbnails
+    );
+    if (fallbackThumb) {
+        return fallbackThumb;
+    }
+
+    return '';
 }
 
 /**
@@ -1227,7 +1257,7 @@ function findRemoveActionInNode(node, playlistId, videoId, visited = new WeakSet
 /**
  * Load playlists for save popup.
  * @param {{videoIds?: string[]}} payload
- * @returns {Promise<{playlists: Array<{id: string, title: string, privacy: string, isSelected: boolean}>}>}
+ * @returns {Promise<{playlists: Array<{id: string, title: string, privacy: string, isSelected: boolean, thumbnailUrl?: string}>}>}
  */
 async function getPlaylists(payload) {
     const videoIds = sanitizeVideoIds(payload?.videoIds || []);
