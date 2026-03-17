@@ -72,9 +72,14 @@ const FILTER_ITEM_CLASS = 'yt-commander-sub-manager-filter-item';
 const FILTER_DOT_CLASS = 'yt-commander-sub-manager-filter-dot';
 const FILTER_COUNT_CLASS = 'yt-commander-sub-manager-filter-count';
 const QUICK_ADD_CLASS = 'yt-commander-sub-manager-quick-add';
-const MODAL_VERSION = '2026-03-13-2';
+const MODAL_VERSION = '2026-03-17-1';
 
-const ITEMS_PER_PAGE = 100;
+const TABLE_ROW_HEIGHT_ESTIMATE = 72;
+const TABLE_HEADER_HEIGHT_ESTIMATE = 44;
+const CARD_ROW_HEIGHT_ESTIMATE = 312;
+const CARD_MIN_WIDTH = 260;
+const CARD_GAP = 14;
+const VIRTUAL_OVERSCAN = 6;
 const SNAPSHOT_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_API_COOLDOWN_MS = 5 * 60 * 1000;
 const COOLDOWN_MINUTES_OPTIONS = [5, 10, 30, 60, 120, 240];
@@ -105,9 +110,6 @@ let selectionGroupEl = null;
 let selectionHeaderEl = null;
 let selectionCountEl = null;
 let floatingStackEl = null;
-let pageInfoEl = null;
-let pagePrevButton = null;
-let pageNextButton = null;
 let viewTableButton = null;
 let viewCardButton = null;
 let sortButton = null;
@@ -168,7 +170,6 @@ let apiCooldownMs = DEFAULT_API_COOLDOWN_MS;
 let viewMode = 'table';
 let filterMode = 'all';
 let sortMode = 'name';
-let currentPage = 1;
 let selectedChannelIds = new Set();
 let resetScrollPending = false;
 let selectionAnchorId = '';
@@ -181,6 +182,15 @@ let quickAddObserver = null;
 let quickAddPending = false;
 let autoCategorizeInFlight = false;
 let lastAutoCategorizeSignature = '';
+let filteredChannelsCache = [];
+let tableRowHeight = TABLE_ROW_HEIGHT_ESTIMATE;
+let tableHeaderHeight = TABLE_HEADER_HEIGHT_ESTIMATE;
+let cardRowHeight = CARD_ROW_HEIGHT_ESTIMATE;
+let cardColumns = 1;
+let lastTableRange = null;
+let lastCardRange = null;
+let virtualScrollRaf = 0;
+let pendingVirtualForce = false;
 
 /**
  * Tooltip helper.
@@ -651,6 +661,11 @@ function resetModalElements() {
         tooltipPortal.remove();
     }
 
+    if (mainWrap) {
+        mainWrap.removeEventListener('scroll', handleMainScroll);
+    }
+    window.removeEventListener('resize', handleVirtualResize);
+
     overlay = null;
     modal = null;
     tableWrap = null;
@@ -667,9 +682,6 @@ function resetModalElements() {
     selectionHeaderEl = null;
     selectionCountEl = null;
     floatingStackEl = null;
-    pageInfoEl = null;
-    pagePrevButton = null;
-    pageNextButton = null;
     viewTableButton = null;
     viewCardButton = null;
     sortButton = null;
@@ -701,6 +713,15 @@ function resetModalElements() {
     currentPageIds = [];
     tableRowById.clear();
     cardById.clear();
+    filteredChannelsCache = [];
+    lastTableRange = null;
+    lastCardRange = null;
+    tableRowHeight = TABLE_ROW_HEIGHT_ESTIMATE;
+    tableHeaderHeight = TABLE_HEADER_HEIGHT_ESTIMATE;
+    cardRowHeight = CARD_ROW_HEIGHT_ESTIMATE;
+    cardColumns = 1;
+    virtualScrollRaf = 0;
+    pendingVirtualForce = false;
     resetSidebarDraftState();
 }
 
@@ -2057,37 +2078,9 @@ function ensureModal() {
     const headerDivider = document.createElement('div');
     headerDivider.className = 'yt-commander-sub-manager-header-divider';
 
-    const headerDividerSecondary = document.createElement('div');
-    headerDividerSecondary.className = 'yt-commander-sub-manager-header-divider';
-
-    const paginationGroup = document.createElement('div');
-    paginationGroup.className = 'yt-commander-sub-manager-pagination';
-
-    pagePrevButton = document.createElement('button');
-    pagePrevButton.type = 'button';
-    pagePrevButton.className = 'yt-commander-sub-manager-btn secondary';
-    pagePrevButton.setAttribute('data-action', 'page-prev');
-    setIconButton(pagePrevButton, ICONS.prev, 'Previous page');
-
-    pageInfoEl = document.createElement('div');
-    pageInfoEl.className = 'yt-commander-sub-manager-page-info';
-    pageInfoEl.textContent = 'Page 1 of 1';
-
-    pageNextButton = document.createElement('button');
-    pageNextButton.type = 'button';
-    pageNextButton.className = 'yt-commander-sub-manager-btn secondary';
-    pageNextButton.setAttribute('data-action', 'page-next');
-    setIconButton(pageNextButton, ICONS.next, 'Next page');
-
-    paginationGroup.appendChild(pagePrevButton);
-    paginationGroup.appendChild(pageInfoEl);
-    paginationGroup.appendChild(pageNextButton);
-
     headerActions.appendChild(sortButton);
     headerActions.appendChild(headerDivider);
     headerActions.appendChild(actionGroup);
-    headerActions.appendChild(headerDividerSecondary);
-    headerActions.appendChild(paginationGroup);
 
 
     header.appendChild(titleWrap);
@@ -2183,6 +2176,10 @@ function ensureModal() {
     modal.addEventListener('change', handleModalChange);
     modal.addEventListener('input', handleModalInput);
     modal.addEventListener('keydown', handleModalKeydown);
+    if (mainWrap) {
+        mainWrap.addEventListener('scroll', handleMainScroll, { passive: true });
+    }
+    window.addEventListener('resize', handleVirtualResize);
     if (sidebarList) {
         sidebarList.addEventListener('dragenter', handleSidebarDragOver);
         sidebarList.addEventListener('dragover', handleSidebarDragOver);
@@ -3536,20 +3533,6 @@ function handleModalClick(event) {
             return;
         }
 
-        if (action === 'page-prev') {
-            currentPage = Math.max(1, currentPage - 1);
-            resetScrollPending = true;
-            renderList();
-            return;
-        }
-
-        if (action === 'page-next') {
-            currentPage = currentPage + 1;
-            resetScrollPending = true;
-            renderList();
-            return;
-        }
-
         if (action === 'unsubscribe-selected') {
             unsubscribeSelected().catch((error) => {
                 setStatus(error?.message || 'Failed to unsubscribe', 'error');
@@ -3587,7 +3570,6 @@ function handleModalClick(event) {
             }
             if (filterMode !== nextFilter) {
                 filterMode = nextFilter;
-                currentPage = 1;
                 resetScrollPending = true;
                 persistViewState().catch(() => undefined);
                 renderList();
@@ -4136,7 +4118,14 @@ function buildTableHeader(pageItems) {
     return header;
 }
 
-function buildTableRow(channel) {
+function createVirtualSpacer(height) {
+    const spacer = document.createElement('div');
+    spacer.className = 'yt-commander-sub-manager-virtual-spacer';
+    spacer.style.height = `${Math.max(0, height)}px`;
+    return spacer;
+}
+
+function buildTableRow(channel, rowIndex) {
     const row = document.createElement('div');
     row.className = 'yt-commander-sub-manager-row';
     row.setAttribute('data-channel-id', channel.channelId || '');
@@ -4145,6 +4134,9 @@ function buildTableRow(channel) {
     row.addEventListener('pointermove', handleItemPointerMove);
     row.addEventListener('pointerup', handleItemPointerUp);
     row.addEventListener('pointercancel', handleItemPointerCancel);
+    if (Number.isFinite(rowIndex) && (rowIndex + 1) % 2 === 0) {
+        row.classList.add('is-even');
+    }
     if (selectedChannelIds.has(channel.channelId)) {
         row.classList.add('is-selected');
     }
@@ -4315,19 +4307,24 @@ function updateCard(card, channel) {
 /**
  * Render table rows.
  * @param {Array<object>} pageItems
+ * @param {{totalCount?: number, startIndex?: number, topSpacerHeight?: number, bottomSpacerHeight?: number}} [options]
  */
-function renderTable(pageItems) {
+function renderTable(pageItems, options = {}) {
     if (!tableWrap) {
         return;
     }
 
     tableWrap.innerHTML = '';
     tableRowById.clear();
+    const totalCount = Number.isFinite(options.totalCount) ? options.totalCount : pageItems.length;
+    const startIndex = Number.isFinite(options.startIndex) ? options.startIndex : 0;
+    const topSpacerHeight = Number.isFinite(options.topSpacerHeight) ? options.topSpacerHeight : 0;
+    const bottomSpacerHeight = Number.isFinite(options.bottomSpacerHeight) ? options.bottomSpacerHeight : 0;
 
     const fragment = document.createDocumentFragment();
     fragment.appendChild(buildTableHeader(pageItems));
 
-    if (pageItems.length === 0) {
+    if (totalCount === 0) {
         const empty = document.createElement('div');
         empty.className = 'yt-commander-sub-manager-empty';
         empty.textContent = 'No channels found.';
@@ -4336,13 +4333,21 @@ function renderTable(pageItems) {
         return;
     }
 
-    pageItems.forEach((channel) => {
-        const row = buildTableRow(channel);
+    if (topSpacerHeight > 0) {
+        fragment.appendChild(createVirtualSpacer(topSpacerHeight));
+    }
+
+    pageItems.forEach((channel, index) => {
+        const row = buildTableRow(channel, startIndex + index);
         if (channel.channelId) {
             tableRowById.set(channel.channelId, row);
         }
         fragment.appendChild(row);
     });
+
+    if (bottomSpacerHeight > 0) {
+        fragment.appendChild(createVirtualSpacer(bottomSpacerHeight));
+    }
 
     tableWrap.appendChild(fragment);
 }
@@ -4350,15 +4355,19 @@ function renderTable(pageItems) {
 /**
  * Render card view.
  * @param {Array<object>} pageItems
+ * @param {{totalCount?: number, topSpacerHeight?: number, bottomSpacerHeight?: number}} [options]
  */
-function renderCards(pageItems) {
+function renderCards(pageItems, options = {}) {
     if (!cardsWrap) {
         return;
     }
     cardsWrap.innerHTML = '';
     cardById.clear();
+    const totalCount = Number.isFinite(options.totalCount) ? options.totalCount : pageItems.length;
+    const topSpacerHeight = Number.isFinite(options.topSpacerHeight) ? options.topSpacerHeight : 0;
+    const bottomSpacerHeight = Number.isFinite(options.bottomSpacerHeight) ? options.bottomSpacerHeight : 0;
 
-    if (pageItems.length === 0) {
+    if (totalCount === 0) {
         const empty = document.createElement('div');
         empty.className = 'yt-commander-sub-manager-empty';
         empty.textContent = 'No channels found.';
@@ -4367,6 +4376,9 @@ function renderCards(pageItems) {
     }
 
     const fragment = document.createDocumentFragment();
+    if (topSpacerHeight > 0) {
+        fragment.appendChild(createVirtualSpacer(topSpacerHeight));
+    }
     pageItems.forEach((channel) => {
         const card = buildCard(channel);
         if (channel.channelId) {
@@ -4374,6 +4386,9 @@ function renderCards(pageItems) {
         }
         fragment.appendChild(card);
     });
+    if (bottomSpacerHeight > 0) {
+        fragment.appendChild(createVirtualSpacer(bottomSpacerHeight));
+    }
 
     cardsWrap.appendChild(fragment);
 }
@@ -4394,6 +4409,218 @@ function filterChannels() {
     return sortChannels(list);
 }
 
+function resolveCardColumns() {
+    const width = cardsWrap?.clientWidth || mainWrap?.clientWidth || 0;
+    if (!width) {
+        return cardColumns || 1;
+    }
+    const columns = Math.max(1, Math.floor((width + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP)));
+    return columns;
+}
+
+function computeTableRange(totalCount) {
+    if (!mainWrap || totalCount === 0) {
+        return {
+            startIndex: 0,
+            endIndex: 0,
+            topSpacerHeight: 0,
+            bottomSpacerHeight: 0,
+            totalCount
+        };
+    }
+    const rowHeight = tableRowHeight || TABLE_ROW_HEIGHT_ESTIMATE;
+    const headerHeight = tableHeaderHeight || TABLE_HEADER_HEIGHT_ESTIMATE;
+    const viewportHeight = Math.max(0, mainWrap.clientHeight - headerHeight);
+    const scrollTop = Math.max(0, mainWrap.scrollTop - headerHeight);
+    let startIndex = Math.floor(scrollTop / rowHeight) - VIRTUAL_OVERSCAN;
+    startIndex = Math.max(0, startIndex);
+    let endIndex = Math.ceil((scrollTop + viewportHeight) / rowHeight) + VIRTUAL_OVERSCAN;
+    endIndex = Math.min(totalCount, Math.max(endIndex, startIndex + 1));
+    const topSpacerHeight = startIndex * rowHeight;
+    const bottomSpacerHeight = Math.max(0, (totalCount - endIndex) * rowHeight);
+    return {
+        startIndex,
+        endIndex,
+        topSpacerHeight,
+        bottomSpacerHeight,
+        totalCount
+    };
+}
+
+function computeCardRange(totalCount) {
+    if (!mainWrap || totalCount === 0) {
+        const columns = resolveCardColumns();
+        return {
+            startIndex: 0,
+            endIndex: 0,
+            topSpacerHeight: 0,
+            bottomSpacerHeight: 0,
+            totalCount,
+            columns
+        };
+    }
+    const columns = resolveCardColumns();
+    const rowHeight = cardRowHeight || CARD_ROW_HEIGHT_ESTIMATE;
+    const rowStride = rowHeight + CARD_GAP;
+    const totalRows = Math.ceil(totalCount / columns);
+    const viewportHeight = mainWrap.clientHeight;
+    const scrollTop = mainWrap.scrollTop;
+    let startRow = Math.floor(scrollTop / rowStride) - VIRTUAL_OVERSCAN;
+    startRow = Math.max(0, startRow);
+    let endRow = Math.ceil((scrollTop + viewportHeight) / rowStride) + VIRTUAL_OVERSCAN;
+    endRow = Math.min(totalRows - 1, Math.max(endRow, startRow));
+    const startIndex = startRow * columns;
+    const endIndex = Math.min(totalCount, (endRow + 1) * columns);
+    let topSpacerHeight = startRow * rowStride;
+    const remainingRows = Math.max(0, totalRows - endRow - 1);
+    let bottomSpacerHeight = remainingRows * rowStride;
+    if (startRow > 0) {
+        topSpacerHeight = Math.max(0, topSpacerHeight - CARD_GAP);
+    }
+    if (remainingRows > 0) {
+        bottomSpacerHeight = Math.max(0, bottomSpacerHeight - CARD_GAP);
+    }
+    return {
+        startIndex,
+        endIndex,
+        topSpacerHeight,
+        bottomSpacerHeight,
+        totalCount,
+        columns
+    };
+}
+
+function isSameRange(nextRange, prevRange) {
+    if (!prevRange) {
+        return false;
+    }
+    return nextRange.startIndex === prevRange.startIndex
+        && nextRange.endIndex === prevRange.endIndex
+        && nextRange.topSpacerHeight === prevRange.topSpacerHeight
+        && nextRange.bottomSpacerHeight === prevRange.bottomSpacerHeight
+        && nextRange.totalCount === prevRange.totalCount
+        && (nextRange.columns || 0) === (prevRange.columns || 0);
+}
+
+function measureTableMetrics() {
+    if (!tableWrap) {
+        return false;
+    }
+    let changed = false;
+    const header = tableWrap.querySelector('.yt-commander-sub-manager-row.header');
+    if (header) {
+        const height = Math.round(header.getBoundingClientRect().height);
+        if (height > 0 && Math.abs(height - tableHeaderHeight) > 1) {
+            tableHeaderHeight = height;
+            changed = true;
+        }
+    }
+    const row = tableWrap.querySelector('.yt-commander-sub-manager-row:not(.header)');
+    if (row) {
+        const height = Math.round(row.getBoundingClientRect().height);
+        if (height > 0 && Math.abs(height - tableRowHeight) > 1) {
+            tableRowHeight = height;
+            changed = true;
+        }
+    }
+    return changed;
+}
+
+function measureCardMetrics() {
+    if (!cardsWrap) {
+        return false;
+    }
+    let changed = false;
+    const card = cardsWrap.querySelector('.yt-commander-sub-manager-card');
+    if (card) {
+        const height = Math.round(card.getBoundingClientRect().height);
+        if (height > 0 && Math.abs(height - cardRowHeight) > 2) {
+            cardRowHeight = height;
+            changed = true;
+        }
+    }
+    const nextColumns = resolveCardColumns();
+    if (nextColumns !== cardColumns) {
+        cardColumns = nextColumns;
+        changed = true;
+    }
+    return changed;
+}
+
+function renderVirtualizedList(force = false) {
+    if (!modal) {
+        refreshQuickAddButtons();
+        return;
+    }
+    if (force) {
+        lastTableRange = null;
+        lastCardRange = null;
+    }
+    const totalCount = filteredChannelsCache.length;
+    if (viewMode === 'table') {
+        const range = computeTableRange(totalCount);
+        if (!force && isSameRange(range, lastTableRange)) {
+            return;
+        }
+        lastTableRange = range;
+        const pageItems = filteredChannelsCache.slice(range.startIndex, range.endIndex);
+        currentPageIds = pageItems
+            .map((channel) => channel?.channelId)
+            .filter((id) => typeof id === 'string' && id);
+        renderTable(pageItems, {
+            totalCount,
+            startIndex: range.startIndex,
+            topSpacerHeight: range.topSpacerHeight,
+            bottomSpacerHeight: range.bottomSpacerHeight
+        });
+        if (measureTableMetrics()) {
+            queueVirtualRender(true);
+        }
+    } else {
+        const range = computeCardRange(totalCount);
+        if (!force && isSameRange(range, lastCardRange)) {
+            return;
+        }
+        cardColumns = range.columns || cardColumns;
+        lastCardRange = range;
+        const pageItems = filteredChannelsCache.slice(range.startIndex, range.endIndex);
+        currentPageIds = pageItems
+            .map((channel) => channel?.channelId)
+            .filter((id) => typeof id === 'string' && id);
+        renderCards(pageItems, {
+            totalCount,
+            topSpacerHeight: range.topSpacerHeight,
+            bottomSpacerHeight: range.bottomSpacerHeight
+        });
+        if (measureCardMetrics()) {
+            queueVirtualRender(true);
+        }
+    }
+}
+
+function queueVirtualRender(force = false) {
+    if (force) {
+        pendingVirtualForce = true;
+    }
+    if (virtualScrollRaf) {
+        return;
+    }
+    virtualScrollRaf = window.requestAnimationFrame(() => {
+        virtualScrollRaf = 0;
+        const shouldForce = pendingVirtualForce;
+        pendingVirtualForce = false;
+        renderVirtualizedList(shouldForce);
+    });
+}
+
+function handleMainScroll() {
+    queueVirtualRender(false);
+}
+
+function handleVirtualResize() {
+    queueVirtualRender(true);
+}
+
 /**
  * Render list based on view mode.
  */
@@ -4406,17 +4633,7 @@ function renderList() {
     captureSidebarDraftState();
     renderSidebarCategories();
 
-    const filtered = filterChannels();
-    const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
-    if (currentPage > totalPages) {
-        currentPage = totalPages;
-    }
-
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    const pageItems = filtered.slice(start, start + ITEMS_PER_PAGE);
-    currentPageIds = pageItems
-        .map((channel) => channel?.channelId)
-        .filter((id) => typeof id === 'string' && id);
+    filteredChannelsCache = filterChannels();
 
     tableWrap.style.display = viewMode === 'table' ? 'block' : 'none';
     cardsWrap.style.display = viewMode === 'card' ? 'grid' : 'none';
@@ -4424,25 +4641,14 @@ function renderList() {
     viewCardButton.classList.toggle('active', viewMode === 'card');
     updateSortButton();
 
-    renderTable(pageItems);
-    renderCards(pageItems);
-
-    if (pageInfoEl) {
-        pageInfoEl.textContent = `Page ${currentPage} of ${totalPages}`;
-    }
-    if (pagePrevButton) {
-        pagePrevButton.disabled = currentPage <= 1;
-    }
-    if (pageNextButton) {
-        pageNextButton.disabled = currentPage >= totalPages;
-    }
-
-    updateSelectionSummary();
-
     if (resetScrollPending && mainWrap) {
         mainWrap.scrollTop = 0;
         resetScrollPending = false;
     }
+
+    renderVirtualizedList(true);
+
+    updateSelectionSummary();
 
     refreshQuickAddButtons();
 }

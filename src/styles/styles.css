@@ -3056,8 +3056,17 @@ body.yt-commander-windowed-lock {
     transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
-.yt-commander-sub-manager-row:not(.header):nth-child(even) {
+.yt-commander-sub-manager-row.is-even {
     background: #192231;
+}
+
+.yt-commander-sub-manager-virtual-spacer {
+    width: 100%;
+    pointer-events: none;
+}
+
+.yt-commander-sub-manager-cards .yt-commander-sub-manager-virtual-spacer {
+    grid-column: 1 / -1;
 }
 
 .yt-commander-sub-manager-row:not(.header) {
