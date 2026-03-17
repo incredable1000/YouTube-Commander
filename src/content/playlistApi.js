@@ -895,6 +895,13 @@ function readPlaylistThumbnailFromBrowse(body) {
         return headerThumb;
     }
 
+    const headerAltThumb = normalizeThumbnailUrl(
+        pickThumbnailUrl(body?.header?.playlistHeaderRenderer?.playlistHeaderBanner?.thumbnail?.thumbnails)
+    );
+    if (headerAltThumb) {
+        return headerAltThumb;
+    }
+
     const bannerThumb = normalizeThumbnailUrl(
         pickThumbnailUrl(body?.header?.playlistHeaderRenderer?.playlistHeaderBanner?.heroImage?.thumbnails)
     );
@@ -903,6 +910,62 @@ function readPlaylistThumbnailFromBrowse(body) {
     }
 
     return findThumbnailUrlDeep(body, new WeakSet(), 0);
+}
+
+/**
+ * Read the first video thumbnail from a playlist browse response.
+ * @param {any} body
+ * @returns {string}
+ */
+function readPlaylistFirstVideoThumbnail(body) {
+    if (!body || typeof body !== 'object') {
+        return '';
+    }
+
+    const nodes = [];
+    collectNodesByKey(body, 'playlistVideoRenderer', nodes, new WeakSet(), 0, 8);
+    for (const renderer of nodes) {
+        const thumb = normalizeThumbnailUrl(pickThumbnailUrl(renderer?.thumbnail?.thumbnails));
+        if (thumb) {
+            return thumb;
+        }
+    }
+
+    return '';
+}
+
+/**
+ * Collect renderer nodes by key.
+ * @param {any} node
+ * @param {string} key
+ * @param {any[]} out
+ * @param {WeakSet<object>} visited
+ * @param {number} depth
+ * @param {number} maxDepth
+ */
+function collectNodesByKey(node, key, out, visited, depth, maxDepth) {
+    if (!node || typeof node !== 'object' || depth > maxDepth) {
+        return;
+    }
+    if (visited.has(node)) {
+        return;
+    }
+    visited.add(node);
+
+    if (Array.isArray(node)) {
+        node.forEach((item) => collectNodesByKey(item, key, out, visited, depth + 1, maxDepth));
+        return;
+    }
+
+    if (node[key]) {
+        out.push(node[key]);
+    }
+
+    Object.values(node).forEach((value) => {
+        if (value && typeof value === 'object') {
+            collectNodesByKey(value, key, out, visited, depth + 1, maxDepth);
+        }
+    });
 }
 
 /**
@@ -1391,7 +1454,10 @@ async function getPlaylistThumbnails(payload) {
                 const browseId = playlistId.startsWith('VL') ? playlistId : `VL${playlistId}`;
                 try {
                     const response = await postInnertube('browse', { context: config.context, browseId }, config);
-                    const thumb = readPlaylistThumbnailFromBrowse(response?.body);
+                    let thumb = readPlaylistThumbnailFromBrowse(response?.body);
+                    if (!thumb) {
+                        thumb = readPlaylistFirstVideoThumbnail(response?.body);
+                    }
                     if (thumb) {
                         thumbnailsById[playlistId] = thumb;
                     }

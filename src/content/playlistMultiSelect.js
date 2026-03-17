@@ -113,7 +113,6 @@ let statusTimer = null;
 let lastPlaylistProbeVideoId = '';
 let createVisibility = 'PRIVATE';
 let selectAllMode = false;
-const playlistThumbnailRequestedIds = new Set();
 
 const selectedVideoIds = new Set();
 const selectedPlaylistIds = new Set();
@@ -1085,14 +1084,12 @@ async function loadPlaylistThumbnailsForPanel() {
     }
 
     const missing = playlistOptions
-        .filter((playlist) => playlist?.id && !playlist.thumbnailUrl && !playlistThumbnailRequestedIds.has(playlist.id))
+        .filter((playlist) => playlist?.id && !playlist.thumbnailUrl)
         .map((playlist) => playlist.id);
 
     if (missing.length === 0) {
         return;
     }
-
-    missing.forEach((playlistId) => playlistThumbnailRequestedIds.add(playlistId));
 
     try {
         const response = await sendBridgeRequest(ACTIONS.GET_PLAYLIST_THUMBNAILS, {
@@ -1143,9 +1140,7 @@ async function loadPlaylistsForPanel() {
     const probeVideoId = selectedIds[0] || '';
 
     if (probeVideoId && probeVideoId === lastPlaylistProbeVideoId && playlistOptions.length > 0) {
-        renderPlaylistOptions();
-        void loadPlaylistThumbnailsForPanel();
-        return;
+        lastPlaylistProbeVideoId = '';
     }
 
     loadingPlaylists = true;
@@ -1160,7 +1155,7 @@ async function loadPlaylistsForPanel() {
         playlistOptions = Array.isArray(response?.playlists) ? response.playlists : [];
         playlistMap.clear();
         selectedPlaylistIds.clear();
-        playlistThumbnailRequestedIds.clear();
+        lastPlaylistProbeVideoId = probeVideoId;
 
         playlistOptions.forEach((playlist) => {
             if (!playlist?.id) {
@@ -1172,7 +1167,6 @@ async function loadPlaylistsForPanel() {
             }
         });
 
-        lastPlaylistProbeVideoId = probeVideoId;
         renderPlaylistOptions();
         void loadPlaylistThumbnailsForPanel();
     } catch (error) {
