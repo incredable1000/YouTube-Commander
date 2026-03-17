@@ -2336,24 +2336,42 @@ async function resolveGeminiModel(requestedModel, apiKey, endpoint) {
     return 'gemini-1.5-pro';
 }
 
-async function requestGeminiAutoCategorize(payload) {
-    const apiKey = typeof payload?.apiKey === 'string' ? payload.apiKey.trim() : '';
-    if (!apiKey) {
-        throw new Error('Missing Gemini API key');
-    }
-    const prompt = typeof payload?.prompt === 'string' ? payload.prompt : '';
-    const parts = Array.isArray(payload?.parts) ? payload.parts.filter(Boolean) : [];
-    if (!prompt && parts.length === 0) {
-        throw new Error('Missing Gemini prompt');
+async function resolveGeminiFallbackModel(primaryModel, apiKey, endpoint) {
+    const normalizedPrimary = normalizeGeminiModelName(primaryModel);
+    const now = Date.now();
+    if (now - geminiModelCache.fetchedAt > GEMINI_MODEL_CACHE_TTL_MS) {
+        try {
+            const models = await listGeminiModels(apiKey, endpoint);
+            geminiModelCache = { fetchedAt: now, models };
+        } catch (_error) {
+            geminiModelCache = { fetchedAt: now, models: [] };
+        }
     }
 
-    const temperature = Number.isFinite(payload?.temperature) ? payload.temperature : 0.2;
-    const maxOutputTokens = Number.isFinite(payload?.maxOutputTokens) ? payload.maxOutputTokens : 1024;
-    const timeoutMs = Number.isFinite(payload?.timeoutMs) ? payload.timeoutMs : 20000;
+    const available = geminiModelCache.models
+        .filter((model) => model.supportedGenerationMethods.includes('generateContent'))
+        .map((model) => normalizeGeminiModelName(model.name))
+        .filter(Boolean);
 
-    const resolvedModel = await resolveGeminiModel(payload?.model, apiKey, payload?.endpoint);
-    const url = buildGeminiEndpoint(payload?.endpoint, resolvedModel, apiKey);
-    const contentParts = parts.length > 0 ? parts : [{ text: prompt }];
+    const filtered = available.filter((name) => name.includes('flash') || name.includes('lite'));
+    if (filtered.length > 0) {
+        const sorted = filtered.slice().sort((a, b) => scoreGeminiModel(b) - scoreGeminiModel(a));
+        const pick = sorted.find((name) => name !== normalizedPrimary);
+        if (pick) {
+            return pick;
+        }
+    }
+
+    const fallback = available.find((name) => name !== normalizedPrimary);
+    return fallback || 'gemini-1.5-flash';
+}
+
+function isGeminiQuotaError(message) {
+    const text = typeof message === 'string' ? message.toLowerCase() : '';
+    return text.includes('quota') || text.includes('free_tier') || text.includes('free tier');
+}
+
+async function requestGeminiGenerate(url, contentParts, generationConfig, timeoutMs) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let response;
@@ -2370,10 +2388,7 @@ async function requestGeminiAutoCategorize(payload) {
                         parts: contentParts
                     }
                 ],
-                generationConfig: {
-                    temperature,
-                    maxOutputTokens
-                }
+                generationConfig
             }),
             signal: controller.signal
         });
@@ -2393,6 +2408,46 @@ async function requestGeminiAutoCategorize(payload) {
         throw new Error(message);
     }
     return data || {};
+}
+
+async function requestGeminiAutoCategorize(payload) {
+    const apiKey = typeof payload?.apiKey === 'string' ? payload.apiKey.trim() : '';
+    if (!apiKey) {
+        throw new Error('Missing Gemini API key');
+    }
+    const prompt = typeof payload?.prompt === 'string' ? payload.prompt : '';
+    const parts = Array.isArray(payload?.parts) ? payload.parts.filter(Boolean) : [];
+    if (!prompt && parts.length === 0) {
+        throw new Error('Missing Gemini prompt');
+    }
+
+    const temperature = Number.isFinite(payload?.temperature) ? payload.temperature : 0.2;
+    const maxOutputTokens = Number.isFinite(payload?.maxOutputTokens) ? payload.maxOutputTokens : 1024;
+    const timeoutMs = Number.isFinite(payload?.timeoutMs) ? payload.timeoutMs : 20000;
+
+    const resolvedModel = await resolveGeminiModel(payload?.model, apiKey, payload?.endpoint);
+    const contentParts = parts.length > 0 ? parts : [{ text: prompt }];
+    const generationConfig = {
+        temperature,
+        maxOutputTokens
+    };
+
+    const primaryUrl = buildGeminiEndpoint(payload?.endpoint, resolvedModel, apiKey);
+    try {
+        return await requestGeminiGenerate(primaryUrl, contentParts, generationConfig, timeoutMs);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        if (!isGeminiQuotaError(message)) {
+            throw error;
+        }
+
+        const fallbackModel = await resolveGeminiFallbackModel(resolvedModel, apiKey, payload?.endpoint);
+        if (fallbackModel === resolvedModel) {
+            throw error;
+        }
+        const fallbackUrl = buildGeminiEndpoint(payload?.endpoint, fallbackModel, apiKey);
+        return await requestGeminiGenerate(fallbackUrl, contentParts, generationConfig, timeoutMs);
+    }
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
