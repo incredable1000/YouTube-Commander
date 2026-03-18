@@ -211,20 +211,24 @@ function clearTooltip(el) {
 }
 
 /**
- * Apply sidebar tooltip when collapsed.
+ * Apply sidebar tooltip when collapsed or in chipbar mode.
  * @param {HTMLElement} el
  * @param {string} label
+ * @param {{ tooltip?: string }} [options]
  */
-function applySidebarTooltip(el, label) {
+function applySidebarTooltip(el, label, options = {}) {
     if (!el) {
         return;
     }
+    const tooltipText = typeof options.tooltip === 'string' && options.tooltip.trim()
+        ? options.tooltip
+        : label;
     if (sidebar?.classList.contains('yt-commander-sub-manager-chipbar')) {
-        clearTooltip(el);
+        setTooltip(el, tooltipText);
         return;
     }
     if (sidebarCollapsed) {
-        setTooltip(el, label);
+        setTooltip(el, tooltipText);
         return;
     }
     clearTooltip(el);
@@ -1715,35 +1719,27 @@ function ensureModal() {
     sidebar = document.createElement('div');
     sidebar.className = 'yt-commander-sub-manager-chipbar';
 
-    const sidebarHeader = document.createElement('div');
-    sidebarHeader.className = 'yt-commander-sub-manager-chipbar-header';
-
-    const sidebarTitle = document.createElement('div');
-    sidebarTitle.className = 'yt-commander-sub-manager-chipbar-title';
-    sidebarTitle.textContent = 'Categories';
-    sidebarCountEl = document.createElement('span');
-    sidebarCountEl.className = 'yt-commander-sub-manager-chipbar-count';
-    sidebarCountEl.textContent = '0';
-    sidebarTitle.appendChild(sidebarCountEl);
-
-    const sidebarActions = document.createElement('div');
-    sidebarActions.className = 'yt-commander-sub-manager-chipbar-actions';
+    const chipbarLead = document.createElement('div');
+    chipbarLead.className = 'yt-commander-sub-manager-chipbar-lead';
 
     sidebarAddButton = document.createElement('button');
     sidebarAddButton.type = 'button';
     sidebarAddButton.className = 'yt-commander-sub-manager-chipbar-btn';
     sidebarAddButton.setAttribute('data-action', 'new-category');
-    setIconButton(sidebarAddButton, ICONS.plus, 'New category');
+    setIconButton(sidebarAddButton, ICONS.plus, 'Add category');
+    setTooltip(sidebarAddButton, 'Add category');
 
-    sidebarActions.appendChild(sidebarAddButton);
+    sidebarCountEl = document.createElement('span');
+    sidebarCountEl.className = 'yt-commander-sub-manager-chipbar-count';
+    sidebarCountEl.textContent = '0';
 
-    sidebarHeader.appendChild(sidebarTitle);
-    sidebarHeader.appendChild(sidebarActions);
+    chipbarLead.appendChild(sidebarAddButton);
+    chipbarLead.appendChild(sidebarCountEl);
 
     sidebarList = document.createElement('div');
     sidebarList.className = 'yt-commander-sub-manager-chip-list';
 
-    sidebar.appendChild(sidebarHeader);
+    sidebar.appendChild(chipbarLead);
     sidebar.appendChild(sidebarList);
 
     tableWrap = document.createElement('div');
@@ -2515,6 +2511,7 @@ function renderSidebarCategories() {
     };
 
     const addItem = (id, label, color, options = {}) => {
+        const countValue = typeof counts[id] === 'number' ? counts[id] : 0;
         const item = document.createElement('div');
         item.className = `${FILTER_ITEM_CLASS} yt-commander-sub-manager-sidebar-item`;
         item.setAttribute('data-action', 'filter-select');
@@ -2524,7 +2521,9 @@ function renderSidebarCategories() {
         if (filterMode === id) {
             item.classList.add('active');
         }
-        applySidebarTooltip(item, label);
+        applySidebarTooltip(item, label, {
+            tooltip: `${label} (${countValue})`
+        });
 
         const left = document.createElement('span');
         left.className = 'yt-commander-sub-manager-filter-left';
@@ -2545,7 +2544,7 @@ function renderSidebarCategories() {
 
         const count = document.createElement('span');
         count.className = FILTER_COUNT_CLASS;
-        count.textContent = String(typeof counts[id] === 'number' ? counts[id] : 0);
+        count.textContent = String(countValue);
 
         right.appendChild(count);
 
@@ -2620,6 +2619,7 @@ function renderSidebarCategories() {
             addEditableItem(category);
             return;
         }
+        const countValue = typeof counts[category.id] === 'number' ? counts[category.id] : 0;
         const item = document.createElement('div');
         item.className = `${FILTER_ITEM_CLASS} yt-commander-sub-manager-sidebar-item`;
         item.setAttribute('data-action', 'filter-select');
@@ -2629,7 +2629,9 @@ function renderSidebarCategories() {
         if (filterMode === category.id) {
             item.classList.add('active');
         }
-        applySidebarTooltip(item, category.name);
+        applySidebarTooltip(item, category.name, {
+            tooltip: `${category.name} (${countValue})`
+        });
 
         const left = document.createElement('span');
         left.className = 'yt-commander-sub-manager-filter-left';
@@ -2651,7 +2653,7 @@ function renderSidebarCategories() {
 
         const count = document.createElement('span');
         count.className = FILTER_COUNT_CLASS;
-        count.textContent = String(typeof counts[category.id] === 'number' ? counts[category.id] : 0);
+        count.textContent = String(countValue);
 
         const remove = document.createElement('button');
         remove.type = 'button';
