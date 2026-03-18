@@ -67,6 +67,39 @@
     background: rgba(0, 0, 0, 0.62);
 }
 
+.yt-commander-seek-chip {
+    position: absolute;
+    top: 50%;
+    z-index: 26;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-50%) scale(0.96);
+    transition: opacity 160ms ease-out, transform 160ms ease-out;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.62);
+    color: #fff;
+    font-family: 'YouTube Noto', Roboto, Arial, sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+    line-height: 1;
+}
+
+.yt-commander-seek-chip.forward {
+    right: clamp(16px, 2.2vw, 28px);
+}
+
+.yt-commander-seek-chip.backward {
+    left: clamp(16px, 2.2vw, 28px);
+}
+
+.yt-commander-seek-chip.is-active {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+}
+
 /* Ensure buttons are visible in theater mode */
 .ytp-chrome-bottom .custom-seek-buttons {
     position: relative;
