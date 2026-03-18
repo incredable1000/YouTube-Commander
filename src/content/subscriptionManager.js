@@ -340,10 +340,6 @@ function resetModalElements() {
     confirmResolve = null;
     tooltipPortal = null;
     tooltipPortalTarget = null;
-    dragPayloadIds = [];
-    dragSourceEl = null;
-    dropTargetEl = null;
-    dragPreviewEl = null;
     resetScrollPending = false;
     selectionAnchorId = '';
     currentPageIds = [];
