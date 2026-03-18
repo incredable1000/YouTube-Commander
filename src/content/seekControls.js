@@ -527,8 +527,8 @@ function applyIndicatorInset(element, player) {
     const leftBar = Math.max(0, videoRect.left - playerRect.left);
     const rightBar = Math.max(0, playerRect.right - videoRect.right);
     const barWidth = Math.min(leftBar, rightBar);
-    if (barWidth > 20) {
-        const inset = Math.max(12, Math.round(barWidth - 8));
+    if (barWidth > 6) {
+        const inset = Math.max(12, Math.round(barWidth + 8));
         element.style.setProperty('--ytc-seek-indicator-inset', `${inset}px`);
         return;
     }
