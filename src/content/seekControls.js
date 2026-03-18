@@ -480,13 +480,6 @@ function tryNativeSeekOverlay(direction, deltaSeconds) {
         }
     }
 
-    const defaultStepSeconds = 5;
-    const absSeconds = Math.abs(deltaSeconds);
-    if (absSeconds % defaultStepSeconds !== 0) {
-        return false;
-    }
-
-    const steps = Math.max(1, Math.round(absSeconds / defaultStepSeconds));
     const key = direction === 'forward' ? 'ArrowRight' : 'ArrowLeft';
     const keyCode = direction === 'forward' ? 39 : 37;
     const eventOptions = {
@@ -508,17 +501,15 @@ function tryNativeSeekOverlay(direction, deltaSeconds) {
             }
         }
 
-        for (let i = 0; i < steps; i += 1) {
-            moviePlayer.dispatchEvent(new KeyboardEvent('keydown', eventOptions));
-            moviePlayer.dispatchEvent(new KeyboardEvent('keyup', eventOptions));
-        }
+        moviePlayer.dispatchEvent(new KeyboardEvent('keydown', eventOptions));
+        moviePlayer.dispatchEvent(new KeyboardEvent('keyup', eventOptions));
     } catch (error) {
         logger.debug('Failed to dispatch synthetic seek events', error);
     } finally {
         suppressSyntheticSeekEvents = false;
     }
 
-    return true;
+    return false;
 }
 
 /**
