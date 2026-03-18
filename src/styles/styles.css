@@ -83,12 +83,12 @@
 }
 
 .modern-seek-indicator.forward {
-    right: clamp(14px, 1.6vw, 24px);
+    right: var(--ytc-seek-indicator-inset, clamp(14px, 1.6vw, 24px));
     justify-content: flex-end;
 }
 
 .modern-seek-indicator.backward {
-    left: clamp(14px, 1.6vw, 24px);
+    left: var(--ytc-seek-indicator-inset, clamp(14px, 1.6vw, 24px));
     justify-content: flex-start;
 }
 

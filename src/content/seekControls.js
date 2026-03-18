@@ -486,6 +486,8 @@ function showSeekIndicator(direction, seconds) {
         player.appendChild(state.element);
     }
 
+    applyIndicatorInset(state.element, player);
+
     state.totalSeconds += seconds;
     updateIndicatorElement(state.element, direction, state.totalSeconds);
 
@@ -500,6 +502,37 @@ function showSeekIndicator(direction, seconds) {
     state.hideTimer = setTimeout(() => {
         hideSeekIndicator(direction);
     }, INDICATOR_HIDE_DELAY_MS);
+}
+
+/**
+ * Position seek indicator inside letterbox/pillarbox when possible.
+ * @param {HTMLDivElement} element
+ * @param {Element} player
+ */
+function applyIndicatorInset(element, player) {
+    if (!element || !player) {
+        return;
+    }
+    const video = player.querySelector('video');
+    if (!video) {
+        element.style.removeProperty('--ytc-seek-indicator-inset');
+        return;
+    }
+    const playerRect = player.getBoundingClientRect();
+    const videoRect = video.getBoundingClientRect();
+    if (!playerRect.width || !videoRect.width) {
+        element.style.removeProperty('--ytc-seek-indicator-inset');
+        return;
+    }
+    const leftBar = Math.max(0, videoRect.left - playerRect.left);
+    const rightBar = Math.max(0, playerRect.right - videoRect.right);
+    const barWidth = Math.min(leftBar, rightBar);
+    if (barWidth > 20) {
+        const inset = Math.max(12, Math.round(barWidth - 8));
+        element.style.setProperty('--ytc-seek-indicator-inset', `${inset}px`);
+        return;
+    }
+    element.style.removeProperty('--ytc-seek-indicator-inset');
 }
 
 /**
