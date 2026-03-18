@@ -2714,6 +2714,9 @@ body.yt-commander-windowed-lock {
     scrollbar-width: none;
     -ms-overflow-style: none;
     white-space: nowrap;
+    scroll-snap-type: x mandatory;
+    scroll-padding-left: 6px;
+    scroll-padding-right: 6px;
 }
 
 .yt-commander-sub-manager-chip-list::-webkit-scrollbar {
@@ -2725,6 +2728,8 @@ body.yt-commander-windowed-lock {
     width: auto;
     min-width: 0;
     flex: 0 0 auto;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
 }
 
 .yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-item {
