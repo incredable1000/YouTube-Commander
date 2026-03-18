@@ -2022,7 +2022,7 @@ body.yt-commander-windowed-lock {
     justify-content: space-between;
     align-items: flex-start;
     gap: 14px;
-    padding: 18px 20px 12px;
+    padding: 8px 20px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     background: #1a2230;
 }
@@ -2040,8 +2040,8 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-sub-manager-title {
-    font-size: 24px;
-    font-weight: 700;
+    font-size: 18px;
+    font-weight: 600;
 }
 
 .yt-commander-sub-manager-selected-badge {
@@ -2656,8 +2656,6 @@ body.yt-commander-windowed-lock {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 6px 10px;
-    margin: 4px 0 10px;
     min-height: 40px;
     background: rgba(18, 24, 33, 0.94) !important;
     border: 1px solid rgba(255, 255, 255, 0.08);
