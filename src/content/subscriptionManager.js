@@ -111,6 +111,7 @@ let sidebarAddButton = null;
 let sidebarCountEl = null;
 let chipbarWheelTarget = null;
 let chipbarWheelHandler = null;
+let chipbarSnapTimeoutId = 0;
 let addCategoryButton = null;
 let removeCategoryButton = null;
 let unsubscribeButton = null;
@@ -301,6 +302,10 @@ function resetModalElements() {
     if (chipbarWheelTarget && chipbarWheelHandler) {
         chipbarWheelTarget.removeEventListener('wheel', chipbarWheelHandler);
     }
+    if (chipbarSnapTimeoutId) {
+        window.clearTimeout(chipbarSnapTimeoutId);
+        chipbarSnapTimeoutId = 0;
+    }
     window.removeEventListener('resize', handleVirtualResize);
 
     overlay = null;
@@ -326,6 +331,7 @@ function resetModalElements() {
     sidebarCountEl = null;
     chipbarWheelTarget = null;
     chipbarWheelHandler = null;
+    chipbarSnapTimeoutId = 0;
     addCategoryButton = null;
     removeCategoryButton = null;
     unsubscribeButton = null;
@@ -2246,6 +2252,60 @@ function updateRemoveCategoryButton() {
     setIconButton(removeCategoryButton, ICONS.categoryMove, label);
 }
 
+function snapChipbarToNearest() {
+    if (!sidebarList) {
+        return;
+    }
+    const chips = Array.from(sidebarList.children)
+        .filter((child) => child instanceof HTMLElement
+            && child.classList.contains('yt-commander-sub-manager-sidebar-item'));
+    if (chips.length === 0) {
+        return;
+    }
+    const listRect = sidebarList.getBoundingClientRect();
+    const styles = window.getComputedStyle(sidebarList);
+    const scrollPaddingLeft = parseFloat(styles.scrollPaddingLeft || styles.paddingLeft || '0') || 0;
+    const targetLeft = listRect.left + scrollPaddingLeft;
+    let bestChip = null;
+    let bestDelta = Infinity;
+    chips.forEach((chip) => {
+        const chipRect = chip.getBoundingClientRect();
+        const delta = Math.abs(chipRect.left - targetLeft);
+        if (delta < bestDelta) {
+            bestDelta = delta;
+            bestChip = chip;
+        }
+    });
+    if (!bestChip) {
+        return;
+    }
+    const currentScrollLeft = sidebarList.scrollLeft;
+    const chipRect = bestChip.getBoundingClientRect();
+    const offsetDelta = chipRect.left - targetLeft;
+    const maxScrollLeft = Math.max(0, sidebarList.scrollWidth - sidebarList.clientWidth);
+    const nextScrollLeft = Math.min(
+        maxScrollLeft,
+        Math.max(0, currentScrollLeft + offsetDelta)
+    );
+    if (Math.abs(nextScrollLeft - currentScrollLeft) < 1) {
+        return;
+    }
+    sidebarList.scrollTo({
+        left: nextScrollLeft,
+        behavior: 'smooth'
+    });
+}
+
+function scheduleChipbarSnap() {
+    if (chipbarSnapTimeoutId) {
+        window.clearTimeout(chipbarSnapTimeoutId);
+    }
+    chipbarSnapTimeoutId = window.setTimeout(() => {
+        chipbarSnapTimeoutId = 0;
+        snapChipbarToNearest();
+    }, 140);
+}
+
 function attachChipbarWheelScroll() {
     if (!sidebar || !sidebarList) {
         return;
@@ -2275,6 +2335,7 @@ function attachChipbarWheelScroll() {
         }
         event.preventDefault();
         sidebarList.scrollLeft += dominantDelta;
+        scheduleChipbarSnap();
     };
     chipbarWheelTarget.addEventListener('wheel', chipbarWheelHandler, { passive: false });
 }
