@@ -143,7 +143,8 @@ function ensureButton() {
 
     const fullscreenButton = controls.querySelector('.ytp-fullscreen-button');
     const rotationButton = controls.querySelector('.custom-rotation-button');
-    const preferredAnchor = rotationButton || fullscreenButton || null;
+    const openVideoButton = controls.querySelector('#yt-commander-open-video-button');
+    const preferredAnchor = openVideoButton || rotationButton || fullscreenButton || null;
 
     if (preferredAnchor && windowedButton.parentElement !== controls) {
         controls.insertBefore(windowedButton, preferredAnchor.nextSibling);
