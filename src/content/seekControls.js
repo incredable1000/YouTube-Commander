@@ -558,13 +558,13 @@ function applySeekOverlayVisibility(element, isVisible) {
     }
 
     if (isVisible) {
-        element.style.setProperty('display', 'flex', 'important');
-        element.style.setProperty('visibility', 'visible', 'important');
-        element.style.setProperty('opacity', '1', 'important');
+        element.style.display = 'flex';
+        element.style.visibility = 'visible';
+        element.style.opacity = '1';
     } else {
-        element.style.removeProperty('opacity');
-        element.style.removeProperty('visibility');
-        element.style.removeProperty('display');
+        element.style.opacity = '';
+        element.style.visibility = '';
+        element.style.display = '';
     }
 }
 
