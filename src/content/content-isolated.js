@@ -103,6 +103,7 @@ async function initializeModules() {
             import('./shortsProgressBar.js').catch(e => { logger.warn('Failed to import shortsProgressBar:', e); throw e; }),
             import('./videoRotation.js').catch(e => { logger.warn('Failed to import videoRotation:', e); throw e; }),
             import('./windowedFullscreen.js').catch(e => { logger.warn('Failed to import windowedFullscreen:', e); throw e; }),
+            import('./open-video-tab.js').catch(e => { logger.warn('Failed to import openVideoTab:', e); throw e; }),
             import('./playlistControls.js').catch(e => { logger.warn('Failed to import playlistControls:', e); throw e; }),
             import('./playlistMultiSelect.js').catch(e => { logger.warn('Failed to import playlistMultiSelect:', e); throw e; }),
             import('./qualityControls-wrapper.js').catch(e => { logger.warn('Failed to import qualityControls-wrapper:', e); throw e; }),
@@ -123,6 +124,7 @@ async function initializeModules() {
                     'shortsProgressBar',
                     'videoRotation',
                     'windowedFullscreen',
+                    'openVideoTab',
                     'playlistControls',
                     'playlistMultiSelect',
                     'qualityControlsWrapper',
@@ -146,6 +148,7 @@ async function initializeModules() {
                 if (module.initShortsProgressBar) initPromises.push(module.initShortsProgressBar());
                 if (module.initVideoRotation) initPromises.push(module.initVideoRotation());
                 if (module.initWindowedFullscreen) initPromises.push(module.initWindowedFullscreen());
+                if (module.initOpenVideoTab) initPromises.push(module.initOpenVideoTab());
                 if (module.initPlaylistControls) initPromises.push(module.initPlaylistControls());
                 if (module.initPlaylistMultiSelect) initPromises.push(module.initPlaylistMultiSelect());
                 if (module.initQualityWrapper) initPromises.push(module.initQualityWrapper());
@@ -161,6 +164,7 @@ async function initializeModules() {
                     'shortsProgressBar',
                     'videoRotation',
                     'windowedFullscreen',
+                    'openVideoTab',
                     'playlistControls',
                     'playlistMultiSelect',
                     'qualityControlsWrapper',

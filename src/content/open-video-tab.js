@@ -1,0 +1,195 @@
+/**
+ * Open current watch video in a clean new tab (playlist params removed).
+ */
+
+import { createLogger } from './utils/logger.js';
+import { createThrottledObserver } from './utils/events.js';
+import { createIcon } from './utils/ui.js';
+import { getActivePlayer, getCurrentVideoId, isVideoPage } from './utils/youtube.js';
+import { ICONS } from '../shared/constants.js';
+
+const logger = createLogger('OpenVideoTab');
+
+const BUTTON_ID = 'yt-commander-open-video-button';
+const BUTTON_CLASS = 'ytp-button yt-commander-open-video-button';
+const OBSERVER_THROTTLE_MS = 650;
+
+let isInitialized = false;
+let initPromise = null;
+let openButton = null;
+let domObserver = null;
+
+/**
+ * Initialize the open-in-new-tab player button.
+ */
+export async function initOpenVideoTab() {
+    if (isInitialized) {
+        return;
+    }
+
+    if (initPromise) {
+        return initPromise;
+    }
+
+    initPromise = (async () => {
+        logger.info('Initializing open video tab control');
+
+        ensureOpenButton();
+
+        domObserver = createThrottledObserver(() => {
+            ensureOpenButton();
+        }, OBSERVER_THROTTLE_MS);
+
+        domObserver.observe(document.body, { childList: true, subtree: true });
+        document.addEventListener('yt-navigate-finish', ensureOpenButton);
+
+        isInitialized = true;
+        logger.info('Open video tab control initialized');
+    })();
+
+    try {
+        await initPromise;
+    } catch (error) {
+        logger.error('Failed to initialize open video tab control', error);
+        throw error;
+    } finally {
+        initPromise = null;
+    }
+}
+
+function ensureOpenButton() {
+    if (!isVideoPage()) {
+        removeOpenButton();
+        return;
+    }
+
+    const controls = findControlsHost();
+    if (!controls) {
+        removeOpenButton();
+        return;
+    }
+
+    if (!openButton || !openButton.isConnected) {
+        const existing = controls.querySelector(`#${BUTTON_ID}`);
+        if (existing instanceof HTMLButtonElement) {
+            existing.remove();
+        }
+        openButton = createOpenButton();
+    }
+
+    const windowedButton = controls.querySelector('#yt-commander-windowed-fullscreen-button');
+    const fullscreenButton = controls.querySelector('.ytp-fullscreen-button');
+    const preferredAnchor = windowedButton || fullscreenButton || null;
+
+    if (preferredAnchor && openButton.parentElement !== controls) {
+        controls.insertBefore(openButton, preferredAnchor);
+    } else if (!preferredAnchor && openButton.parentElement !== controls) {
+        controls.appendChild(openButton);
+    } else if (
+        preferredAnchor
+        && openButton.nextElementSibling !== preferredAnchor
+    ) {
+        controls.insertBefore(openButton, preferredAnchor);
+    }
+}
+
+function removeOpenButton() {
+    if (openButton) {
+        openButton.remove();
+        openButton = null;
+    }
+}
+
+function findControlsHost() {
+    const player = getActivePlayer();
+    if (!player) {
+        return null;
+    }
+
+    return player.querySelector('.ytp-right-controls') || null;
+}
+
+function createOpenButton() {
+    const button = document.createElement('button');
+    button.id = BUTTON_ID;
+    button.type = 'button';
+    button.className = BUTTON_CLASS;
+    button.title = 'Open video in new tab';
+    button.setAttribute('aria-label', 'Open video in new tab');
+
+    const icon = createIcon({
+        viewBox: '0 0 24 24',
+        width: '24',
+        height: '24',
+        path: ICONS.OPEN_NEW_TAB,
+        fill: 'currentColor'
+    });
+
+    button.appendChild(icon);
+
+    button.addEventListener('mousedown', (event) => {
+        // Keep focus on the player so native shortcuts still work.
+        event.preventDefault();
+    });
+
+    button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openCurrentVideoInNewTab();
+    });
+
+    return button;
+}
+
+function openCurrentVideoInNewTab() {
+    const videoId = resolveVideoId();
+    if (!videoId) {
+        logger.warn('Unable to resolve video id for open-in-new-tab action');
+        return;
+    }
+
+    const url = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+
+    try {
+        if (chrome?.runtime?.sendMessage) {
+            chrome.runtime.sendMessage({ type: 'OPEN_NEW_TAB', url });
+            return;
+        }
+    } catch (error) {
+        logger.error('Failed to request background tab open', error);
+    }
+
+    try {
+        window.open(url, '_blank');
+    } catch (error) {
+        logger.error('Failed to open new tab fallback', error);
+    }
+}
+
+function resolveVideoId() {
+    try {
+        const urlId = getCurrentVideoId();
+        if (typeof urlId === 'string' && urlId.trim()) {
+            return urlId.trim();
+        }
+
+        const player = getActivePlayer() || document.getElementById('movie_player');
+        const playerId = player?.getVideoData?.()?.video_id;
+        if (typeof playerId === 'string' && playerId.trim()) {
+            return playerId.trim();
+        }
+
+        const playerUrl = player?.getVideoUrl?.();
+        if (typeof playerUrl === 'string' && playerUrl.trim()) {
+            const url = new URL(playerUrl, window.location.origin);
+            const id = url.searchParams.get('v');
+            if (id) {
+                return id;
+            }
+        }
+    } catch (error) {
+        logger.warn('Failed to resolve video id', error);
+    }
+
+    return null;
+}

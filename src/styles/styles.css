@@ -218,7 +218,8 @@
 }
 
 /* Windowed fullscreen button */
-.yt-commander-fullwindow-button {
+.yt-commander-fullwindow-button,
+.yt-commander-open-video-button {
     position: relative;
     width: 48px;
     height: 48px;
@@ -237,7 +238,8 @@
     transition: background-color 0.2s ease;
 }
 
-.yt-commander-fullwindow-button svg {
+.yt-commander-fullwindow-button svg,
+.yt-commander-open-video-button svg {
     width: 24px;
     height: 24px;
     fill: #fff;
@@ -247,11 +249,14 @@
 }
 
 .yt-commander-fullwindow-button:hover,
-.yt-commander-fullwindow-button:focus {
+.yt-commander-fullwindow-button:focus,
+.yt-commander-open-video-button:hover,
+.yt-commander-open-video-button:focus {
     background: rgba(255, 255, 255, 0.1);
 }
 
-.yt-commander-fullwindow-button:hover svg {
+.yt-commander-fullwindow-button:hover svg,
+.yt-commander-open-video-button:hover svg {
     opacity: 1;
 }
 
