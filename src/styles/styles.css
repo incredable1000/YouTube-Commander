@@ -2670,41 +2670,36 @@ body.yt-commander-windowed-lock {
 .yt-commander-sub-manager-content {
     flex: 1;
     display: flex;
-    gap: 14px;
+    flex-direction: column;
+    gap: 0;
     overflow: hidden;
     padding: 12px 16px;
 }
 
-.yt-commander-sub-manager-sidebar {
-    width: 220px;
-    flex: 0 0 220px;
-    align-self: stretch;
-    background: #171f2b;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-    padding: 12px;
+.yt-commander-sub-manager-chipbar {
+    position: sticky;
+    top: 0;
+    z-index: 4;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    overflow: hidden;
-    position: relative;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    gap: 10px;
+    padding: 10px 12px 8px;
+    margin-bottom: 12px;
+    background: rgba(18, 24, 33, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(10px);
 }
 
-.yt-commander-sub-manager-sidebar.is-collapsed {
-    width: 60px;
-    flex-basis: 60px;
-    padding: 10px 8px;
-}
-
-.yt-commander-sub-manager-sidebar-header {
+.yt-commander-sub-manager-chipbar-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: 10px;
 }
 
-.yt-commander-sub-manager-sidebar-title {
+.yt-commander-sub-manager-chipbar-title {
     display: inline-flex;
     align-items: center;
     gap: 8px;
@@ -2714,7 +2709,7 @@ body.yt-commander-windowed-lock {
     color: #9aa4b6;
 }
 
-.yt-commander-sub-manager-sidebar-count {
+.yt-commander-sub-manager-chipbar-count {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2729,89 +2724,147 @@ body.yt-commander-windowed-lock {
     line-height: 1;
 }
 
-.yt-commander-sub-manager-sidebar-actions {
+.yt-commander-sub-manager-chipbar-actions {
     display: inline-flex;
     align-items: center;
     gap: 6px;
 }
 
-.yt-commander-sub-manager-sidebar-footer {
-    display: flex;
-    justify-content: center;
-    margin-top: auto;
-    padding-top: 4px;
-}
-
-.yt-commander-sub-manager-sidebar-btn {
+.yt-commander-sub-manager-chipbar-btn {
     width: 28px;
     height: 28px;
     padding: 0;
-    border-radius: 8px;
+    border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.16);
     background: rgba(255, 255, 255, 0.08);
     color: inherit;
 }
 
-.yt-commander-sub-manager-sidebar-toggle {
-    align-self: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 999px;
-    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.16);
-}
-
-.yt-commander-sub-manager-sidebar-btn.yt-commander-sub-manager-icon-btn {
-    width: 28px;
-    height: 28px;
-    padding: 0;
-}
-
-.yt-commander-sub-manager-sidebar-btn:hover {
+.yt-commander-sub-manager-chipbar-btn:hover {
     background: rgba(255, 255, 255, 0.16);
     border-color: rgba(255, 255, 255, 0.3);
 }
 
-.yt-commander-sub-manager-sidebar-list {
-    display: grid;
+.yt-commander-sub-manager-chip-list {
+    display: flex;
+    align-items: center;
     gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 4px;
+    padding-right: 6px;
+    scrollbar-width: thin;
+}
+
+.yt-commander-sub-manager-chip-list::-webkit-scrollbar {
+    height: 6px;
+}
+
+.yt-commander-sub-manager-chip-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+}
+
+.yt-commander-sub-manager-chip-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-sidebar-item {
+    width: auto;
     min-width: 0;
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
+    flex: 0 0 auto;
 }
 
-.yt-commander-sub-manager-sidebar-item {
-    width: 100%;
-    text-align: left;
-    min-width: 0;
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-item {
+    min-height: 30px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.14);
+    transform: none;
+    box-shadow: none;
 }
 
-.yt-commander-sub-manager-sidebar .yt-commander-sub-manager-filter-item {
-    padding: 7px 10px;
-    min-height: 36px;
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-item:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
 }
 
-.yt-commander-sub-manager-sidebar-item.is-editing,
-.yt-commander-sub-manager-sidebar-item.is-creating {
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-item.active {
+    background: rgba(244, 193, 109, 0.2);
+    border-color: rgba(244, 193, 109, 0.55);
+    color: #f6e1b4;
+    box-shadow: 0 0 0 1px rgba(244, 193, 109, 0.35);
+    transform: none;
+}
+
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-item.active::before,
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-sidebar-item.is-colored.active::before {
+    display: none;
+}
+
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-left {
+    gap: 6px;
+}
+
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-initial {
+    display: none;
+}
+
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-name {
+    white-space: nowrap;
+}
+
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-right {
+    gap: 6px;
+}
+
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-count {
+    min-width: 22px;
+    height: 18px;
+    font-size: 11px;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-remove {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.16);
+    border: none;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-item:hover .yt-commander-sub-manager-filter-remove,
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-remove:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-sidebar-item.is-editing,
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-sidebar-item.is-creating {
     cursor: default;
+    min-width: 180px;
 }
 
-.yt-commander-sub-manager-sidebar-item.is-editing .yt-commander-sub-manager-filter-left,
-.yt-commander-sub-manager-sidebar-item.is-creating .yt-commander-sub-manager-filter-left {
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-sidebar-item.is-editing .yt-commander-sub-manager-filter-left,
+.yt-commander-sub-manager-chipbar .yt-commander-sub-manager-sidebar-item.is-creating .yt-commander-sub-manager-filter-left {
     flex: 1;
 }
 
 .yt-commander-sub-manager-sidebar-input {
     flex: 1;
     min-width: 0;
-    height: 30px;
-    border-radius: 10px;
+    height: 28px;
+    border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.16);
     background: rgba(15, 20, 29, 0.55);
     color: #e8edf5;
-    font-size: 14px;
-    padding: 0 10px;
+    font-size: 13px;
+    padding: 0 12px;
 }
 
 .yt-commander-sub-manager-sidebar-input:focus {
@@ -2856,80 +2909,14 @@ body.yt-commander-windowed-lock {
     border: 1px solid rgba(255, 255, 255, 0.35);
 }
 
-.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-title {
-    display: none;
-}
-
-.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-filter-right,
-.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-filter-name {
-    display: none;
-}
-
-.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-filter-initial {
-    display: inline-flex;
-}
-
-.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-filter-left {
-    gap: 0;
-}
-
-.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-item {
-    justify-content: center;
-    padding: 8px 6px;
-}
-
-.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-filter-item {
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    border-radius: 50%;
-    justify-content: center;
-    margin: 0 auto;
-}
-
-.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-filter-left {
-    width: 100%;
-    justify-content: center;
-}
-
-.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-header {
-    justify-content: center;
-}
-
-.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-actions {
-    flex-direction: column;
-    align-items: center;
-    width: 100%;
-}
-
-.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-btn {
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    margin: 0 auto;
-}
-
-.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-toggle {
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-}
-
-.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-list {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-}
-
-.yt-commander-sub-manager-sidebar.is-collapsed .yt-commander-sub-manager-sidebar-list::-webkit-scrollbar {
-    width: 0;
-    height: 0;
-}
-
 .yt-commander-sub-manager-main {
     flex: 1;
     overflow: auto;
-    padding: 4px 8px 18px;
+    padding: 0 8px 18px;
     position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
 .yt-commander-sub-manager-table {
@@ -2963,11 +2950,7 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-sub-manager-row:not(.header) {
-    cursor: grab;
-}
-
-.yt-commander-sub-manager-row:not(.header):active {
-    cursor: grabbing;
+    cursor: pointer;
 }
 
 .yt-commander-sub-manager-row.is-selected {
@@ -3380,10 +3363,13 @@ body.yt-commander-windowed-lock {
         flex-direction: column;
     }
 
-    .yt-commander-sub-manager-sidebar,
-    .yt-commander-sub-manager-sidebar.is-collapsed {
-        width: 100%;
-        flex-basis: auto;
+    .yt-commander-sub-manager-chipbar {
+        padding: 8px 10px 6px;
+        border-radius: 12px;
+    }
+
+    .yt-commander-sub-manager-chip-list {
+        gap: 6px;
     }
 
     .yt-commander-sub-manager-row {

@@ -219,6 +219,10 @@ function applySidebarTooltip(el, label) {
     if (!el) {
         return;
     }
+    if (sidebar?.classList.contains('yt-commander-sub-manager-chipbar')) {
+        clearTooltip(el);
+        return;
+    }
     if (sidebarCollapsed) {
         setTooltip(el, label);
         return;
@@ -1709,33 +1713,27 @@ function ensureModal() {
     content.className = 'yt-commander-sub-manager-content';
 
     sidebar = document.createElement('div');
-    sidebar.className = 'yt-commander-sub-manager-sidebar';
+    sidebar.className = 'yt-commander-sub-manager-chipbar';
 
     const sidebarHeader = document.createElement('div');
-    sidebarHeader.className = 'yt-commander-sub-manager-sidebar-header';
+    sidebarHeader.className = 'yt-commander-sub-manager-chipbar-header';
 
     const sidebarTitle = document.createElement('div');
-    sidebarTitle.className = 'yt-commander-sub-manager-sidebar-title';
+    sidebarTitle.className = 'yt-commander-sub-manager-chipbar-title';
     sidebarTitle.textContent = 'Categories';
     sidebarCountEl = document.createElement('span');
-    sidebarCountEl.className = 'yt-commander-sub-manager-sidebar-count';
+    sidebarCountEl.className = 'yt-commander-sub-manager-chipbar-count';
     sidebarCountEl.textContent = '0';
     sidebarTitle.appendChild(sidebarCountEl);
 
     const sidebarActions = document.createElement('div');
-    sidebarActions.className = 'yt-commander-sub-manager-sidebar-actions';
+    sidebarActions.className = 'yt-commander-sub-manager-chipbar-actions';
 
     sidebarAddButton = document.createElement('button');
     sidebarAddButton.type = 'button';
-    sidebarAddButton.className = 'yt-commander-sub-manager-sidebar-btn';
+    sidebarAddButton.className = 'yt-commander-sub-manager-chipbar-btn';
     sidebarAddButton.setAttribute('data-action', 'new-category');
     setIconButton(sidebarAddButton, ICONS.plus, 'New category');
-
-    sidebarToggleButton = document.createElement('button');
-    sidebarToggleButton.type = 'button';
-    sidebarToggleButton.className = 'yt-commander-sub-manager-sidebar-btn';
-    sidebarToggleButton.classList.add('yt-commander-sub-manager-sidebar-toggle');
-    sidebarToggleButton.setAttribute('data-action', 'sidebar-toggle');
 
     sidebarActions.appendChild(sidebarAddButton);
 
@@ -1743,15 +1741,10 @@ function ensureModal() {
     sidebarHeader.appendChild(sidebarActions);
 
     sidebarList = document.createElement('div');
-    sidebarList.className = 'yt-commander-sub-manager-sidebar-list';
+    sidebarList.className = 'yt-commander-sub-manager-chip-list';
 
     sidebar.appendChild(sidebarHeader);
     sidebar.appendChild(sidebarList);
-    const sidebarFooter = document.createElement('div');
-    sidebarFooter.className = 'yt-commander-sub-manager-sidebar-footer';
-    sidebarFooter.appendChild(sidebarToggleButton);
-    sidebar.appendChild(sidebarFooter);
-    applySidebarState();
 
     tableWrap = document.createElement('div');
     tableWrap.className = TABLE_CLASS;
@@ -1768,11 +1761,11 @@ function ensureModal() {
     floatingStackEl.className = 'yt-commander-sub-manager-float-stack';
     floatingStackEl.appendChild(selectionGroupEl);
     selectionHeaderEl.appendChild(floatingStackEl);
+    mainWrap.appendChild(sidebar);
     mainWrap.appendChild(selectionHeaderEl);
     mainWrap.appendChild(tableWrap);
     mainWrap.appendChild(cardsWrap);
 
-    content.appendChild(sidebar);
     content.appendChild(mainWrap);
 
     statusEl = document.createElement('div');
@@ -2305,6 +2298,11 @@ function updateCategoryActionButtons() {
 
 function applySidebarState() {
     if (!sidebar) {
+        return;
+    }
+    if (sidebar.classList.contains('yt-commander-sub-manager-chipbar')) {
+        sidebarCollapsed = false;
+        sidebar.classList.remove('is-collapsed');
         return;
     }
     sidebar.classList.toggle('is-collapsed', sidebarCollapsed);
