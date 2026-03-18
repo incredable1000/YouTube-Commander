@@ -112,6 +112,9 @@ let sidebarCountEl = null;
 let chipbarWheelTarget = null;
 let chipbarWheelHandler = null;
 let chipbarSnapTimeoutId = 0;
+let chipbarIsSnapping = false;
+let chipbarScrollTarget = null;
+let chipbarScrollHandler = null;
 let addCategoryButton = null;
 let removeCategoryButton = null;
 let unsubscribeButton = null;
@@ -302,6 +305,9 @@ function resetModalElements() {
     if (chipbarWheelTarget && chipbarWheelHandler) {
         chipbarWheelTarget.removeEventListener('wheel', chipbarWheelHandler);
     }
+    if (chipbarScrollTarget && chipbarScrollHandler) {
+        chipbarScrollTarget.removeEventListener('scroll', chipbarScrollHandler);
+    }
     if (chipbarSnapTimeoutId) {
         window.clearTimeout(chipbarSnapTimeoutId);
         chipbarSnapTimeoutId = 0;
@@ -331,6 +337,9 @@ function resetModalElements() {
     sidebarCountEl = null;
     chipbarWheelTarget = null;
     chipbarWheelHandler = null;
+    chipbarScrollTarget = null;
+    chipbarScrollHandler = null;
+    chipbarIsSnapping = false;
     chipbarSnapTimeoutId = 0;
     addCategoryButton = null;
     removeCategoryButton = null;
@@ -2262,38 +2271,41 @@ function snapChipbarToNearest() {
     if (chips.length === 0) {
         return;
     }
-    const listRect = sidebarList.getBoundingClientRect();
     const styles = window.getComputedStyle(sidebarList);
     const scrollPaddingLeft = parseFloat(styles.scrollPaddingLeft || styles.paddingLeft || '0') || 0;
-    const targetLeft = listRect.left + scrollPaddingLeft;
-    let bestChip = null;
-    let bestDelta = Infinity;
+    const scrollPaddingRight = parseFloat(styles.scrollPaddingRight || styles.paddingRight || '0') || 0;
+    const currentScrollLeft = sidebarList.scrollLeft;
+    const maxScrollLeft = Math.max(0, sidebarList.scrollWidth - sidebarList.clientWidth);
+    const candidates = [];
+
     chips.forEach((chip) => {
-        const chipRect = chip.getBoundingClientRect();
-        const delta = Math.abs(chipRect.left - targetLeft);
-        if (delta < bestDelta) {
-            bestDelta = delta;
-            bestChip = chip;
+        const leftPos = Math.max(0, Math.min(maxScrollLeft, chip.offsetLeft - scrollPaddingLeft));
+        candidates.push(leftPos);
+        const rightPos = chip.offsetLeft + chip.offsetWidth - (sidebarList.clientWidth - scrollPaddingRight);
+        if (Number.isFinite(rightPos)) {
+            const clampedRight = Math.max(0, Math.min(maxScrollLeft, rightPos));
+            candidates.push(clampedRight);
         }
     });
-    if (!bestChip) {
-        return;
-    }
-    const currentScrollLeft = sidebarList.scrollLeft;
-    const chipRect = bestChip.getBoundingClientRect();
-    const offsetDelta = chipRect.left - targetLeft;
-    const maxScrollLeft = Math.max(0, sidebarList.scrollWidth - sidebarList.clientWidth);
-    const nextScrollLeft = Math.min(
-        maxScrollLeft,
-        Math.max(0, currentScrollLeft + offsetDelta)
-    );
-    if (Math.abs(nextScrollLeft - currentScrollLeft) < 1) {
-        return;
-    }
-    sidebarList.scrollTo({
-        left: nextScrollLeft,
-        behavior: 'smooth'
+
+    let nearest = currentScrollLeft;
+    let bestDelta = Infinity;
+    candidates.forEach((pos) => {
+        const delta = Math.abs(pos - currentScrollLeft);
+        if (delta < bestDelta) {
+            bestDelta = delta;
+            nearest = pos;
+        }
     });
+
+    if (Math.abs(nearest - currentScrollLeft) < 1) {
+        return;
+    }
+    chipbarIsSnapping = true;
+    sidebarList.scrollTo({ left: nearest, behavior: 'smooth' });
+    window.setTimeout(() => {
+        chipbarIsSnapping = false;
+    }, 220);
 }
 
 function scheduleChipbarSnap() {
@@ -2302,7 +2314,9 @@ function scheduleChipbarSnap() {
     }
     chipbarSnapTimeoutId = window.setTimeout(() => {
         chipbarSnapTimeoutId = 0;
-        snapChipbarToNearest();
+        if (!chipbarIsSnapping) {
+            snapChipbarToNearest();
+        }
     }, 140);
 }
 
@@ -2338,6 +2352,15 @@ function attachChipbarWheelScroll() {
         scheduleChipbarSnap();
     };
     chipbarWheelTarget.addEventListener('wheel', chipbarWheelHandler, { passive: false });
+
+    chipbarScrollTarget = sidebarList;
+    chipbarScrollHandler = () => {
+        if (chipbarIsSnapping) {
+            return;
+        }
+        scheduleChipbarSnap();
+    };
+    chipbarScrollTarget.addEventListener('scroll', chipbarScrollHandler, { passive: true });
 }
 
 function updateCategoryActionButtons() {
