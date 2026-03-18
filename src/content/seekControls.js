@@ -51,7 +51,6 @@ let buttonEnsureTimer = null;
 let controlsVisibilityTimer = null;
 let controlsVisibilityPlayer = null;
 let controlsVisibilityRestoreAutohide = false;
-let suppressSyntheticSeekEvents = false;
 
 /**
  * Initialize seek controls.
@@ -200,16 +199,12 @@ function setupKeyboardShortcuts() {
 
         const forwardCleanup = createKeyboardShortcut(
             { ...modifiers, key: 'ArrowRight' },
-            () => performSeek(seekSeconds, 'forward'),
-            document,
-            shouldHandleSeekShortcut
+            () => performSeek(seekSeconds, 'forward')
         );
 
         const backwardCleanup = createKeyboardShortcut(
             { ...modifiers, key: 'ArrowLeft' },
-            () => performSeek(seekSeconds, 'backward'),
-            document,
-            shouldHandleSeekShortcut
+            () => performSeek(seekSeconds, 'backward')
         );
 
         keyboardShortcuts.push(forwardCleanup, backwardCleanup);
@@ -436,80 +431,11 @@ function performSeek(seconds, direction) {
         return;
     }
 
-    const usedNativeSeek = tryNativeSeekOverlay(direction, delta);
-    if (!usedNativeSeek) {
-        applySeekTime(video, targetTime);
-    }
+    applySeekTime(video, targetTime);
     showPlayerSeekFeedback(player);
     syncProgressUiAfterSeek(video, player);
 
     logger.debug(`Seek ${direction} ${seekSeconds}s: ${currentTime.toFixed(2)} -> ${targetTime.toFixed(2)}`);
-}
-
-/**
- * Decide if seek shortcuts should handle a keyboard event.
- * @param {KeyboardEvent} event
- * @returns {boolean}
- */
-function shouldHandleSeekShortcut(event) {
-    return !(suppressSyntheticSeekEvents && event && event.isTrusted === false);
-}
-
-/**
- * Trigger YouTube's native seek overlay when possible.
- * @param {'forward'|'backward'} direction
- * @param {number} deltaSeconds
- * @returns {boolean} Whether native seek handled the time update.
- */
-function tryNativeSeekOverlay(direction, deltaSeconds) {
-    if (!Number.isFinite(deltaSeconds) || deltaSeconds === 0 || isShortsPage()) {
-        return false;
-    }
-
-    const moviePlayer = document.getElementById('movie_player');
-    if (!moviePlayer) {
-        return false;
-    }
-
-    if (typeof moviePlayer.seekBy === 'function') {
-        try {
-            moviePlayer.seekBy(deltaSeconds);
-            return true;
-        } catch (error) {
-            logger.debug('movie_player.seekBy failed', error);
-        }
-    }
-
-    const key = direction === 'forward' ? 'ArrowRight' : 'ArrowLeft';
-    const keyCode = direction === 'forward' ? 39 : 37;
-    const eventOptions = {
-        key,
-        code: key,
-        keyCode,
-        which: keyCode,
-        bubbles: true,
-        cancelable: true
-    };
-
-    suppressSyntheticSeekEvents = true;
-    try {
-        if (typeof moviePlayer.focus === 'function') {
-            try {
-                moviePlayer.focus({ preventScroll: true });
-            } catch (_error) {
-                moviePlayer.focus();
-            }
-        }
-
-        moviePlayer.dispatchEvent(new KeyboardEvent('keydown', eventOptions));
-        moviePlayer.dispatchEvent(new KeyboardEvent('keyup', eventOptions));
-    } catch (error) {
-        logger.debug('Failed to dispatch synthetic seek events', error);
-    } finally {
-        suppressSyntheticSeekEvents = false;
-    }
-
-    return false;
 }
 
 /**

@@ -179,10 +179,9 @@ export function waitForNavigation(timeout = 5000) {
  * @param {object} shortcut - Shortcut definition {ctrl, shift, alt, key}
  * @param {function} handler - Handler function
  * @param {Element} target - Target element (default: document)
- * @param {(event: KeyboardEvent) => boolean} shouldHandle - Optional predicate to allow handling
  * @returns {function} Cleanup function
  */
-export function createKeyboardShortcut(shortcut, handler, target = document, shouldHandle = null) {
+export function createKeyboardShortcut(shortcut, handler, target = document) {
     const matchesShortcut = (event) => (
         (shortcut.ctrl === undefined || shortcut.ctrl === event.ctrlKey) &&
         (shortcut.shift === undefined || shortcut.shift === event.shiftKey) &&
@@ -198,10 +197,6 @@ export function createKeyboardShortcut(shortcut, handler, target = document, sho
             return;
         }
         
-        if (shouldHandle && !shouldHandle(event)) {
-            return;
-        }
-
         if (matchesShortcut(event)) {
             event.preventDefault();
             event.stopImmediatePropagation();
@@ -210,10 +205,6 @@ export function createKeyboardShortcut(shortcut, handler, target = document, sho
     };
 
     const keyUpHandler = (event) => {
-        if (shouldHandle && !shouldHandle(event)) {
-            return;
-        }
-
         if (matchesShortcut(event)) {
             event.preventDefault();
             event.stopImmediatePropagation();
