@@ -2230,33 +2230,6 @@ body.yt-commander-windowed-lock {
     align-self: center;
 }
 
-.yt-commander-sub-manager-view-toggle {
-    display: inline-flex;
-    align-items: center;
-    border-radius: 12px;
-    overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    background: rgba(255, 255, 255, 0.06);
-    margin-left: 10px;
-}
-
-.yt-commander-sub-manager-view-toggle .yt-commander-sub-manager-toggle {
-    border: none;
-    border-radius: 0;
-    background: transparent;
-    padding: 6px 10px;
-    font-size: 13px;
-}
-
-.yt-commander-sub-manager-view-toggle .yt-commander-sub-manager-toggle + .yt-commander-sub-manager-toggle {
-    border-left: 1px solid rgba(255, 255, 255, 0.18);
-}
-
-.yt-commander-sub-manager-view-toggle .yt-commander-sub-manager-toggle.active {
-    background: rgba(244, 193, 109, 0.2);
-    color: #f4c16d;
-}
-
 .yt-commander-sub-manager-toggle {
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.16);
@@ -2920,27 +2893,6 @@ body.yt-commander-windowed-lock {
     gap: 12px;
 }
 
-.yt-commander-sub-manager-table {
-    display: block;
-}
-
-.yt-commander-sub-manager-row {
-    display: grid;
-    grid-template-columns: 30px minmax(280px, 2.4fr) minmax(140px, 1fr) minmax(220px, 1.2fr);
-    gap: 14px;
-    align-items: center;
-    padding: 12px 14px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    background: #171f2b;
-    font-size: 15px;
-    position: relative;
-    transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
-}
-
-.yt-commander-sub-manager-row.is-even {
-    background: #192231;
-}
-
 .yt-commander-sub-manager-virtual-spacer {
     width: 100%;
     pointer-events: none;
@@ -2948,72 +2900,6 @@ body.yt-commander-windowed-lock {
 
 .yt-commander-sub-manager-cards .yt-commander-sub-manager-virtual-spacer {
     grid-column: 1 / -1;
-}
-
-.yt-commander-sub-manager-row:not(.header) {
-    cursor: pointer;
-}
-
-.yt-commander-sub-manager-row.is-selected {
-    background: linear-gradient(90deg, rgba(244, 193, 109, 0.22) 0%, rgba(33, 44, 63, 0.96) 35%, #212c3f 100%);
-    box-shadow: inset 0 0 0 1px rgba(244, 193, 109, 0.35), 0 10px 20px rgba(0, 0, 0, 0.28);
-    transform: translateY(-1px);
-}
-
-.yt-commander-sub-manager-row.is-selected::before {
-    content: '';
-    position: absolute;
-    left: 6px;
-    top: 8px;
-    bottom: 8px;
-    width: 4px;
-    border-radius: 999px;
-    background: #f4c16d;
-    box-shadow: 0 0 10px rgba(244, 193, 109, 0.7);
-}
-
-.yt-commander-sub-manager-row.header {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    background: #141b26;
-    font-size: 13px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #9aa4b6;
-}
-
-.yt-commander-sub-manager-cell {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 15px;
-    min-width: 0;
-}
-
-.yt-commander-sub-manager-cell.header {
-    font-weight: 600;
-}
-
-.yt-commander-sub-manager-avatar {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    object-fit: cover;
-    flex-shrink: 0;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.yt-commander-sub-manager-avatar.large {
-    width: 56px;
-    height: 56px;
-}
-
-.yt-commander-sub-manager-name-wrap {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
 }
 
 .yt-commander-sub-manager-name {
@@ -3024,28 +2910,8 @@ body.yt-commander-windowed-lock {
     text-overflow: ellipsis;
 }
 
-.yt-commander-sub-manager-handle {
-    font-size: 14px;
-    color: #b1bac8;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.yt-commander-sub-manager-name-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-}
-
-.yt-commander-sub-manager-name-row .yt-commander-sub-manager-name {
-    flex: 1;
-    min-width: 0;
-}
-
 .yt-commander-sub-manager-cards {
-    display: none;
+    display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: 14px;
 }
@@ -3371,11 +3237,6 @@ body.yt-commander-windowed-lock {
 
     .yt-commander-sub-manager-chip-list {
         gap: 6px;
-    }
-
-    .yt-commander-sub-manager-row {
-        grid-template-columns: 26px minmax(210px, 1.6fr) minmax(110px, 1fr) minmax(160px, 1fr);
-        font-size: 13px;
     }
 
     .yt-commander-sub-manager-header-actions {

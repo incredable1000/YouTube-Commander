@@ -19,7 +19,6 @@ const STORAGE_KEYS = {
     CATEGORIES: 'subscriptionManagerCategories',
     ASSIGNMENTS: 'subscriptionManagerAssignments',
     SNAPSHOT: 'subscriptionManagerSnapshot',
-    VIEW: 'subscriptionManagerView',
     FILTER: 'subscriptionManagerFilter',
     SORT: 'subscriptionManagerSort',
     COOLDOWN_MINUTES: 'subscriptionManagerCooldownMinutes',
@@ -62,7 +61,6 @@ const SUBSCRIBE_RENDERER_SELECTOR = 'ytd-subscribe-button-renderer, yt-subscribe
 const DEFAULT_QUICK_ADD_LABEL = 'Add';
 const OVERLAY_CLASS = 'yt-commander-sub-manager-overlay';
 const MODAL_CLASS = 'yt-commander-sub-manager-modal';
-const TABLE_CLASS = 'yt-commander-sub-manager-table';
 const CARDS_CLASS = 'yt-commander-sub-manager-cards';
 const BADGE_CLASS = 'yt-commander-sub-manager-badge';
 const BADGE_REMOVE_CLASS = 'yt-commander-sub-manager-badge-remove';
@@ -74,8 +72,6 @@ const FILTER_COUNT_CLASS = 'yt-commander-sub-manager-filter-count';
 const QUICK_ADD_CLASS = 'yt-commander-sub-manager-quick-add';
 const MODAL_VERSION = '2026-03-17-1';
 
-const TABLE_ROW_HEIGHT_ESTIMATE = 72;
-const TABLE_HEADER_HEIGHT_ESTIMATE = 44;
 const CARD_ROW_HEIGHT_ESTIMATE = 312;
 const CARD_MIN_WIDTH = 260;
 const CARD_GAP = 14;
@@ -97,7 +93,6 @@ let mastheadButton = null;
 
 let overlay = null;
 let modal = null;
-let tableWrap = null;
 let cardsWrap = null;
 let mainWrap = null;
 let statusEl = null;
@@ -108,8 +103,6 @@ let selectionGroupEl = null;
 let selectionHeaderEl = null;
 let selectionCountEl = null;
 let floatingStackEl = null;
-let viewTableButton = null;
-let viewCardButton = null;
 let sortButton = null;
 let sidebar = null;
 let sidebarList = null;
@@ -158,14 +151,12 @@ let categoryCountsCacheKey = '';
 let lastSnapshotHash = '';
 let apiCooldownMinutes = COOLDOWN_MINUTES_OPTIONS[0];
 let apiCooldownMs = DEFAULT_API_COOLDOWN_MS;
-let viewMode = 'table';
 let filterMode = 'all';
 let sortMode = 'name';
 let selectedChannelIds = new Set();
 let resetScrollPending = false;
 let selectionAnchorId = '';
 let currentPageIds = [];
-let tableRowById = new Map();
 let cardById = new Map();
 let quickAddRetryTimer = 0;
 
@@ -174,11 +165,8 @@ let quickAddPending = false;
 let autoCategorizeInFlight = false;
 let lastAutoCategorizeSignature = '';
 let filteredChannelsCache = [];
-let tableRowHeight = TABLE_ROW_HEIGHT_ESTIMATE;
-let tableHeaderHeight = TABLE_HEADER_HEIGHT_ESTIMATE;
 let cardRowHeight = CARD_ROW_HEIGHT_ESTIMATE;
 let cardColumns = 1;
-let lastTableRange = null;
 let lastCardRange = null;
 let virtualScrollRaf = 0;
 let pendingVirtualForce = false;
@@ -317,7 +305,6 @@ function resetModalElements() {
 
     overlay = null;
     modal = null;
-    tableWrap = null;
     cardsWrap = null;
     mainWrap = null;
     statusEl = null;
@@ -331,8 +318,6 @@ function resetModalElements() {
     selectionHeaderEl = null;
     selectionCountEl = null;
     floatingStackEl = null;
-    viewTableButton = null;
-    viewCardButton = null;
     sortButton = null;
     sidebar = null;
     sidebarList = null;
@@ -358,13 +343,9 @@ function resetModalElements() {
     resetScrollPending = false;
     selectionAnchorId = '';
     currentPageIds = [];
-    tableRowById.clear();
     cardById.clear();
     filteredChannelsCache = [];
-    lastTableRange = null;
     lastCardRange = null;
-    tableRowHeight = TABLE_ROW_HEIGHT_ESTIMATE;
-    tableHeaderHeight = TABLE_HEADER_HEIGHT_ESTIMATE;
     cardRowHeight = CARD_ROW_HEIGHT_ESTIMATE;
     cardColumns = 1;
     virtualScrollRaf = 0;
@@ -430,8 +411,6 @@ function createQuickAddIcon() {
 }
 
 const ICONS = {
-    table: 'M3 3h18v18H3V3zm2 2v6h6V5H5zm8 0v6h6V5h-6zM5 13v6h6v-6H5zm8 0v6h6v-6h-6z',
-    card: 'M4 6h16v12H4V6zm2 2h12v3H6V8zm0 5h8v3H6v-3z',
     plus: 'M11 5h2v14h-2zM5 11h14v2H5z',
     minus: 'M5 11h14v2H5z',
     categoryAdd: 'M17.63 5.84 11.63 1.84C11.43 1.73 11.22 1.67 11 1.67H4C2.9 1.67 2 2.57 2 3.67v7c0 .53.21 1.04.59 1.41l6 6c.39.39.9.59 1.41.59s1.02-.2 1.41-.59l8.59-8.59c.38-.38.59-.9.59-1.41 0-.53-.21-1.04-.59-1.41l-2.38-2.34zM7 7.5C6.17 7.5 5.5 6.83 5.5 6S6.17 4.5 7 4.5 8.5 5.17 8.5 6 7.83 7.5 7 7.5zM15 10h2v2h2v2h-2v2h-2v-2h-2v-2h2z',
@@ -884,7 +863,6 @@ async function loadLocalState() {
     const result = await storageGet([
         STORAGE_KEYS.CATEGORIES,
         STORAGE_KEYS.ASSIGNMENTS,
-        STORAGE_KEYS.VIEW,
         STORAGE_KEYS.FILTER,
         STORAGE_KEYS.SORT,
         STORAGE_KEYS.COOLDOWN_MINUTES,
@@ -895,7 +873,6 @@ async function loadLocalState() {
     assignments = normalizeAssignments(result[STORAGE_KEYS.ASSIGNMENTS]);
     markCategoriesDirty();
     markAssignmentsDirty();
-    viewMode = result[STORAGE_KEYS.VIEW] === 'card' ? 'card' : 'table';
     filterMode = typeof result[STORAGE_KEYS.FILTER] === 'string' ? result[STORAGE_KEYS.FILTER] : 'all';
     sortMode = result[STORAGE_KEYS.SORT] === 'subscribers' ? 'subscribers' : 'name';
     apiCooldownMinutes = normalizeCooldownMinutes(result[STORAGE_KEYS.COOLDOWN_MINUTES]);
@@ -920,7 +897,6 @@ async function persistLocalState() {
  */
 async function persistViewState() {
     await storageSet({
-        [STORAGE_KEYS.VIEW]: viewMode,
         [STORAGE_KEYS.FILTER]: filterMode,
         [STORAGE_KEYS.SORT]: sortMode
     });
@@ -1632,9 +1608,6 @@ function ensureModal() {
     title.textContent = 'Subscription Manager';
 
     titleRow.appendChild(title);
-    const viewToggle = document.createElement('div');
-    viewToggle.className = 'yt-commander-sub-manager-view-toggle';
-    titleRow.appendChild(viewToggle);
 
     selectionBadgeEl = document.createElement('span');
     selectionBadgeEl.className = 'yt-commander-sub-manager-selected-badge';
@@ -1670,21 +1643,6 @@ function ensureModal() {
 
     const headerActions = document.createElement('div');
     headerActions.className = 'yt-commander-sub-manager-header-actions';
-
-    viewTableButton = document.createElement('button');
-    viewTableButton.type = 'button';
-    viewTableButton.className = 'yt-commander-sub-manager-toggle';
-    viewTableButton.setAttribute('data-action', 'view-table');
-    setIconButton(viewTableButton, ICONS.table, 'Table view');
-
-    viewCardButton = document.createElement('button');
-    viewCardButton.type = 'button';
-    viewCardButton.className = 'yt-commander-sub-manager-toggle';
-    viewCardButton.setAttribute('data-action', 'view-card');
-    setIconButton(viewCardButton, ICONS.card, 'Card view');
-
-    viewToggle.appendChild(viewTableButton);
-    viewToggle.appendChild(viewCardButton);
 
     unsubscribeButton = document.createElement('button');
     unsubscribeButton.type = 'button';
@@ -1749,9 +1707,6 @@ function ensureModal() {
     sidebar.appendChild(chipbarLead);
     sidebar.appendChild(sidebarList);
 
-    tableWrap = document.createElement('div');
-    tableWrap.className = TABLE_CLASS;
-
     cardsWrap = document.createElement('div');
     cardsWrap.className = CARDS_CLASS;
 
@@ -1766,7 +1721,6 @@ function ensureModal() {
     selectionHeaderEl.appendChild(floatingStackEl);
     mainWrap.appendChild(sidebar);
     mainWrap.appendChild(selectionHeaderEl);
-    mainWrap.appendChild(tableWrap);
     mainWrap.appendChild(cardsWrap);
 
     content.appendChild(mainWrap);
@@ -2952,14 +2906,6 @@ function applyChannelSelection(channelId, shouldSelect) {
     } else {
         selectedChannelIds.delete(channelId);
     }
-    const row = tableRowById.get(channelId);
-    if (row) {
-        const checkbox = row.querySelector('input[type="checkbox"][data-channel-id]');
-        if (checkbox) {
-            checkbox.checked = shouldSelect;
-        }
-        row.classList.toggle('is-selected', shouldSelect);
-    }
     const card = cardById.get(channelId);
     if (card) {
         card.classList.toggle('is-selected', shouldSelect);
@@ -3160,20 +3106,6 @@ function handleModalClick(event) {
             return;
         }
 
-        if (action === 'view-table') {
-            viewMode = 'table';
-            persistViewState().catch(() => undefined);
-            renderList();
-            return;
-        }
-
-        if (action === 'view-card') {
-            viewMode = 'card';
-            persistViewState().catch(() => undefined);
-            renderList();
-            return;
-        }
-
         if (action === 'sort-toggle') {
             sortMode = sortMode === 'subscribers' ? 'name' : 'subscribers';
             persistViewState().catch(() => undefined);
@@ -3260,13 +3192,6 @@ function handleModalClick(event) {
         return;
     }
 
-    const row = baseTarget?.closest('.yt-commander-sub-manager-row');
-    if (row && !row.classList.contains('header')) {
-        const channelId = row.getAttribute('data-channel-id') || '';
-        handleChannelSelectionInteraction(channelId, { shiftKey: event.shiftKey });
-        return;
-    }
-
     const card = baseTarget?.closest('.yt-commander-sub-manager-card');
     if (card) {
         const channelId = card.getAttribute('data-channel-id') || '';
@@ -3290,12 +3215,8 @@ function handleModalContextMenu(event) {
         return;
     }
 
-    const row = target.closest('.yt-commander-sub-manager-row');
-    if (row && row.classList.contains('header')) {
-        return;
-    }
     const card = target.closest('.yt-commander-sub-manager-card');
-    const anchorItem = row || card;
+    const anchorItem = card;
     if (!anchorItem) {
         return;
     }
@@ -3366,16 +3287,7 @@ function handleModalChange(event) {
         return;
     }
 
-    const checkbox = target?.closest('input[type="checkbox"][data-channel-id]');
-    if (!checkbox) {
-        return;
-    }
-    const channelId = checkbox.getAttribute('data-channel-id') || '';
-    if (!channelId) {
-        return;
-    }
-    toggleChannelSelection(channelId, checkbox.checked);
-    selectionAnchorId = channelId;
+    return;
 }
 
 /**
@@ -3783,147 +3695,11 @@ function buildCategoryBadges(channelId) {
 
     return wrapper;
 }
-function buildTableHeader(pageItems) {
-    const header = document.createElement('div');
-    header.className = 'yt-commander-sub-manager-row header';
-
-    const headerCheckbox = document.createElement('input');
-    headerCheckbox.type = 'checkbox';
-    headerCheckbox.className = 'yt-commander-sub-manager-checkbox';
-    headerCheckbox.checked = pageItems.length > 0
-        && pageItems.every((item) => selectedChannelIds.has(item.channelId));
-    headerCheckbox.addEventListener('change', () => {
-        pageItems.forEach((item) => {
-            if (!item?.channelId) {
-                return;
-            }
-            if (headerCheckbox.checked) {
-                selectedChannelIds.add(item.channelId);
-            } else {
-                selectedChannelIds.delete(item.channelId);
-            }
-        });
-        updateSelectionSummary();
-        renderList();
-    });
-
-    header.appendChild(headerCheckbox);
-
-    const headerLabels = ['Channel', 'Subscribers', 'Categories'];
-    headerLabels.forEach((label) => {
-        const cell = document.createElement('div');
-        cell.className = 'yt-commander-sub-manager-cell header';
-        cell.textContent = label;
-        header.appendChild(cell);
-    });
-
-    return header;
-}
-
 function createVirtualSpacer(height) {
     const spacer = document.createElement('div');
     spacer.className = 'yt-commander-sub-manager-virtual-spacer';
     spacer.style.height = `${Math.max(0, height)}px`;
     return spacer;
-}
-
-function buildTableRow(channel, rowIndex) {
-    const row = document.createElement('div');
-    row.className = 'yt-commander-sub-manager-row';
-    row.setAttribute('data-channel-id', channel.channelId || '');
-    if (Number.isFinite(rowIndex) && (rowIndex + 1) % 2 === 0) {
-        row.classList.add('is-even');
-    }
-    if (selectedChannelIds.has(channel.channelId)) {
-        row.classList.add('is-selected');
-    }
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'yt-commander-sub-manager-checkbox';
-    checkbox.setAttribute('data-channel-id', channel.channelId || '');
-    checkbox.checked = selectedChannelIds.has(channel.channelId);
-    row.appendChild(checkbox);
-
-    const channelCell = document.createElement('div');
-    channelCell.className = 'yt-commander-sub-manager-cell';
-
-    const avatar = document.createElement('img');
-    avatar.className = 'yt-commander-sub-manager-avatar';
-    avatar.alt = channel.title || 'Channel';
-    avatar.loading = 'lazy';
-    if (channel.avatar) {
-        avatar.src = channel.avatar;
-    }
-    channelCell.appendChild(avatar);
-
-    const nameWrap = document.createElement('div');
-    nameWrap.className = 'yt-commander-sub-manager-name-wrap';
-    const nameRow = document.createElement('div');
-    nameRow.className = 'yt-commander-sub-manager-name-row';
-    const name = document.createElement('div');
-    name.className = 'yt-commander-sub-manager-name';
-    name.setAttribute('data-field', 'name');
-    name.textContent = channel.title || 'Untitled channel';
-    const openButton = buildOpenChannelButton(channel, '');
-    const handle = document.createElement('div');
-    handle.className = 'yt-commander-sub-manager-handle';
-    handle.setAttribute('data-field', 'handle');
-    nameRow.appendChild(name);
-    nameRow.appendChild(openButton);
-    nameWrap.appendChild(nameRow);
-    nameWrap.appendChild(handle);
-    channelCell.appendChild(nameWrap);
-
-    row.appendChild(channelCell);
-
-    const counts = resolveChannelCounts(channel);
-    const subCell = document.createElement('div');
-    subCell.className = 'yt-commander-sub-manager-cell';
-    subCell.setAttribute('data-field', 'subscribers');
-    subCell.textContent = counts.subscribers;
-    row.appendChild(subCell);
-
-    const catCell = document.createElement('div');
-    catCell.className = 'yt-commander-sub-manager-cell';
-    catCell.setAttribute('data-field', 'categories');
-    catCell.appendChild(buildCategoryBadges(channel.channelId));
-    row.appendChild(catCell);
-
-    return row;
-}
-
-function updateTableRow(row, channel) {
-    const checkbox = row.querySelector('input[type="checkbox"][data-channel-id]');
-    if (checkbox) {
-        checkbox.checked = selectedChannelIds.has(channel.channelId);
-    }
-    const name = row.querySelector('[data-field="name"]');
-    if (name) {
-        name.textContent = channel.title || 'Untitled channel';
-    }
-    const handle = row.querySelector('[data-field="handle"]');
-    if (handle) {
-        handle.textContent = channel.handle || channel.url || '';
-    }
-    const openButton = row.querySelector('.yt-commander-sub-manager-open-channel');
-    if (openButton) {
-        updateOpenChannelButton(openButton, channel);
-    }
-    const avatar = row.querySelector('img.yt-commander-sub-manager-avatar');
-    if (avatar && channel.avatar) {
-        avatar.src = channel.avatar;
-    }
-    const counts = resolveChannelCounts(channel);
-    const subCell = row.querySelector('[data-field="subscribers"]');
-    if (subCell) {
-        subCell.textContent = counts.subscribers;
-    }
-    const catCell = row.querySelector('[data-field="categories"]');
-    if (catCell) {
-        catCell.innerHTML = '';
-        catCell.appendChild(buildCategoryBadges(channel.channelId));
-    }
 }
 
 function buildCard(channel) {
@@ -3997,54 +3773,6 @@ function updateCard(card, channel) {
 }
 
 /**
- * Render table rows.
- * @param {Array<object>} pageItems
- * @param {{totalCount?: number, startIndex?: number, topSpacerHeight?: number, bottomSpacerHeight?: number}} [options]
- */
-function renderTable(pageItems, options = {}) {
-    if (!tableWrap) {
-        return;
-    }
-
-    tableWrap.innerHTML = '';
-    tableRowById.clear();
-    const totalCount = Number.isFinite(options.totalCount) ? options.totalCount : pageItems.length;
-    const startIndex = Number.isFinite(options.startIndex) ? options.startIndex : 0;
-    const topSpacerHeight = Number.isFinite(options.topSpacerHeight) ? options.topSpacerHeight : 0;
-    const bottomSpacerHeight = Number.isFinite(options.bottomSpacerHeight) ? options.bottomSpacerHeight : 0;
-
-    const fragment = document.createDocumentFragment();
-    fragment.appendChild(buildTableHeader(pageItems));
-
-    if (totalCount === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'yt-commander-sub-manager-empty';
-        empty.textContent = 'No channels found.';
-        fragment.appendChild(empty);
-        tableWrap.appendChild(fragment);
-        return;
-    }
-
-    if (topSpacerHeight > 0) {
-        fragment.appendChild(createVirtualSpacer(topSpacerHeight));
-    }
-
-    pageItems.forEach((channel, index) => {
-        const row = buildTableRow(channel, startIndex + index);
-        if (channel.channelId) {
-            tableRowById.set(channel.channelId, row);
-        }
-        fragment.appendChild(row);
-    });
-
-    if (bottomSpacerHeight > 0) {
-        fragment.appendChild(createVirtualSpacer(bottomSpacerHeight));
-    }
-
-    tableWrap.appendChild(fragment);
-}
-
-/**
  * Render card view.
  * @param {Array<object>} pageItems
  * @param {{totalCount?: number, topSpacerHeight?: number, bottomSpacerHeight?: number}} [options]
@@ -4110,35 +3838,6 @@ function resolveCardColumns() {
     return columns;
 }
 
-function computeTableRange(totalCount) {
-    if (!mainWrap || totalCount === 0) {
-        return {
-            startIndex: 0,
-            endIndex: 0,
-            topSpacerHeight: 0,
-            bottomSpacerHeight: 0,
-            totalCount
-        };
-    }
-    const rowHeight = tableRowHeight || TABLE_ROW_HEIGHT_ESTIMATE;
-    const headerHeight = tableHeaderHeight || TABLE_HEADER_HEIGHT_ESTIMATE;
-    const viewportHeight = Math.max(0, mainWrap.clientHeight - headerHeight);
-    const scrollTop = Math.max(0, mainWrap.scrollTop - headerHeight);
-    let startIndex = Math.floor(scrollTop / rowHeight) - VIRTUAL_OVERSCAN;
-    startIndex = Math.max(0, startIndex);
-    let endIndex = Math.ceil((scrollTop + viewportHeight) / rowHeight) + VIRTUAL_OVERSCAN;
-    endIndex = Math.min(totalCount, Math.max(endIndex, startIndex + 1));
-    const topSpacerHeight = startIndex * rowHeight;
-    const bottomSpacerHeight = Math.max(0, (totalCount - endIndex) * rowHeight);
-    return {
-        startIndex,
-        endIndex,
-        topSpacerHeight,
-        bottomSpacerHeight,
-        totalCount
-    };
-}
-
 function computeCardRange(totalCount) {
     if (!mainWrap || totalCount === 0) {
         const columns = resolveCardColumns();
@@ -4194,30 +3893,6 @@ function isSameRange(nextRange, prevRange) {
         && (nextRange.columns || 0) === (prevRange.columns || 0);
 }
 
-function measureTableMetrics() {
-    if (!tableWrap) {
-        return false;
-    }
-    let changed = false;
-    const header = tableWrap.querySelector('.yt-commander-sub-manager-row.header');
-    if (header) {
-        const height = Math.round(header.getBoundingClientRect().height);
-        if (height > 0 && Math.abs(height - tableHeaderHeight) > 1) {
-            tableHeaderHeight = height;
-            changed = true;
-        }
-    }
-    const row = tableWrap.querySelector('.yt-commander-sub-manager-row:not(.header)');
-    if (row) {
-        const height = Math.round(row.getBoundingClientRect().height);
-        if (height > 0 && Math.abs(height - tableRowHeight) > 1) {
-            tableRowHeight = height;
-            changed = true;
-        }
-    }
-    return changed;
-}
-
 function measureCardMetrics() {
     if (!cardsWrap) {
         return false;
@@ -4245,48 +3920,26 @@ function renderVirtualizedList(force = false) {
         return;
     }
     if (force) {
-        lastTableRange = null;
         lastCardRange = null;
     }
     const totalCount = filteredChannelsCache.length;
-    if (viewMode === 'table') {
-        const range = computeTableRange(totalCount);
-        if (!force && isSameRange(range, lastTableRange)) {
-            return;
-        }
-        lastTableRange = range;
-        const pageItems = filteredChannelsCache.slice(range.startIndex, range.endIndex);
-        currentPageIds = pageItems
-            .map((channel) => channel?.channelId)
-            .filter((id) => typeof id === 'string' && id);
-        renderTable(pageItems, {
-            totalCount,
-            startIndex: range.startIndex,
-            topSpacerHeight: range.topSpacerHeight,
-            bottomSpacerHeight: range.bottomSpacerHeight
-        });
-        if (measureTableMetrics()) {
-            queueVirtualRender(true);
-        }
-    } else {
-        const range = computeCardRange(totalCount);
-        if (!force && isSameRange(range, lastCardRange)) {
-            return;
-        }
-        cardColumns = range.columns || cardColumns;
-        lastCardRange = range;
-        const pageItems = filteredChannelsCache.slice(range.startIndex, range.endIndex);
-        currentPageIds = pageItems
-            .map((channel) => channel?.channelId)
-            .filter((id) => typeof id === 'string' && id);
-        renderCards(pageItems, {
-            totalCount,
-            topSpacerHeight: range.topSpacerHeight,
-            bottomSpacerHeight: range.bottomSpacerHeight
-        });
-        if (measureCardMetrics()) {
-            queueVirtualRender(true);
-        }
+    const range = computeCardRange(totalCount);
+    if (!force && isSameRange(range, lastCardRange)) {
+        return;
+    }
+    cardColumns = range.columns || cardColumns;
+    lastCardRange = range;
+    const pageItems = filteredChannelsCache.slice(range.startIndex, range.endIndex);
+    currentPageIds = pageItems
+        .map((channel) => channel?.channelId)
+        .filter((id) => typeof id === 'string' && id);
+    renderCards(pageItems, {
+        totalCount,
+        topSpacerHeight: range.topSpacerHeight,
+        bottomSpacerHeight: range.bottomSpacerHeight
+    });
+    if (measureCardMetrics()) {
+        queueVirtualRender(true);
     }
 }
 
@@ -4327,10 +3980,7 @@ function renderList() {
 
     filteredChannelsCache = filterChannels();
 
-    tableWrap.style.display = viewMode === 'table' ? 'block' : 'none';
-    cardsWrap.style.display = viewMode === 'card' ? 'grid' : 'none';
-    viewTableButton.classList.toggle('active', viewMode === 'table');
-    viewCardButton.classList.toggle('active', viewMode === 'card');
+    cardsWrap.style.display = 'grid';
     updateSortButton();
 
     if (resetScrollPending && mainWrap) {
