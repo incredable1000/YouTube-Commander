@@ -476,25 +476,14 @@ function showSeekIndicator(direction, seconds) {
 
     if (!state.element || !state.element.isConnected || state.player !== player) {
         if (state.element && state.element.parentNode) {
-            if (state.ownsElement) {
-                state.element.remove();
-            }
+            state.element.remove();
         }
 
-        const existingOverlay = player.querySelector('.ytp-seek-overlay');
-        if (existingOverlay) {
-            state.element = existingOverlay;
-            state.player = player;
-            state.ownsElement = false;
-            state.element.classList.add('yt-commander-seek-overlay');
-        } else {
-            state.element = createIndicatorElement(direction);
-            state.player = player;
-            state.ownsElement = true;
-            state.element.classList.add('yt-commander-seek-overlay');
-            player.appendChild(state.element);
-        }
+        state.element = createIndicatorElement(direction);
+        state.player = player;
         state.totalSeconds = 0;
+
+        player.appendChild(state.element);
     }
 
     state.totalSeconds += seconds;
@@ -533,7 +522,7 @@ function hideSeekIndicator(direction) {
     }
 
     state.removeTimer = setTimeout(() => {
-        if (state.element && state.element.parentNode && state.ownsElement) {
+        if (state.element && state.element.parentNode) {
             state.element.remove();
         }
 
@@ -541,7 +530,6 @@ function hideSeekIndicator(direction) {
         state.player = null;
         state.totalSeconds = 0;
         state.removeTimer = null;
-        state.ownsElement = false;
     }, INDICATOR_REMOVE_DELAY_MS);
 }
 
@@ -562,14 +550,13 @@ function clearSeekIndicators() {
             state.removeTimer = null;
         }
 
-        if (state.element && state.element.parentNode && state.ownsElement) {
+        if (state.element && state.element.parentNode) {
             state.element.remove();
         }
 
         state.element = null;
         state.player = null;
         state.totalSeconds = 0;
-        state.ownsElement = false;
     });
 
     if (controlsVisibilityTimer) {

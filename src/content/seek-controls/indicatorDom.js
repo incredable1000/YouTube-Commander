@@ -4,7 +4,7 @@
 
 /**
  * Create default indicator state object.
- * @returns {{element: HTMLDivElement|null, player: Element|null, totalSeconds: number, hideTimer: number|null, removeTimer: number|null, ownsElement: boolean}}
+ * @returns {{element: HTMLDivElement|null, player: Element|null, totalSeconds: number, hideTimer: number|null, removeTimer: number|null}}
  */
 export function createIndicatorState() {
     return {
@@ -12,8 +12,7 @@ export function createIndicatorState() {
         player: null,
         totalSeconds: 0,
         hideTimer: null,
-        removeTimer: null,
-        ownsElement: false
+        removeTimer: null
     };
 }
 
