@@ -127,6 +127,7 @@ let picker = null;
 let pickerMode = 'toggle';
 let pickerTargetIds = [];
 let pickerAnchorEl = null;
+let pickerContextAnchor = null;
 let sidebarCollapsed = false;
 let sidebarEditingId = '';
 let sidebarEditingName = '';
@@ -2051,18 +2052,6 @@ function ensureModal() {
     autoCategorizeButton.setAttribute('data-action', 'auto-categorize');
     setIconButton(autoCategorizeButton, ICONS.spark, 'Auto categorize');
 
-    addCategoryButton = document.createElement('button');
-    addCategoryButton.type = 'button';
-    addCategoryButton.className = 'yt-commander-sub-manager-btn secondary';
-    addCategoryButton.setAttribute('data-action', 'add-to-category');
-    setIconButton(addCategoryButton, ICONS.categoryAdd, 'Add to category');
-
-    removeCategoryButton = document.createElement('button');
-    removeCategoryButton.type = 'button';
-    removeCategoryButton.className = 'yt-commander-sub-manager-btn secondary';
-    removeCategoryButton.setAttribute('data-action', 'remove-from-category');
-    setIconButton(removeCategoryButton, ICONS.categoryMove, 'Move to category');
-
     sortButton = document.createElement('button');
     sortButton.type = 'button';
     sortButton.className = 'yt-commander-sub-manager-toggle';
@@ -2072,8 +2061,6 @@ function ensureModal() {
     const actionGroup = document.createElement('div');
     actionGroup.className = 'yt-commander-sub-manager-action-group';
     actionGroup.appendChild(autoCategorizeButton);
-    actionGroup.appendChild(addCategoryButton);
-    actionGroup.appendChild(removeCategoryButton);
     actionGroup.appendChild(unsubscribeButton);
     const headerDivider = document.createElement('div');
     headerDivider.className = 'yt-commander-sub-manager-header-divider';
@@ -2172,6 +2159,7 @@ function ensureModal() {
 
     overlay.addEventListener('click', handleOverlayClick);
     modal.addEventListener('click', handleModalClick);
+    modal.addEventListener('contextmenu', handleModalContextMenu);
     modal.addEventListener('dblclick', handleModalDoubleClick);
     modal.addEventListener('change', handleModalChange);
     modal.addEventListener('input', handleModalInput);
@@ -2318,6 +2306,24 @@ function renderPicker() {
     }
 }
 
+function createPickerContextAnchor(x, y) {
+    if (pickerContextAnchor && pickerContextAnchor.parentNode) {
+        pickerContextAnchor.remove();
+    }
+    const anchor = document.createElement('div');
+    anchor.className = 'yt-commander-sub-manager-context-anchor';
+    anchor.style.position = 'fixed';
+    anchor.style.left = `${Math.max(0, x)}px`;
+    anchor.style.top = `${Math.max(0, y)}px`;
+    anchor.style.width = '0px';
+    anchor.style.height = '0px';
+    anchor.style.pointerEvents = 'none';
+    anchor.style.zIndex = '2147483647';
+    document.body.appendChild(anchor);
+    pickerContextAnchor = anchor;
+    return anchor;
+}
+
 /**
  * Show picker.
  * @param {HTMLElement} anchor
@@ -2355,6 +2361,10 @@ function closePicker() {
     }
     pickerAnchorEl = null;
     pickerTargetIds = [];
+    if (pickerContextAnchor) {
+        pickerContextAnchor.remove();
+        pickerContextAnchor = null;
+    }
 }
 
 /**
@@ -3506,30 +3516,8 @@ function handleModalClick(event) {
             return;
         }
 
-        if (action === 'add-to-category') {
-            const ids = Array.from(selectedChannelIds);
-            if (ids.length === 0) {
-                setStatus('Select channels to add.', 'info');
-                return;
-            }
-            ensurePicker();
-            openPicker(actionTarget, 'add', ids);
-            return;
-        }
-
         if (action === 'auto-categorize') {
             maybeAutoCategorizeSubscriptions().catch(() => undefined);
-            return;
-        }
-
-        if (action === 'remove-from-category') {
-            const ids = Array.from(selectedChannelIds);
-            if (ids.length === 0) {
-                setStatus('Select channels to move.', 'info');
-                return;
-            }
-            ensurePicker();
-            openPicker(actionTarget, 'move', ids);
             return;
         }
 
@@ -3619,6 +3607,55 @@ function handleModalClick(event) {
         const channelId = card.getAttribute('data-channel-id') || '';
         handleChannelSelectionInteraction(channelId, { shiftKey: event.shiftKey });
     }
+}
+
+/**
+ * Handle modal right-clicks to open category picker.
+ * @param {MouseEvent} event
+ */
+function handleModalContextMenu(event) {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || !modal?.contains(target)) {
+        return;
+    }
+    const interactive = target.closest(
+        'button, a, input, select, textarea, .yt-commander-sub-manager-categories, .yt-commander-sub-manager-picker'
+    );
+    if (interactive) {
+        return;
+    }
+
+    const row = target.closest('.yt-commander-sub-manager-row');
+    if (row && row.classList.contains('header')) {
+        return;
+    }
+    const card = target.closest('.yt-commander-sub-manager-card');
+    const anchorItem = row || card;
+    if (!anchorItem) {
+        return;
+    }
+    const channelId = anchorItem.getAttribute('data-channel-id') || '';
+    if (!channelId) {
+        return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!selectedChannelIds.has(channelId) || selectedChannelIds.size <= 1) {
+        selectedChannelIds = new Set([channelId]);
+        selectionAnchorId = channelId;
+        renderList();
+    }
+
+    const ids = Array.from(selectedChannelIds);
+    if (ids.length === 0) {
+        return;
+    }
+
+    ensurePicker();
+    const contextAnchor = createPickerContextAnchor(event.clientX, event.clientY);
+    openPicker(contextAnchor, 'move', ids);
 }
 
 /**
