@@ -645,7 +645,7 @@ body.yt-commander-windowed-lock {
 .yt-commander-shorts-counter {
     position: fixed;
     top: 82px;
-    right: 120px;
+    right: 220px;
     display: inline-flex;
     align-items: center;
     gap: 10px;
@@ -670,6 +670,15 @@ body.yt-commander-windowed-lock {
     backdrop-filter: blur(12px) saturate(140%);
     -webkit-backdrop-filter: blur(12px) saturate(140%);
     transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.yt-commander-shorts-counter.is-docked {
+    position: relative;
+    top: auto;
+    right: auto;
+    margin: 8px 0 12px;
+    align-self: center;
+    z-index: 1;
 }
 
 .yt-commander-shorts-counter:hover {
@@ -857,6 +866,10 @@ body.yt-commander-windowed-lock {
         min-width: 70px;
         height: 40px;
         padding: 0 12px 0 10px;
+    }
+
+    .yt-commander-shorts-counter.is-docked {
+        margin: 6px 0 10px;
     }
 
     .yt-commander-shorts-counter__count {
