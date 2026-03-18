@@ -115,6 +115,8 @@ let chipbarSnapTimeoutId = 0;
 let chipbarIsSnapping = false;
 let chipbarScrollTarget = null;
 let chipbarScrollHandler = null;
+let chipbarLastScrollLeft = 0;
+let chipbarScrollDirection = 0;
 let addCategoryButton = null;
 let removeCategoryButton = null;
 let unsubscribeButton = null;
@@ -341,6 +343,8 @@ function resetModalElements() {
     chipbarScrollHandler = null;
     chipbarIsSnapping = false;
     chipbarSnapTimeoutId = 0;
+    chipbarLastScrollLeft = 0;
+    chipbarScrollDirection = 0;
     addCategoryButton = null;
     removeCategoryButton = null;
     unsubscribeButton = null;
@@ -2288,21 +2292,24 @@ function snapChipbarToNearest() {
         }
     });
 
-    let nearest = currentScrollLeft;
-    let bestDelta = Infinity;
-    candidates.forEach((pos) => {
-        const delta = Math.abs(pos - currentScrollLeft);
-        if (delta < bestDelta) {
-            bestDelta = delta;
-            nearest = pos;
+    let target = currentScrollLeft;
+    if (chipbarScrollDirection > 0) {
+        const forward = candidates.filter((pos) => pos >= currentScrollLeft - 0.5);
+        if (forward.length > 0) {
+            target = Math.min(...forward);
         }
-    });
+    } else if (chipbarScrollDirection < 0) {
+        const backward = candidates.filter((pos) => pos <= currentScrollLeft + 0.5);
+        if (backward.length > 0) {
+            target = Math.max(...backward);
+        }
+    }
 
-    if (Math.abs(nearest - currentScrollLeft) < 1) {
+    if (Math.abs(target - currentScrollLeft) < 1) {
         return;
     }
     chipbarIsSnapping = true;
-    sidebarList.scrollTo({ left: nearest, behavior: 'smooth' });
+    sidebarList.scrollTo({ left: target, behavior: 'smooth' });
     window.setTimeout(() => {
         chipbarIsSnapping = false;
     }, 220);
@@ -2348,6 +2355,9 @@ function attachChipbarWheelScroll() {
             return;
         }
         event.preventDefault();
+        if (dominantDelta !== 0) {
+            chipbarScrollDirection = dominantDelta > 0 ? 1 : -1;
+        }
         sidebarList.scrollLeft += dominantDelta;
         scheduleChipbarSnap();
     };
@@ -2357,6 +2367,11 @@ function attachChipbarWheelScroll() {
     chipbarScrollHandler = () => {
         if (chipbarIsSnapping) {
             return;
+        }
+        const currentScrollLeft = sidebarList.scrollLeft;
+        if (currentScrollLeft !== chipbarLastScrollLeft) {
+            chipbarScrollDirection = currentScrollLeft > chipbarLastScrollLeft ? 1 : -1;
+            chipbarLastScrollLeft = currentScrollLeft;
         }
         scheduleChipbarSnap();
     };
