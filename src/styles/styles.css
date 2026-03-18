@@ -67,6 +67,26 @@
     background: rgba(0, 0, 0, 0.62);
 }
 
+.yt-commander-seek-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    pointer-events: none;
+    direction: ltr;
+    opacity: 0;
+    transition: opacity 160ms ease-out;
+}
+
+.yt-commander-seek-overlay.is-active {
+    opacity: 1;
+}
+
 /* YouTube-style seek burst overlay */
 .modern-seek-indicator {
     position: absolute;
