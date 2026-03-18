@@ -7,8 +7,8 @@ const LABEL_ID = 'shorts-counter-label';
 
 const SAVE_DEBOUNCE_MS = 700;
 const OBSERVER_THROTTLE_MS = 260;
-const DELTA_LIFETIME_MS = 760;
-const BUMP_RESET_MS = 460;
+const DELTA_LIFETIME_MS = 900;
+const BUMP_RESET_MS = 720;
 const RESET_FEEDBACK_MS = 380;
 const END_BIND_DELAY_MS = 140;
 const AUTO_SCROLL_END_THRESHOLD_S = 0.25;
