@@ -52,14 +52,6 @@ let controlsVisibilityTimer = null;
 let controlsVisibilityPlayer = null;
 let controlsVisibilityRestoreAutohide = false;
 let suppressSyntheticSeekEvents = false;
-const SEEK_OVERLAY_STEP_SECONDS = 5;
-const SEEK_CHIP_HIDE_DELAY_MS = 820;
-const SEEK_CHIP_REMOVE_DELAY_MS = 240;
-
-const seekChipStates = {
-    forward: createSeekChipState(),
-    backward: createSeekChipState()
-};
 
 /**
  * Initialize seek controls.
@@ -444,16 +436,12 @@ function performSeek(seconds, direction) {
         return;
     }
 
-    const needsCustomLabel = shouldUseCustomSeekLabel(delta);
-    const usedNativeSeek = !needsCustomLabel && tryNativeSeekOverlay(direction, delta);
+    const usedNativeSeek = tryNativeSeekOverlay(direction, delta);
     if (!usedNativeSeek) {
         applySeekTime(video, targetTime);
     }
     showPlayerSeekFeedback(player);
     syncProgressUiAfterSeek(video, player);
-    if (needsCustomLabel) {
-        showSeekChip(direction, seekSeconds);
-    }
 
     logger.debug(`Seek ${direction} ${seekSeconds}s: ${currentTime.toFixed(2)} -> ${targetTime.toFixed(2)}`);
 }
@@ -465,106 +453,6 @@ function performSeek(seconds, direction) {
  */
 function shouldHandleSeekShortcut(event) {
     return !(suppressSyntheticSeekEvents && event && event.isTrusted === false);
-}
-
-/**
- * Check whether we need a custom label for this seek length.
- * @param {number} deltaSeconds
- * @returns {boolean}
- */
-function shouldUseCustomSeekLabel(deltaSeconds) {
-    const absSeconds = Math.abs(deltaSeconds);
-    return absSeconds % SEEK_OVERLAY_STEP_SECONDS !== 0;
-}
-
-/**
- * Create seek chip state.
- * @returns {{element: HTMLDivElement|null, player: Element|null, hideTimer: number|null, removeTimer: number|null}}
- */
-function createSeekChipState() {
-    return {
-        element: null,
-        player: null,
-        hideTimer: null,
-        removeTimer: null
-    };
-}
-
-/**
- * Show a minimal seek label when native overlay cannot show the correct step.
- * @param {'forward'|'backward'} direction
- * @param {number} seconds
- */
-function showSeekChip(direction, seconds) {
-    if (!isEnabled || isShortsPage()) {
-        return;
-    }
-
-    const player = getActivePlayer();
-    if (!player) {
-        return;
-    }
-
-    const state = seekChipStates[direction];
-    if (state.removeTimer) {
-        clearTimeout(state.removeTimer);
-        state.removeTimer = null;
-    }
-
-    if (!state.element || !state.element.isConnected || state.player !== player) {
-        if (state.element && state.element.parentNode) {
-            state.element.remove();
-        }
-
-        const chip = document.createElement('div');
-        chip.className = `yt-commander-seek-chip ${direction}`;
-        state.element = chip;
-        state.player = player;
-        player.appendChild(chip);
-    }
-
-    const prefix = direction === 'forward' ? '+' : '-';
-    state.element.textContent = `${prefix}${seconds}`;
-
-    state.element.classList.remove('is-active');
-    void state.element.offsetWidth;
-    state.element.classList.add('is-active');
-
-    if (state.hideTimer) {
-        clearTimeout(state.hideTimer);
-    }
-
-    state.hideTimer = setTimeout(() => {
-        hideSeekChip(direction);
-    }, SEEK_CHIP_HIDE_DELAY_MS);
-}
-
-/**
- * Hide seek chip overlay.
- * @param {'forward'|'backward'} direction
- */
-function hideSeekChip(direction) {
-    const state = seekChipStates[direction];
-    if (!state.element) {
-        return;
-    }
-
-    state.element.classList.remove('is-active');
-
-    if (state.hideTimer) {
-        clearTimeout(state.hideTimer);
-        state.hideTimer = null;
-    }
-
-    state.removeTimer = setTimeout(() => {
-        if (state.element && state.element.parentNode) {
-            state.element.remove();
-        }
-
-        state.element = null;
-        state.player = null;
-        state.removeTimer = null;
-    }, SEEK_CHIP_REMOVE_DELAY_MS);
 }
 
 /**
@@ -592,12 +480,13 @@ function tryNativeSeekOverlay(direction, deltaSeconds) {
         }
     }
 
+    const defaultStepSeconds = 5;
     const absSeconds = Math.abs(deltaSeconds);
-    if (absSeconds % SEEK_OVERLAY_STEP_SECONDS !== 0) {
+    if (absSeconds % defaultStepSeconds !== 0) {
         return false;
     }
 
-    const steps = Math.max(1, Math.round(absSeconds / SEEK_OVERLAY_STEP_SECONDS));
+    const steps = Math.max(1, Math.round(absSeconds / defaultStepSeconds));
     const key = direction === 'forward' ? 'ArrowRight' : 'ArrowLeft';
     const keyCode = direction === 'forward' ? 39 : 37;
     const eventOptions = {
@@ -636,27 +525,6 @@ function tryNativeSeekOverlay(direction, deltaSeconds) {
  * Clear any pending seek feedback timers.
  */
 function clearSeekIndicators() {
-    ['forward', 'backward'].forEach((direction) => {
-        const state = seekChipStates[direction];
-
-        if (state.hideTimer) {
-            clearTimeout(state.hideTimer);
-            state.hideTimer = null;
-        }
-
-        if (state.removeTimer) {
-            clearTimeout(state.removeTimer);
-            state.removeTimer = null;
-        }
-
-        if (state.element && state.element.parentNode) {
-            state.element.remove();
-        }
-
-        state.element = null;
-        state.player = null;
-    });
-
     if (controlsVisibilityTimer) {
         clearTimeout(controlsVisibilityTimer);
         controlsVisibilityTimer = null;
