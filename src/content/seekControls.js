@@ -500,6 +500,7 @@ function showSeekIndicator(direction, seconds) {
     state.totalSeconds += seconds;
     updateIndicatorElement(state.element, direction, state.totalSeconds);
 
+    applySeekOverlayVisibility(state.element, true);
     state.element.classList.remove('is-active');
     void state.element.offsetWidth;
     state.element.classList.add('is-active');
@@ -525,6 +526,7 @@ function hideSeekIndicator(direction) {
         return;
     }
 
+    applySeekOverlayVisibility(state.element, false);
     state.element.classList.remove('is-active');
 
     if (state.hideTimer) {
@@ -543,6 +545,27 @@ function hideSeekIndicator(direction) {
         state.removeTimer = null;
         state.ownsElement = false;
     }, INDICATOR_REMOVE_DELAY_MS);
+}
+
+/**
+ * Force seek overlay visibility (handles YouTube inline display toggles).
+ * @param {HTMLElement} element
+ * @param {boolean} isVisible
+ */
+function applySeekOverlayVisibility(element, isVisible) {
+    if (!(element instanceof HTMLElement)) {
+        return;
+    }
+
+    if (isVisible) {
+        element.style.display = 'flex';
+        element.style.visibility = 'visible';
+        element.style.opacity = '1';
+    } else {
+        element.style.opacity = '';
+        element.style.visibility = '';
+        element.style.display = '';
+    }
 }
 
 /**
