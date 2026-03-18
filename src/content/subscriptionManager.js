@@ -2,8 +2,6 @@ import { createLogger } from './utils/logger.js';
 import { createBridgeClient } from './playlist-multi-select/bridge.js';
 import { resolveMastheadMountPoint, isEligiblePage } from './playlist-multi-select/pageContext.js';
 import { MASTHEAD_SLOT_CLASS, MASTHEAD_BUTTON_CLASS } from './playlist-multi-select/constants.js';
-import { autoCategorizeSubscriptions } from './subscriptionAutoCategorize.js';
-
 const logger = createLogger('SubscriptionManager');
 
 const BRIDGE_SOURCE = 'yt-commander';
@@ -118,7 +116,6 @@ let chipbarScrollHandler = null;
 let addCategoryButton = null;
 let removeCategoryButton = null;
 let unsubscribeButton = null;
-let autoCategorizeButton = null;
 
 let picker = null;
 let pickerMode = 'toggle';
@@ -166,8 +163,6 @@ let quickAddRetryTimer = 0;
 
 let quickAddObserver = null;
 let quickAddPending = false;
-let autoCategorizeInFlight = false;
-let lastAutoCategorizeSignature = '';
 let filteredChannelsCache = [];
 let cardRowHeight = CARD_ROW_HEIGHT_ESTIMATE;
 let cardColumns = 1;
@@ -344,7 +339,6 @@ function resetModalElements() {
     addCategoryButton = null;
     removeCategoryButton = null;
     unsubscribeButton = null;
-    autoCategorizeButton = null;
     picker = null;
     pickerAnchorEl = null;
     pickerTargetIds = [];
@@ -434,7 +428,6 @@ const ICONS = {
     close: 'M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.29 19.71 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29 10.59 10.6 16.89 4.29z',
     trash: 'M6 7h12v2H6V7zm2 3h8v9H8v-9zm3-7h2l1 2H10l1-2z',
     sort: 'M3 6h10v2H3V6zm0 5h7v2H3v-2zm0 5h4v2H3v-2zm15-8v8h2V8h-2zm-3 3v5h2v-5h-2z',
-    spark: 'M12 2l2.2 6.6L21 9l-5 3.6L17.8 20 12 15.6 6.2 20 8 12.6 3 9l6.8-.4L12 2z',
     openNewTab: 'M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z',
     collapse: 'M15.41 7.41 14 6 8 12 14 18 15.41 16.59 10.83 12z',
     expand: 'M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z',
@@ -1665,12 +1658,6 @@ function ensureModal() {
     unsubscribeButton.setAttribute('data-action', 'unsubscribe-selected');
     setIconButton(unsubscribeButton, ICONS.trash, 'Unsubscribe selected');
 
-    autoCategorizeButton = document.createElement('button');
-    autoCategorizeButton.type = 'button';
-    autoCategorizeButton.className = 'yt-commander-sub-manager-btn secondary';
-    autoCategorizeButton.setAttribute('data-action', 'auto-categorize');
-    setIconButton(autoCategorizeButton, ICONS.spark, 'Auto categorize');
-
     sortButton = document.createElement('button');
     sortButton.type = 'button';
     sortButton.className = 'yt-commander-sub-manager-toggle';
@@ -1679,7 +1666,6 @@ function ensureModal() {
 
     const actionGroup = document.createElement('div');
     actionGroup.className = 'yt-commander-sub-manager-action-group';
-    actionGroup.appendChild(autoCategorizeButton);
     actionGroup.appendChild(unsubscribeButton);
     const headerDivider = document.createElement('div');
     headerDivider.className = 'yt-commander-sub-manager-header-divider';
@@ -3197,11 +3183,6 @@ function handleModalClick(event) {
             return;
         }
 
-        if (action === 'auto-categorize') {
-            maybeAutoCategorizeSubscriptions().catch(() => undefined);
-            return;
-        }
-
         if (action === 'unsubscribe-selected') {
             unsubscribeSelected().catch((error) => {
                 setStatus(error?.message || 'Failed to unsubscribe', 'error');
@@ -3547,48 +3528,6 @@ async function loadSubscriptions(options = {}) {
     }
 }
 
-function buildAutoCategorizeSignature() {
-    const categoryKey = categories.map((category) => category.id).join('|');
-    return `${lastSnapshotHash}:${channels.length}:${categoriesVersion}:${assignmentsVersion}:${categoryKey}`;
-}
-
-async function maybeAutoCategorizeSubscriptions() {
-    if (autoCategorizeInFlight) {
-        return;
-    }
-    if (!overlay?.classList.contains('is-visible')) {
-        return;
-    }
-    if (!channels.length || !categories.length) {
-        return;
-    }
-
-    const signature = buildAutoCategorizeSignature();
-    if (signature && signature === lastAutoCategorizeSignature) {
-        return;
-    }
-
-    autoCategorizeInFlight = true;
-    lastAutoCategorizeSignature = signature;
-    try {
-        const result = await autoCategorizeSubscriptions({
-            channels,
-            categories,
-            assignments,
-            applyCategoryUpdate,
-            setStatus
-        });
-        if (result?.appliedCount) {
-            renderList();
-        }
-    } catch (error) {
-        logger.warn('Auto-categorize failed', error);
-        setStatus(error?.message || 'Auto-categorize failed.', 'error');
-    } finally {
-        autoCategorizeInFlight = false;
-        lastAutoCategorizeSignature = buildAutoCategorizeSignature();
-    }
-}
 /**
  * Build meta label for channel.
  * @param {object} channel

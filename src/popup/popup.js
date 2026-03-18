@@ -5,7 +5,6 @@ import { normalizeQualityId } from '../shared/quality.js';
 const defaultSettings = {
     // Popup-managed settings
     deleteVideosEnabled: false,
-    subscriptionAutoCategorizeEnabled: true,
     autoSwitchToOriginal: true,
     rotationShortcut: 'r',
     windowedFullscreenShortcut: 'Enter',
@@ -64,9 +63,6 @@ const SUBSCRIPTION_MANAGER_STORAGE_KEYS = {
     PENDING_KEYS: 'subscriptionSyncPendingKeys',
     PENDING_COUNT: 'subscriptionSyncPendingCount'
 };
-const SUBSCRIPTION_AUTO_CATEGORIZE_KEYS = {
-    API_KEY: 'subscriptionAutoCategorizeApiKey'
-};
 const SUBSCRIPTION_COOLDOWN_KEY = 'subscriptionManagerCooldownMinutes';
 const SUBSCRIPTION_COOLDOWN_OPTIONS = [5, 10, 30, 60, 120, 240];
 const SQL_EXPORT_TABLE_NAME = 'watched_videos';
@@ -110,64 +106,6 @@ function setupDeleteVideosToggle() {
     }
 }
 
-/**
- * Setup subscription auto-categorize toggle.
- */
-function setupSubscriptionAutoCategorizeToggle() {
-    const toggle = document.getElementById('subscriptionAutoCategorizeToggle');
-    if (!toggle) {
-        return;
-    }
-
-    toggle.addEventListener('click', (event) => {
-        event.stopPropagation();
-
-        const enabled = !toggle.classList.contains('active');
-        setToggleState(toggle, enabled);
-        currentSettings.subscriptionAutoCategorizeEnabled = enabled;
-        saveSyncSettings();
-        showStatus(
-            enabled ? 'Auto categorize enabled' : 'Auto categorize disabled',
-            'success'
-        );
-    });
-}
-
-async function loadSubscriptionAutoCategorizeKey() {
-    const input = document.getElementById('subscriptionAutoCategorizeKey');
-    if (!input) {
-        return;
-    }
-
-    const result = await chrome.storage.local.get([SUBSCRIPTION_AUTO_CATEGORIZE_KEYS.API_KEY]);
-    const apiKey = typeof result[SUBSCRIPTION_AUTO_CATEGORIZE_KEYS.API_KEY] === 'string'
-        ? result[SUBSCRIPTION_AUTO_CATEGORIZE_KEYS.API_KEY]
-        : '';
-    input.value = apiKey;
-}
-
-function setupSubscriptionAutoCategorizeKeyInput() {
-    const input = document.getElementById('subscriptionAutoCategorizeKey');
-    if (!input) {
-        return;
-    }
-
-    const saveKey = () => {
-        const nextValue = input.value.trim();
-        chrome.storage.local.set({
-            [SUBSCRIPTION_AUTO_CATEGORIZE_KEYS.API_KEY]: nextValue
-        }, () => {
-            if (chrome.runtime.lastError) {
-                showStatus('Failed to save Gemini key', 'error');
-                return;
-            }
-            showStatus(nextValue ? 'Gemini key saved' : 'Gemini key cleared', 'success');
-        });
-    };
-
-    input.addEventListener('change', saveKey);
-    input.addEventListener('blur', saveKey);
-}
 /**
  * Setup show/hide toggle for sensitive token inputs.
  * @param {string} inputId
@@ -673,10 +611,6 @@ function loadSettings() {
             document.getElementById('windowedFullscreenAutoToggle'),
             currentSettings.windowedFullscreenAuto === true
         );
-        setToggleState(
-            document.getElementById('subscriptionAutoCategorizeToggle'),
-            currentSettings.subscriptionAutoCategorizeEnabled !== false
-        );
 
         loadWatchedHistoryStats();
         loadCloudflareSyncSettings().catch((error) => {
@@ -687,9 +621,6 @@ function loadSettings() {
         });
         loadSubscriptionCooldownSetting().catch((error) => {
             showStatus(error?.message || 'Failed to load subscription cooldown setting', 'error');
-        });
-        loadSubscriptionAutoCategorizeKey().catch((error) => {
-            showStatus(error?.message || 'Failed to load Gemini key', 'error');
         });
         cleanupLegacyFeatureFlags();
     });
@@ -2797,13 +2728,10 @@ document.addEventListener('DOMContentLoaded', () => {
     setupAudioSettingToggle();
     setupWindowedAutoToggle();
     setupDeleteVideosToggle();
-    setupSubscriptionAutoCategorizeToggle();
-    setupSubscriptionAutoCategorizeKeyInput();
     setupCloudflareSyncControls();
     setupSubscriptionSyncControls();
     setupSubscriptionCooldownControl();
     setupTokenVisibilityToggle('cloudflareSyncToken', 'cloudflareTokenToggle');
-    setupTokenVisibilityToggle('subscriptionAutoCategorizeKey', 'subscriptionAutoCategorizeKeyToggle');
     setupPopupSettingsModal();
     setupAutoSave();
     document.getElementById('exportHistory').addEventListener('click', exportHistory);
