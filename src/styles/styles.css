@@ -2740,21 +2740,14 @@ body.yt-commander-windowed-lock {
     overflow-x: auto;
     overflow-y: hidden;
     padding: 8px 6px 8px 0;
-    scrollbar-width: thin;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
     white-space: nowrap;
 }
 
 .yt-commander-sub-manager-chip-list::-webkit-scrollbar {
-    height: 6px;
-}
-
-.yt-commander-sub-manager-chip-list::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.18);
-    border-radius: 999px;
-}
-
-.yt-commander-sub-manager-chip-list::-webkit-scrollbar-track {
-    background: transparent;
+    width: 0;
+    height: 0;
 }
 
 .yt-commander-sub-manager-chipbar .yt-commander-sub-manager-sidebar-item {

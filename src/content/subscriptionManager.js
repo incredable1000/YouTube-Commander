@@ -116,6 +116,8 @@ let sidebarList = null;
 let sidebarToggleButton = null;
 let sidebarAddButton = null;
 let sidebarCountEl = null;
+let chipbarWheelTarget = null;
+let chipbarWheelHandler = null;
 let addCategoryButton = null;
 let removeCategoryButton = null;
 let unsubscribeButton = null;
@@ -308,6 +310,9 @@ function resetModalElements() {
     if (mainWrap) {
         mainWrap.removeEventListener('scroll', handleMainScroll);
     }
+    if (chipbarWheelTarget && chipbarWheelHandler) {
+        chipbarWheelTarget.removeEventListener('wheel', chipbarWheelHandler);
+    }
     window.removeEventListener('resize', handleVirtualResize);
 
     overlay = null;
@@ -334,6 +339,8 @@ function resetModalElements() {
     sidebarToggleButton = null;
     sidebarAddButton = null;
     sidebarCountEl = null;
+    chipbarWheelTarget = null;
+    chipbarWheelHandler = null;
     addCategoryButton = null;
     removeCategoryButton = null;
     unsubscribeButton = null;
@@ -1763,6 +1770,7 @@ function ensureModal() {
     mainWrap.appendChild(cardsWrap);
 
     content.appendChild(mainWrap);
+    attachChipbarWheelScroll();
 
     statusEl = document.createElement('div');
     statusEl.className = STATUS_CLASS;
@@ -2282,6 +2290,39 @@ function updateRemoveCategoryButton() {
     removeCategoryButton.disabled = !hasSelection;
     const label = hasSelection ? 'Move to category' : 'Select channels to move';
     setIconButton(removeCategoryButton, ICONS.categoryMove, label);
+}
+
+function attachChipbarWheelScroll() {
+    if (!sidebar || !sidebarList) {
+        return;
+    }
+    if (!sidebar.classList.contains('yt-commander-sub-manager-chipbar')) {
+        return;
+    }
+    if (chipbarWheelTarget && chipbarWheelHandler) {
+        chipbarWheelTarget.removeEventListener('wheel', chipbarWheelHandler);
+    }
+    chipbarWheelTarget = sidebar;
+    chipbarWheelHandler = (event) => {
+        if (!sidebarList) {
+            return;
+        }
+        if (event.ctrlKey) {
+            return;
+        }
+        if (sidebarList.scrollWidth <= sidebarList.clientWidth) {
+            return;
+        }
+        const dominantDelta = Math.abs(event.deltaY) >= Math.abs(event.deltaX)
+            ? event.deltaY
+            : event.deltaX;
+        if (!dominantDelta) {
+            return;
+        }
+        event.preventDefault();
+        sidebarList.scrollLeft += dominantDelta;
+    };
+    chipbarWheelTarget.addEventListener('wheel', chipbarWheelHandler, { passive: false });
 }
 
 function updateCategoryActionButtons() {
