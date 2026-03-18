@@ -2683,7 +2683,7 @@ body.yt-commander-windowed-lock {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 4px 10px;
+    padding: 6px 10px;
     margin: 0 0 8px;
     min-height: 0;
     background: rgba(18, 24, 33, 0.94);
@@ -2739,7 +2739,7 @@ body.yt-commander-windowed-lock {
     min-width: 0;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 0 6px 0 0;
+    padding: 2px 6px 2px 0;
     scrollbar-width: none;
     -ms-overflow-style: none;
     white-space: nowrap;
@@ -2757,9 +2757,9 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-item {
-    min-height: 28px;
-    padding: 4px 12px;
-    line-height: 1.2;
+    min-height: 30px;
+    padding: 5px 12px;
+    line-height: 1;
     border-radius: 999px;
     font-size: 13px;
     line-height: 1;
