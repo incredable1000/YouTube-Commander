@@ -645,7 +645,7 @@ body.yt-commander-windowed-lock {
 .yt-commander-shorts-counter {
     position: fixed;
     top: 82px;
-    right: 20px;
+    right: 120px;
     display: inline-flex;
     align-items: center;
     gap: 10px;
@@ -853,7 +853,7 @@ body.yt-commander-windowed-lock {
 @media (max-width: 768px) {
     .yt-commander-shorts-counter {
         top: 74px;
-        right: 12px;
+        right: 112px;
         min-width: 70px;
         height: 40px;
         padding: 0 12px 0 10px;
