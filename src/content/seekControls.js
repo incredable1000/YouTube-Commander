@@ -21,6 +21,8 @@ import {
     BUTTON_WAIT_TIMEOUT_MS,
     CONTROL_VISIBILITY_HOLD_MS,
     FLAT_SEEK_SETTING_KEYS,
+    INDICATOR_HIDE_DELAY_MS,
+    INDICATOR_REMOVE_DELAY_MS,
     SEEK_CONFIG
 } from './seek-controls/constants.js';
 import {
@@ -28,6 +30,12 @@ import {
     isPlainObject,
     normalizeSettings
 } from './seek-controls/settings.js';
+import {
+    createIndicatorElement,
+    createIndicatorState,
+    updateIndicatorElement
+} from './seek-controls/indicatorDom.js';
+
 const logger = createLogger('SeekControls');
 
 let settings = normalizeSettings(DEFAULT_SETTINGS);
@@ -51,6 +59,11 @@ let buttonEnsureTimer = null;
 let controlsVisibilityTimer = null;
 let controlsVisibilityPlayer = null;
 let controlsVisibilityRestoreAutohide = false;
+
+const indicatorStates = {
+    forward: createIndicatorState(),
+    backward: createIndicatorState()
+};
 
 /**
  * Initialize seek controls.
@@ -434,14 +447,118 @@ function performSeek(seconds, direction) {
     applySeekTime(video, targetTime);
     showPlayerSeekFeedback(player);
     syncProgressUiAfterSeek(video, player);
+    showSeekIndicator(direction, seekSeconds);
 
     logger.debug(`Seek ${direction} ${seekSeconds}s: ${currentTime.toFixed(2)} -> ${targetTime.toFixed(2)}`);
 }
 
 /**
- * Clear any pending seek feedback timers.
+ * Show YouTube-like seek indicator and accumulate repeated seeks.
+ * @param {'forward'|'backward'} direction
+ * @param {number} seconds
+ */
+function showSeekIndicator(direction, seconds) {
+    if (!isEnabled || isShortsPage()) {
+        return;
+    }
+
+    const player = getActivePlayer();
+    if (!player) {
+        return;
+    }
+
+    const state = indicatorStates[direction];
+
+    if (state.removeTimer) {
+        clearTimeout(state.removeTimer);
+        state.removeTimer = null;
+    }
+
+    if (!state.element || !state.element.isConnected || state.player !== player) {
+        if (state.element && state.element.parentNode) {
+            state.element.remove();
+        }
+
+        state.element = createIndicatorElement(direction);
+        state.player = player;
+        state.totalSeconds = 0;
+
+        player.appendChild(state.element);
+    }
+
+    state.totalSeconds += seconds;
+    updateIndicatorElement(state.element, direction, state.totalSeconds);
+
+    state.element.classList.remove('is-active');
+    void state.element.offsetWidth;
+    state.element.classList.add('is-active');
+
+    if (state.hideTimer) {
+        clearTimeout(state.hideTimer);
+    }
+
+    state.hideTimer = setTimeout(() => {
+        hideSeekIndicator(direction);
+    }, INDICATOR_HIDE_DELAY_MS);
+}
+
+/**
+ * Hide indicator and reset accumulated state.
+ * @param {'forward'|'backward'} direction
+ */
+function hideSeekIndicator(direction) {
+    const state = indicatorStates[direction];
+
+    if (!state.element) {
+        state.totalSeconds = 0;
+        return;
+    }
+
+    state.element.classList.remove('is-active');
+
+    if (state.hideTimer) {
+        clearTimeout(state.hideTimer);
+        state.hideTimer = null;
+    }
+
+    state.removeTimer = setTimeout(() => {
+        if (state.element && state.element.parentNode) {
+            state.element.remove();
+        }
+
+        state.element = null;
+        state.player = null;
+        state.totalSeconds = 0;
+        state.removeTimer = null;
+    }, INDICATOR_REMOVE_DELAY_MS);
+}
+
+/**
+ * Remove all active seek indicators immediately.
  */
 function clearSeekIndicators() {
+    ['forward', 'backward'].forEach((direction) => {
+        const state = indicatorStates[direction];
+
+        if (state.hideTimer) {
+            clearTimeout(state.hideTimer);
+            state.hideTimer = null;
+        }
+
+        if (state.removeTimer) {
+            clearTimeout(state.removeTimer);
+            state.removeTimer = null;
+        }
+
+        if (state.element && state.element.parentNode) {
+            state.element.remove();
+        }
+
+        state.element = null;
+        state.player = null;
+        state.totalSeconds = 0;
+    });
+
     if (controlsVisibilityTimer) {
         clearTimeout(controlsVisibilityTimer);
         controlsVisibilityTimer = null;
