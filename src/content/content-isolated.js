@@ -108,7 +108,8 @@ async function initializeModules() {
             import('./playlistMultiSelect.js').catch(e => { logger.warn('Failed to import playlistMultiSelect:', e); throw e; }),
             import('./qualityControls-wrapper.js').catch(e => { logger.warn('Failed to import qualityControls-wrapper:', e); throw e; }),
             import('./watchedHistory.js').catch(e => { logger.warn('Failed to import watchedHistory:', e); throw e; }),
-            import('./subscriptionManager.js').catch(e => { logger.warn('Failed to import subscriptionManager:', e); throw e; })
+            import('./subscriptionManager.js').catch(e => { logger.warn('Failed to import subscriptionManager:', e); throw e; }),
+            import('./miniGuidePlaylistButton.js').catch(e => { logger.warn('Failed to import miniGuidePlaylistButton:', e); throw e; })
         ]);
         
         // Initialize successfully imported modules
@@ -129,7 +130,8 @@ async function initializeModules() {
                     'playlistMultiSelect',
                     'qualityControlsWrapper',
                     'watchedHistory',
-                    'subscriptionManager'
+                    'subscriptionManager',
+                    'miniGuidePlaylistButton'
                 ];
                 const moduleName = moduleNames[index];
                 
@@ -154,6 +156,7 @@ async function initializeModules() {
                 if (module.initQualityWrapper) initPromises.push(module.initQualityWrapper());
                 if (module.initWatchedHistory) initPromises.push(module.initWatchedHistory());
                 if (module.initSubscriptionManager) initPromises.push(module.initSubscriptionManager());
+                if (module.initMiniGuidePlaylistButton) initPromises.push(module.initMiniGuidePlaylistButton());
             } else {
                 logger.error(`Failed to load module:`, result.reason);
                 const moduleNames = [
@@ -169,7 +172,8 @@ async function initializeModules() {
                     'playlistMultiSelect',
                     'qualityControlsWrapper',
                     'watchedHistory',
-                    'subscriptionManager'
+                    'subscriptionManager',
+                    'miniGuidePlaylistButton'
                 ];
                 const failedName = moduleNames[index];
             }
