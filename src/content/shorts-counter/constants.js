@@ -4,6 +4,7 @@
 
 const SESSION_STORAGE_KEY = 'ytCommanderShortsCounterSession';
 const LABEL_ID = 'shorts-counter-label';
+const AUTO_ADVANCE_LABEL_ID = 'shorts-auto-advance-toggle';
 
 const SAVE_DEBOUNCE_MS = 700;
 const OBSERVER_THROTTLE_MS = 260;
@@ -16,6 +17,7 @@ const AUTO_SCROLL_MAX_RETRIES = 2;
 export {
     SESSION_STORAGE_KEY,
     LABEL_ID,
+    AUTO_ADVANCE_LABEL_ID,
     SAVE_DEBOUNCE_MS,
     OBSERVER_THROTTLE_MS,
     END_BIND_DELAY_MS,

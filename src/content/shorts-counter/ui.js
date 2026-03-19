@@ -170,6 +170,160 @@ function createShortsCounterUi(options) {
     };
 }
 
+/**
+ * Create Shorts auto-advance toggle UI controller.
+ * @param {{
+ *  labelId?: string,
+ *  counterLabelId?: string,
+ *  onToggle?: (nextValue: boolean) => void
+ * }} options
+ * @returns {{
+ *  mount: () => void,
+ *  unmount: () => void,
+ *  setEnabled: (value: boolean) => void,
+ *  isMounted: () => boolean
+ * }}
+ */
+function createShortsAutoAdvanceToggleUi(options) {
+    const labelId = options?.labelId || 'shorts-auto-advance-toggle';
+    const counterLabelId = options?.counterLabelId || 'shorts-counter-label';
+    const onToggle = typeof options?.onToggle === 'function' ? options.onToggle : () => {};
+
+    let toggleButton = null;
+    let toggleLabel = null;
+    let clickCleanup = null;
+    let lastHost = null;
+    let enabled = true;
+
+    const hostSelectors = [
+        'ytd-reel-player-overlay-renderer #actions',
+        'ytd-reel-player-overlay-renderer .actions',
+        'ytd-reel-player-overlay-renderer ytd-reel-player-actions-renderer',
+        '#actions'
+    ];
+
+    function resolveDockHost() {
+        const activeRenderer = getActiveShortsRenderer();
+        if (!activeRenderer) {
+            return null;
+        }
+
+        for (const selector of hostSelectors) {
+            const host = activeRenderer.querySelector(selector);
+            if (host instanceof HTMLElement) {
+                return host;
+            }
+        }
+
+        return null;
+    }
+
+    function applyEnabledState() {
+        if (!toggleButton || !toggleLabel) {
+            return;
+        }
+
+        toggleButton.classList.toggle('is-disabled', !enabled);
+        toggleButton.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        toggleButton.setAttribute(
+            'aria-label',
+            enabled ? 'Auto-advance on. Click to disable.' : 'Auto-advance off. Click to enable.'
+        );
+        toggleButton.title = enabled ? 'Auto-advance on (click to disable)' : 'Auto-advance off (click to enable)';
+        toggleLabel.textContent = enabled ? 'Auto' : 'Off';
+    }
+
+    function attachToHost() {
+        if (!toggleButton) {
+            return;
+        }
+
+        const host = resolveDockHost();
+        if (host) {
+            toggleButton.classList.add('is-docked');
+            const counterLabel = host.querySelector(`#${counterLabelId}`);
+            if (counterLabel instanceof HTMLElement && counterLabel.parentElement === host) {
+                if (counterLabel.nextSibling !== toggleButton || toggleButton.parentElement !== host) {
+                    host.insertBefore(toggleButton, counterLabel.nextSibling);
+                }
+            } else if (toggleButton.parentElement !== host || lastHost !== host) {
+                host.insertBefore(toggleButton, host.firstChild);
+            }
+            lastHost = host;
+            return;
+        }
+
+        toggleButton.classList.remove('is-docked');
+        if (toggleButton.parentElement) {
+            toggleButton.remove();
+        }
+        lastHost = null;
+    }
+
+    function unmount() {
+        if (clickCleanup) {
+            clickCleanup();
+            clickCleanup = null;
+        }
+
+        if (toggleButton) {
+            toggleButton.remove();
+        }
+
+        toggleButton = null;
+        toggleLabel = null;
+        lastHost = null;
+    }
+
+    function mount() {
+        const existing = document.getElementById(labelId);
+        if (existing) {
+            existing.remove();
+        }
+
+        toggleButton = document.createElement('button');
+        toggleButton.id = labelId;
+        toggleButton.type = 'button';
+        toggleButton.className = 'yt-commander-shorts-auto-toggle';
+        toggleButton.innerHTML = [
+            '<span class="yt-commander-shorts-auto-toggle__icon" aria-hidden="true">',
+            '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">',
+            '<path d="M6 6h7a5 5 0 0 1 0 10H8.7l1.8 1.8-1.4 1.4L4.9 15l4.2-4.2 1.4 1.4L8.7 14H13a3 3 0 0 0 0-6H6V6z"></path>',
+            '</svg>',
+            '</span>',
+            '<span class="yt-commander-shorts-auto-toggle__label">Auto</span>'
+        ].join('');
+
+        toggleLabel = toggleButton.querySelector('.yt-commander-shorts-auto-toggle__label');
+
+        if (clickCleanup) {
+            clickCleanup();
+            clickCleanup = null;
+        }
+
+        clickCleanup = addEventListenerWithCleanup(toggleButton, 'click', () => {
+            onToggle(!enabled);
+        });
+
+        applyEnabledState();
+        attachToHost();
+    }
+
+    function setEnabled(nextValue) {
+        enabled = Boolean(nextValue);
+        applyEnabledState();
+        attachToHost();
+    }
+
+    return {
+        mount,
+        unmount,
+        setEnabled,
+        isMounted: () => Boolean(toggleButton)
+    };
+}
+
 export {
-    createShortsCounterUi
+    createShortsCounterUi,
+    createShortsAutoAdvanceToggleUi
 };

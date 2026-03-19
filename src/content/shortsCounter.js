@@ -8,6 +8,7 @@ import { createThrottledObserver, addEventListenerWithCleanup } from './utils/ev
 import {
     SESSION_STORAGE_KEY,
     LABEL_ID,
+    AUTO_ADVANCE_LABEL_ID,
     SAVE_DEBOUNCE_MS,
     OBSERVER_THROTTLE_MS,
     END_BIND_DELAY_MS,
@@ -23,7 +24,7 @@ import {
     advanceToNextShort
 } from './shorts-counter/pageContext.js';
 import { loadCounterState, saveCounterState } from './shorts-counter/sessionStore.js';
-import { createShortsCounterUi } from './shorts-counter/ui.js';
+import { createShortsAutoAdvanceToggleUi, createShortsCounterUi } from './shorts-counter/ui.js';
 
 const logger = createLogger('ShortsCounter');
 
@@ -40,6 +41,7 @@ let contextCheckScheduled = false;
 let lastShortId = null;
 let initialized = false;
 let enabled = true;
+let autoAdvanceEnabled = true;
 let autoAdvanceBinding = null;
 let autoAdvanceAttempt = null;
 
@@ -47,6 +49,14 @@ const counterUi = createShortsCounterUi({
     labelId: LABEL_ID,
     onReset: () => {
         void resetCounter();
+    }
+});
+
+const autoAdvanceUi = createShortsAutoAdvanceToggleUi({
+    labelId: AUTO_ADVANCE_LABEL_ID,
+    counterLabelId: LABEL_ID,
+    onToggle: (nextValue) => {
+        setAutoAdvanceEnabled(nextValue);
     }
 });
 
@@ -58,11 +68,13 @@ async function loadCounterData() {
         const state = loadCounterState(SESSION_STORAGE_KEY);
         countedVideos = state.countedVideos;
         counter = state.counter;
+        autoAdvanceEnabled = state.autoAdvanceEnabled;
         logger.debug('Counter data loaded', { counter, uniqueVideos: countedVideos.size });
     } catch (error) {
         logger.error('Failed to load counter data', error);
         countedVideos = new Set();
         counter = 0;
+        autoAdvanceEnabled = true;
     }
 }
 
@@ -71,7 +83,7 @@ async function loadCounterData() {
  */
 async function saveCounterData() {
     try {
-        saveCounterState(SESSION_STORAGE_KEY, { countedVideos, counter });
+        saveCounterState(SESSION_STORAGE_KEY, { countedVideos, counter, autoAdvanceEnabled });
     } catch (error) {
         logger.error('Failed to save counter data', error);
     }
@@ -114,10 +126,27 @@ function ensureCounterLabel() {
 }
 
 /**
+ * Ensure auto-advance toggle is mounted and synchronized.
+ */
+function ensureAutoAdvanceToggle() {
+    if (!autoAdvanceUi.isMounted()) {
+        autoAdvanceUi.mount();
+    }
+    autoAdvanceUi.setEnabled(autoAdvanceEnabled);
+}
+
+/**
  * Remove counter element.
  */
 function removeCounterLabel() {
     counterUi.unmount();
+}
+
+/**
+ * Remove auto-advance toggle.
+ */
+function removeAutoAdvanceToggle() {
+    autoAdvanceUi.unmount();
 }
 
 /**
@@ -135,6 +164,31 @@ function animateCounterReset() {
  */
 function updateCounterDisplay({ animate = false, delta = 1 } = {}) {
     counterUi.setCount(counter, { animate, delta });
+}
+
+/**
+ * Update auto-advance toggle state.
+ * @param {boolean} nextValue
+ */
+function setAutoAdvanceEnabled(nextValue) {
+    const normalized = Boolean(nextValue);
+    if (autoAdvanceEnabled === normalized) {
+        return;
+    }
+
+    autoAdvanceEnabled = normalized;
+    autoAdvanceUi.setEnabled(autoAdvanceEnabled);
+    void saveCounterData();
+
+    if (!autoAdvanceEnabled) {
+        clearAutoAdvanceAttempt();
+        clearAutoAdvanceBinding();
+        return;
+    }
+
+    if (enabled && isShortsWatchPage()) {
+        scheduleEndedBinding();
+    }
 }
 
 /**
@@ -173,7 +227,7 @@ function clearAutoAdvanceAttempt() {
  * @returns {boolean}
  */
 function triggerAutoAdvance(reason, options = {}) {
-    if (!enabled || !isShortsWatchPage()) {
+    if (!enabled || !autoAdvanceEnabled || !isShortsWatchPage()) {
         return false;
     }
 
@@ -217,7 +271,7 @@ function triggerAutoAdvance(reason, options = {}) {
             return;
         }
         attempt.timerId = window.setTimeout(() => {
-            if (!enabled || !isShortsWatchPage()) {
+            if (!enabled || !autoAdvanceEnabled || !isShortsWatchPage()) {
                 clearAutoAdvanceAttempt();
                 return;
             }
@@ -231,7 +285,7 @@ function triggerAutoAdvance(reason, options = {}) {
     };
 
     const runAttempt = (isRetry = false) => {
-        if (!enabled || !isShortsWatchPage()) {
+        if (!enabled || !autoAdvanceEnabled || !isShortsWatchPage()) {
             clearAutoAdvanceAttempt();
             return;
         }
@@ -274,7 +328,7 @@ function triggerAutoAdvance(reason, options = {}) {
  * @param {string} shortId
  */
 function bindAutoAdvanceHandler(video, shortId) {
-    if (!(video instanceof HTMLVideoElement) || !shortId) {
+    if (!(video instanceof HTMLVideoElement) || !shortId || !autoAdvanceEnabled) {
         return;
     }
 
@@ -297,7 +351,7 @@ function bindAutoAdvanceHandler(video, shortId) {
     const onTimeUpdate = () => {
         const currentTime = video.currentTime;
 
-        if (!enabled || !isShortsWatchPage()) {
+        if (!enabled || !autoAdvanceEnabled || !isShortsWatchPage()) {
             lastPlaybackTime = currentTime;
             return;
         }
@@ -339,7 +393,7 @@ function bindAutoAdvanceHandler(video, shortId) {
 
     const onSeeking = () => {
         pendingSeekToEnd = false;
-        if (!enabled || !isShortsWatchPage()) {
+        if (!enabled || !autoAdvanceEnabled || !isShortsWatchPage()) {
             return;
         }
         if (!Number.isFinite(video.duration) || video.duration <= 0) {
@@ -353,7 +407,7 @@ function bindAutoAdvanceHandler(video, shortId) {
     };
 
     const onSeeked = () => {
-        if (!pendingSeekToEnd) {
+        if (!pendingSeekToEnd || !autoAdvanceEnabled) {
             return;
         }
         pendingSeekToEnd = false;
@@ -385,7 +439,7 @@ function bindAutoAdvanceHandler(video, shortId) {
  * Debounced binding for the active Shorts video.
  */
 function scheduleEndedBinding() {
-    if (!enabled) {
+    if (!enabled || !autoAdvanceEnabled) {
         return;
     }
 
@@ -396,7 +450,7 @@ function scheduleEndedBinding() {
     endBindTimer = window.setTimeout(() => {
         endBindTimer = null;
 
-        if (!enabled || !isShortsWatchPage()) {
+        if (!enabled || !autoAdvanceEnabled || !isShortsWatchPage()) {
             clearAutoAdvanceBinding();
             return;
         }
@@ -424,6 +478,7 @@ async function syncCounterWithCurrentShort() {
         lastShortId = null;
         clearAutoAdvanceAttempt();
         removeCounterLabel();
+        removeAutoAdvanceToggle();
         clearAutoAdvanceBinding();
         return;
     }
@@ -432,6 +487,7 @@ async function syncCounterWithCurrentShort() {
         return;
     }
 
+    ensureAutoAdvanceToggle();
     ensureCounterLabel();
     updateCounterDisplay();
     scheduleEndedBinding();
@@ -643,6 +699,7 @@ function disable() {
     enabled = false;
     stopRuntime();
     removeCounterLabel();
+    removeAutoAdvanceToggle();
     logger.info('Shorts counter disabled');
 }
 
@@ -653,6 +710,7 @@ function cleanup() {
     enabled = false;
     stopRuntime();
     removeCounterLabel();
+    removeAutoAdvanceToggle();
 
     if (saveTimer) {
         void flushPendingSave();

@@ -5,7 +5,7 @@
 /**
  * Ensure loaded storage data is valid.
  * @param {object|null} rawData
- * @returns {{countedVideos: Set<string>, counter: number}}
+ * @returns {{countedVideos: Set<string>, counter: number, autoAdvanceEnabled: boolean}}
  */
 function hydrateCounterData(rawData) {
     const safeData = rawData && typeof rawData === 'object' ? rawData : {};
@@ -18,17 +18,21 @@ function hydrateCounterData(rawData) {
         ? Math.floor(safeData.counter)
         : countedVideos.size;
     const counter = Math.max(parsedCounter, countedVideos.size);
+    const autoAdvanceEnabled = typeof safeData.autoAdvanceEnabled === 'boolean'
+        ? safeData.autoAdvanceEnabled
+        : true;
 
     return {
         countedVideos,
-        counter
+        counter,
+        autoAdvanceEnabled
     };
 }
 
 /**
  * Load counter state from session storage.
  * @param {string} storageKey
- * @returns {{countedVideos: Set<string>, counter: number}}
+ * @returns {{countedVideos: Set<string>, counter: number, autoAdvanceEnabled: boolean}}
  */
 function loadCounterState(storageKey) {
     const raw = window.sessionStorage.getItem(storageKey);
@@ -39,12 +43,15 @@ function loadCounterState(storageKey) {
 /**
  * Persist counter state into session storage.
  * @param {string} storageKey
- * @param {{countedVideos: Set<string>, counter: number}} state
+ * @param {{countedVideos: Set<string>, counter: number, autoAdvanceEnabled?: boolean}} state
  */
 function saveCounterState(storageKey, state) {
     const payload = {
         countedVideos: Array.from(state.countedVideos || []),
-        counter: Number.isFinite(state.counter) ? Math.max(0, Math.floor(state.counter)) : 0
+        counter: Number.isFinite(state.counter) ? Math.max(0, Math.floor(state.counter)) : 0,
+        autoAdvanceEnabled: typeof state.autoAdvanceEnabled === 'boolean'
+            ? state.autoAdvanceEnabled
+            : true
     };
 
     window.sessionStorage.setItem(storageKey, JSON.stringify(payload));
