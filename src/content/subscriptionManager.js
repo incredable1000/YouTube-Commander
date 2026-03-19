@@ -2722,6 +2722,10 @@ function renderSidebarCategories() {
             sidebarList.scrollTop = Math.min(nextScrollTop, sidebarList.scrollHeight);
         });
     }
+
+    window.requestAnimationFrame(() => {
+        updateChipbarNavButtons();
+    });
 }
 
 /**
