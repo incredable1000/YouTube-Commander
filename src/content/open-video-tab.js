@@ -3,9 +3,10 @@
  */
 
 import { createLogger } from './utils/logger.js';
-import { createThrottledObserver } from './utils/events.js';
+import { createKeyboardShortcut, createThrottledObserver } from './utils/events.js';
 import { createIcon } from './utils/ui.js';
-import { getActivePlayer, getCurrentVideoId, isVideoPage } from './utils/youtube.js';
+import { getActivePlayer, getCurrentVideoId, isShortsPage, isVideoPage } from './utils/youtube.js';
+import { normalizeShortcutKey } from '../shared/shortcutKey.js';
 import { ICONS } from '../shared/constants.js';
 
 const logger = createLogger('OpenVideoTab');
@@ -13,11 +14,16 @@ const logger = createLogger('OpenVideoTab');
 const BUTTON_ID = 'yt-commander-open-video-button';
 const BUTTON_CLASS = 'ytp-button yt-commander-open-video-button';
 const OBSERVER_THROTTLE_MS = 650;
+const DEFAULT_OPEN_VIDEO_SHORTCUT = { ctrl: true, shift: false, alt: false, key: 'Enter' };
+const DEFAULT_OPEN_CHANNEL_SHORTCUT = { ctrl: false, shift: true, alt: false, key: 'Enter' };
 
 let isInitialized = false;
 let initPromise = null;
 let openButton = null;
 let domObserver = null;
+let keyboardShortcuts = [];
+let openVideoShortcut = { ...DEFAULT_OPEN_VIDEO_SHORTCUT };
+let openChannelShortcut = { ...DEFAULT_OPEN_CHANNEL_SHORTCUT };
 
 /**
  * Initialize the open-in-new-tab player button.
@@ -35,6 +41,7 @@ export async function initOpenVideoTab() {
         logger.info('Initializing open video tab control');
 
         ensureOpenButton();
+        setupKeyboardShortcuts();
 
         domObserver = createThrottledObserver(() => {
             ensureOpenButton();
@@ -55,6 +62,22 @@ export async function initOpenVideoTab() {
     } finally {
         initPromise = null;
     }
+}
+
+/**
+ * Update shortcuts from extension settings.
+ * @param {object} settings
+ */
+export function updateSettings(settings = {}) {
+    openVideoShortcut = normalizeShortcutConfig(
+        settings.openVideoNewTabShortcut,
+        DEFAULT_OPEN_VIDEO_SHORTCUT
+    );
+    openChannelShortcut = normalizeShortcutConfig(
+        settings.openChannelNewTabShortcut,
+        DEFAULT_OPEN_CHANNEL_SHORTCUT
+    );
+    setupKeyboardShortcuts();
 }
 
 function ensureOpenButton() {
@@ -98,6 +121,47 @@ function removeOpenButton() {
         openButton.remove();
         openButton = null;
     }
+}
+
+function setupKeyboardShortcuts() {
+    keyboardShortcuts.forEach((teardown) => teardown());
+    keyboardShortcuts = [];
+
+    if (!openVideoShortcut || !openChannelShortcut) {
+        return;
+    }
+
+    keyboardShortcuts.push(
+        createKeyboardShortcut(openVideoShortcut, () => {
+            if (!isVideoOrShortsPage()) {
+                return;
+            }
+            openCurrentVideoInNewTab();
+        })
+    );
+
+    keyboardShortcuts.push(
+        createKeyboardShortcut(openChannelShortcut, () => {
+            if (!isVideoOrShortsPage()) {
+                return;
+            }
+            openCurrentChannelInNewTab();
+        })
+    );
+}
+
+function normalizeShortcutConfig(source, fallback) {
+    if (!source || typeof source !== 'object') {
+        return { ...fallback };
+    }
+    const key = normalizeShortcutKey(source.key, fallback.key);
+    const ctrl = source.ctrl === true;
+    const shift = source.shift === true;
+    const alt = source.alt === true;
+    if (!ctrl && !shift && !alt && key === 'Enter') {
+        return { ...fallback };
+    }
+    return { ctrl, shift, alt, key };
 }
 
 function findControlsHost() {
@@ -150,6 +214,19 @@ function openCurrentVideoInNewTab() {
 
     const url = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
 
+    openUrlInNewTab(url);
+}
+
+function openCurrentChannelInNewTab() {
+    const channelUrl = resolveChannelUrl();
+    if (!channelUrl) {
+        logger.warn('Unable to resolve channel url for open-in-new-tab action');
+        return;
+    }
+    openUrlInNewTab(channelUrl);
+}
+
+function openUrlInNewTab(url) {
     try {
         if (chrome?.runtime?.sendMessage) {
             chrome.runtime.sendMessage({ type: 'OPEN_NEW_TAB', url });
@@ -173,6 +250,13 @@ function resolveVideoId() {
             return urlId.trim();
         }
 
+        if (isShortsPage()) {
+            const match = window.location.pathname.match(/\/shorts\/([A-Za-z0-9_-]{10,15})/);
+            if (match && match[1]) {
+                return match[1];
+            }
+        }
+
         const player = getActivePlayer() || document.getElementById('movie_player');
         const playerId = player?.getVideoData?.()?.video_id;
         if (typeof playerId === 'string' && playerId.trim()) {
@@ -192,4 +276,37 @@ function resolveVideoId() {
     }
 
     return null;
+}
+
+function resolveChannelUrl() {
+    const selectors = [
+        'ytd-video-owner-renderer a[href^="/channel/"]',
+        'ytd-video-owner-renderer a[href^="/@"]',
+        'ytd-channel-name a[href^="/channel/"]',
+        'ytd-channel-name a[href^="/@"]',
+        'ytd-reel-player-header-renderer a[href^="/channel/"]',
+        'ytd-reel-player-header-renderer a[href^="/@"]',
+        'ytd-reel-player-overlay-renderer a[href^="/channel/"]',
+        'ytd-reel-player-overlay-renderer a[href^="/@"]',
+        'ytd-reel-video-renderer[is-active] a[href^="/channel/"]',
+        'ytd-reel-video-renderer[is-active] a[href^="/@"]'
+    ];
+
+    for (const selector of selectors) {
+        const link = document.querySelector(selector);
+        if (link instanceof HTMLAnchorElement && link.href) {
+            return link.href;
+        }
+    }
+
+    const channelId = document.querySelector('meta[itemprop="channelId"]')?.getAttribute('content');
+    if (channelId) {
+        return `https://www.youtube.com/channel/${channelId}`;
+    }
+
+    return '';
+}
+
+function isVideoOrShortsPage() {
+    return isVideoPage() || isShortsPage();
 }

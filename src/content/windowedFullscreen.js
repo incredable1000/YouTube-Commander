@@ -674,7 +674,7 @@ function applyAutoWindowedMode() {
  * @returns {boolean}
  */
 function matchesWindowedShortcut(event) {
-    if (event.ctrlKey || event.altKey || event.metaKey) {
+    if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) {
         return false;
     }
 

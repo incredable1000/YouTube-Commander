@@ -27,6 +27,8 @@ export const DEFAULT_SETTINGS = {
     rotationShortcut: 'r',
     windowedFullscreenShortcut: 'Enter',
     windowedFullscreenAuto: false,
+    openVideoNewTabShortcut: { ctrl: true, shift: false, alt: false, key: 'Enter' },
+    openChannelNewTabShortcut: { ctrl: false, shift: true, alt: false, key: 'Enter' },
     
     // Debug settings
     debugMode: false,

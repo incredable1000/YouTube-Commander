@@ -262,6 +262,12 @@ function updateModuleSettings() {
     if (windowedModule && windowedModule.updateSettings) {
         windowedModule.updateSettings(currentSettings);
     }
+
+    // Update open-new-tab shortcuts
+    const openVideoModule = moduleInstances['openVideoTab'];
+    if (openVideoModule && openVideoModule.updateSettings) {
+        openVideoModule.updateSettings(currentSettings);
+    }
     
     // Add other modules here as needed
     logger.debug('Module settings updated');

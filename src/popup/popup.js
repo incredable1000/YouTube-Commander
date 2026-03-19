@@ -9,6 +9,8 @@ const defaultSettings = {
     rotationShortcut: 'r',
     windowedFullscreenShortcut: 'Enter',
     windowedFullscreenAuto: false,
+    openVideoNewTabShortcut: { ctrl: true, shift: false, alt: false, key: 'Enter' },
+    openChannelNewTabShortcut: { ctrl: false, shift: true, alt: false, key: 'Enter' },
     
     // Seek settings
     shortSeek: 3,
@@ -587,6 +589,73 @@ function parseShortcutInput(id, fallback) {
     return normalizeShortcutKey(rawValue, fallback);
 }
 
+/**
+ * Parse shortcut combo input from popup text field.
+ * @param {string} id
+ * @param {{ctrl:boolean,shift:boolean,alt:boolean,key:string}} fallback
+ * @returns {{ctrl:boolean,shift:boolean,alt:boolean,key:string}}
+ */
+function parseShortcutComboInput(id, fallback) {
+    const input = document.getElementById(id);
+    const rawValue = typeof input?.value === 'string' ? input.value.trim() : '';
+    return parseShortcutCombo(rawValue, fallback);
+}
+
+function parseShortcutCombo(rawValue, fallback) {
+    if (!rawValue) {
+        return { ...fallback };
+    }
+
+    const parts = rawValue.split('+').map((part) => part.trim()).filter(Boolean);
+    let ctrl = false;
+    let shift = false;
+    let alt = false;
+    let key = '';
+
+    parts.forEach((part) => {
+        const normalized = part.toLowerCase();
+        if (normalized === 'ctrl' || normalized === 'control') {
+            ctrl = true;
+            return;
+        }
+        if (normalized === 'shift') {
+            shift = true;
+            return;
+        }
+        if (normalized === 'alt' || normalized === 'option') {
+            alt = true;
+            return;
+        }
+        if (normalized === 'cmd' || normalized === 'meta') {
+            ctrl = true;
+            return;
+        }
+        key = part;
+    });
+
+    const normalizedKey = normalizeShortcutKey(key || fallback.key, fallback.key);
+    if (!ctrl && !shift && !alt && normalizedKey === 'Enter') {
+        return { ...fallback };
+    }
+    return { ctrl, shift, alt, key: normalizedKey };
+}
+
+function formatShortcutCombo(value, fallback) {
+    const config = (!value || typeof value !== 'object')
+        ? { ...fallback }
+        : parseShortcutCombo(
+            `${value.ctrl ? 'Ctrl+' : ''}${value.shift ? 'Shift+' : ''}${value.alt ? 'Alt+' : ''}${value.key || ''}`,
+            fallback
+        );
+    const parts = [];
+    if (config.ctrl) parts.push('Ctrl');
+    if (config.shift) parts.push('Shift');
+    if (config.alt) parts.push('Alt');
+    const keyLabel = config.key.length === 1 ? config.key.toUpperCase() : config.key;
+    parts.push(keyLabel);
+    return parts.join('+');
+}
+
 // Load saved settings
 function loadSettings() {
     chrome.storage.sync.get(defaultSettings, (settings) => {
@@ -601,6 +670,14 @@ function loadSettings() {
         );
         document.getElementById('rotationShortcut').value = currentSettings.rotationShortcut || defaultSettings.rotationShortcut;
         document.getElementById('windowedFullscreenShortcut').value = currentSettings.windowedFullscreenShortcut || defaultSettings.windowedFullscreenShortcut;
+        document.getElementById('openVideoNewTabShortcut').value = formatShortcutCombo(
+            currentSettings.openVideoNewTabShortcut,
+            defaultSettings.openVideoNewTabShortcut
+        );
+        document.getElementById('openChannelNewTabShortcut').value = formatShortcutCombo(
+            currentSettings.openChannelNewTabShortcut,
+            defaultSettings.openChannelNewTabShortcut
+        );
 
         setToggleState(document.getElementById('deleteVideosToggle'), currentSettings.deleteVideosEnabled === true);
         setToggleState(
@@ -755,6 +832,14 @@ function saveSyncSettings(showMessage = false) {
         rotationShortcut: parseShortcutInput('rotationShortcut', defaultSettings.rotationShortcut),
         windowedFullscreenShortcut: parseShortcutInput('windowedFullscreenShortcut', defaultSettings.windowedFullscreenShortcut),
         windowedFullscreenAuto: currentSettings.windowedFullscreenAuto === true,
+        openVideoNewTabShortcut: parseShortcutComboInput(
+            'openVideoNewTabShortcut',
+            defaultSettings.openVideoNewTabShortcut
+        ),
+        openChannelNewTabShortcut: parseShortcutComboInput(
+            'openChannelNewTabShortcut',
+            defaultSettings.openChannelNewTabShortcut
+        ),
         shortSeekKey: defaultSettings.shortSeekKey,
         mediumSeekKey: defaultSettings.mediumSeekKey,
         longSeekKey: defaultSettings.longSeekKey
@@ -797,7 +882,15 @@ function broadcastSettings(settings) {
 // Auto-save when input values change
 function setupAutoSave() {
     // Auto-save for number inputs
-    ['shortSeek', 'mediumSeek', 'longSeek', 'rotationShortcut', 'windowedFullscreenShortcut'].forEach((id) => {
+    [
+        'shortSeek',
+        'mediumSeek',
+        'longSeek',
+        'rotationShortcut',
+        'windowedFullscreenShortcut',
+        'openVideoNewTabShortcut',
+        'openChannelNewTabShortcut'
+    ].forEach((id) => {
         const input = document.getElementById(id);
         if (input) {
             input.addEventListener('input', () => {
