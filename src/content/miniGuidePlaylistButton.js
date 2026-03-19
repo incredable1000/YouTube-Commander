@@ -114,7 +114,7 @@ function configureEntry(entry) {
     updateEntryLabel(entry);
     updateEntryIcon(entry);
     updateEntryData(entry);
-    wireNavigation(link);
+    wireNavigation(entry, link);
     return true;
 }
 
@@ -133,6 +133,13 @@ function updateEntryIcon(entry) {
     if (!icon) {
         return;
     }
+    const guideIcon = getGuidePlaylistIcon();
+    if (guideIcon) {
+        const clone = guideIcon.cloneNode(true);
+        icon.replaceWith(clone);
+        return;
+    }
+
     icon.innerHTML = '';
     icon.appendChild(createIcon({
         path: PLAYLIST_ICON_PATH,
@@ -158,6 +165,13 @@ function updateEntryData(entry) {
             }
         }
         entry.data = data;
+        if (entry.__data) {
+            if (entry.__data.data) {
+                entry.__data.data = data;
+            } else {
+                entry.__data = data;
+            }
+        }
     }
 }
 
@@ -190,19 +204,46 @@ function getGuidePlaylistEndpoint() {
     return null;
 }
 
-function wireNavigation(link) {
-    if (link.dataset.ytCommanderPlaylist) {
+function getGuidePlaylistIcon() {
+    const guideLink = document.querySelector('ytd-guide-entry-renderer a[href*="/feed/playlists"]');
+    const guideEntry = guideLink?.closest('ytd-guide-entry-renderer');
+    return guideEntry?.querySelector('yt-icon') || null;
+}
+
+function wireNavigation(entry, link) {
+    if (entry.dataset.ytCommanderPlaylist) {
         return;
     }
-    link.dataset.ytCommanderPlaylist = 'true';
-    link.addEventListener('click', (event) => {
+    entry.dataset.ytCommanderPlaylist = 'true';
+    const handler = (event) => {
+        if (event.defaultPrevented) {
+            return;
+        }
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return;
+        }
         event.preventDefault();
         event.stopPropagation();
         navigateToPlaylists();
-    });
+    };
+    entry.addEventListener('click', handler, true);
+    link.addEventListener('click', handler, true);
 }
 
 function navigateToPlaylists() {
+    const endpoint = resolvePlaylistEndpoint();
+    if (endpoint) {
+        const ytNavigation = window.yt?.navigation;
+        if (ytNavigation && typeof ytNavigation.navigate === 'function') {
+            ytNavigation.navigate(endpoint);
+            return;
+        }
+        if (ytNavigation && typeof ytNavigation.open === 'function') {
+            ytNavigation.open(endpoint);
+            return;
+        }
+    }
+
     const guideLink = document.querySelector('ytd-guide-entry-renderer a[href*="/feed/playlists"]');
     if (guideLink instanceof HTMLElement) {
         guideLink.click();
@@ -210,8 +251,12 @@ function navigateToPlaylists() {
     }
 
     const app = document.querySelector('ytd-app');
-    if (app && typeof app.navigate_ === 'function') {
-        app.navigate_(PLAYLIST_PATH);
+    if (endpoint && app && typeof app.navigate_ === 'function') {
+        app.navigate_(endpoint);
+        return;
+    }
+    if (endpoint && app && typeof app.handleNavigate_ === 'function') {
+        app.handleNavigate_(endpoint);
         return;
     }
     if (app && typeof app.navigateTo_ === 'function') {
