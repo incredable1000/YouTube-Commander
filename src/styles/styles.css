@@ -646,7 +646,7 @@ body.yt-commander-windowed-lock {
     position: fixed;
     top: 82px;
     right: 220px;
-    display: inline-flex;
+    display: none;
     flex-direction: column;
     align-items: center;
     gap: 6px;
@@ -666,6 +666,7 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-shorts-counter.is-docked {
+    display: inline-flex;
     position: relative;
     top: auto;
     right: auto;

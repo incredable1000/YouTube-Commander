@@ -63,10 +63,9 @@ function createShortsCounterUi(options) {
             lastHost = host;
             return;
         }
-
         counterLabel.classList.remove('is-docked');
-        if (counterLabel.parentElement !== document.body) {
-            document.body.appendChild(counterLabel);
+        if (counterLabel.parentElement) {
+            counterLabel.remove();
         }
         lastHost = null;
     }
@@ -112,7 +111,7 @@ function createShortsCounterUi(options) {
         counterLabel.innerHTML = [
             '<span class="yt-commander-shorts-counter__icon" aria-hidden="true">',
             '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">',
-            '<path d="M8 5v14l11-7z"></path>',
+            '<path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zm0 12a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zm0-2.25a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5z"></path>',
             '</svg>',
             '</span>',
             '<span class="yt-commander-shorts-counter__count">0</span>'
