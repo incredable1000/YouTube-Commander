@@ -45,6 +45,13 @@ function createBookmarkIcon() {
 /**
  * @returns {SVGSVGElement}
  */
+function createWatchLaterIcon() {
+    return createSvgIcon('M12 3a9 9 0 1 0 9 9 9.01 9.01 0 0 0-9-9zm0 16.5A7.5 7.5 0 1 1 19.5 12 7.51 7.51 0 0 1 12 19.5zm.75-11.25h-1.5v4.2l3.6 2.16.75-1.23-2.85-1.68z');
+}
+
+/**
+ * @returns {SVGSVGElement}
+ */
 function createCloseIcon() {
     return createSvgIcon('M18.3 5.71 12 12l6.3 6.29-1.41 1.42-6.3-6.31-6.3 6.31-1.41-1.42L9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.3-6.3z');
 }
@@ -96,6 +103,7 @@ export {
     createMastheadIcon,
     createDotsIcon,
     createBookmarkIcon,
+    createWatchLaterIcon,
     createCloseIcon,
     createPlusIcon,
     createChevronDownIcon,

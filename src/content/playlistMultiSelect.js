@@ -33,6 +33,7 @@ import {
     createSvgIcon,
     createMastheadIcon,
     createBookmarkIcon,
+    createWatchLaterIcon,
     createCloseIcon,
     createPlusIcon,
     createChevronDownIcon,
@@ -78,6 +79,7 @@ let mastheadBadge = null;
 let actionBar = null;
 let actionCount = null;
 let actionTotalCount = null;
+let actionWatchLaterButton = null;
 let actionSaveButton = null;
 let actionRemoveButton = null;
 let actionSelectAllButton = null;
@@ -114,6 +116,7 @@ let postSaveResetTimer = null;
 let lastPlaylistProbeVideoId = '';
 let createVisibility = 'PRIVATE';
 let selectAllMode = false;
+const WATCH_LATER_PLAYLIST_ID = 'WL';
 
 const selectedVideoIds = new Set();
 const selectedPlaylistIds = new Set();
@@ -269,6 +272,7 @@ function ensureActionBar() {
     countWrap.appendChild(totalLabel);
     countWrap.appendChild(actionTotalCount);
 
+    actionWatchLaterButton = createActionIconButton(createWatchLaterIcon(), 'Save to Watch later');
     actionSaveButton = createActionIconButton(createBookmarkIcon(), 'Save to playlist');
     actionRemoveButton = createActionIconButton(createRemoveIcon(), getRemoveActionLabel());
     actionSelectAllButton = createActionIconButton(createSelectAllIcon(), 'Select all');
@@ -283,6 +287,7 @@ function ensureActionBar() {
     actionExitButton.appendChild(createCloseIcon());
 
     actionBar.appendChild(countWrap);
+    actionBar.appendChild(actionWatchLaterButton);
     actionBar.appendChild(actionSaveButton);
     actionBar.appendChild(actionRemoveButton);
     actionBar.appendChild(actionSelectAllButton);
@@ -296,12 +301,14 @@ function ensureActionBar() {
     document.body.appendChild(actionBar);
     document.body.appendChild(actionBarStatus);
 
+    actionWatchLaterButton.addEventListener('click', handleActionWatchLaterClick);
     actionSaveButton.addEventListener('click', handleActionSaveClick);
     actionRemoveButton.addEventListener('click', handleActionRemoveClick);
     actionSelectAllButton.addEventListener('click', handleActionSelectAllClick);
     actionUnselectAllButton.addEventListener('click', handleActionUnselectAllClick);
     actionExitButton.addEventListener('click', handleActionExitButtonClick);
 
+    cleanupCallbacks.push(() => actionWatchLaterButton?.removeEventListener('click', handleActionWatchLaterClick));
     cleanupCallbacks.push(() => actionSaveButton?.removeEventListener('click', handleActionSaveClick));
     cleanupCallbacks.push(() => actionRemoveButton?.removeEventListener('click', handleActionRemoveClick));
     cleanupCallbacks.push(() => actionSelectAllButton?.removeEventListener('click', handleActionSelectAllClick));
@@ -866,6 +873,10 @@ function updateActionUiState() {
         actionSaveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
 
+    if (actionWatchLaterButton) {
+        actionWatchLaterButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+    }
+
     if (actionSelectAllButton) {
         actionSelectAllButton.disabled = pageCount === 0 || loadingPlaylists || submitting || createSubmitting;
         actionSelectAllButton.classList.toggle('is-active', selectAllMode);
@@ -1203,7 +1214,9 @@ async function saveSelectionToPlaylist(playlistId) {
     submitting = true;
     updateActionUiState();
 
-    const playlistTitle = playlistMap.get(playlistId)?.title || 'playlist';
+    const playlistTitle = playlistId === WATCH_LATER_PLAYLIST_ID
+        ? 'Watch later'
+        : (playlistMap.get(playlistId)?.title || 'playlist');
     setStatusMessage(`Saving ${videoIds.length} video(s) to ${playlistTitle}...`, STATUS_KIND.INFO);
 
     try {
@@ -2020,6 +2033,18 @@ function handleActionExitButtonClick(event) {
     event.preventDefault();
     event.stopPropagation();
     setSelectionMode(false);
+}
+
+/**
+ * Handle "save to Watch later" action click.
+ * @param {MouseEvent} event
+ */
+function handleActionWatchLaterClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    saveSelectionToPlaylist(WATCH_LATER_PLAYLIST_ID).catch((error) => {
+        logger.warn('Failed to save to Watch later', error);
+    });
 }
 
 /**
