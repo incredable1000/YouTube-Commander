@@ -649,9 +649,9 @@ body.yt-commander-windowed-lock {
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    min-width: 78px;
-    height: 44px;
-    padding: 0 14px 0 12px;
+    min-width: 72px;
+    height: 52px;
+    padding: 0 16px;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.12);
     background: rgba(33, 33, 33, 0.92);
@@ -662,7 +662,7 @@ body.yt-commander-windowed-lock {
     user-select: none;
     z-index: 99999;
     box-shadow:
-        0 12px 30px rgba(0, 0, 0, 0.5),
+        0 10px 24px rgba(0, 0, 0, 0.45),
         inset 0 1px 0 rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(12px) saturate(140%);
     -webkit-backdrop-filter: blur(12px) saturate(140%);
@@ -691,11 +691,11 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-shorts-counter__badge {
-    width: 9px;
-    height: 9px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
-    background: #ff0000;
-    box-shadow: 0 0 0 3px rgba(255, 0, 0, 0.2), 0 0 10px rgba(255, 0, 0, 0.5);
+    background: rgba(255, 255, 255, 0.72);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
     flex: 0 0 auto;
     animation: yt-commander-shorts-counter-badge-pulse 1.8s ease-in-out infinite;
 }
@@ -746,11 +746,11 @@ body.yt-commander-windowed-lock {
     0%,
     100% {
         transform: scale(1);
-        box-shadow: 0 0 0 4px rgba(255, 0, 0, 0.24), 0 0 14px rgba(255, 0, 0, 0.55);
+        box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
     }
     50% {
         transform: scale(1.12);
-        box-shadow: 0 0 0 7px rgba(255, 0, 0, 0.16), 0 0 20px rgba(255, 0, 0, 0.7);
+        box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.2);
     }
 }
 
