@@ -457,6 +457,22 @@ function isChannelPath(path) {
 }
 
 /**
+ * Extract channel ID from a raw path (preserve case).
+ * @param {string} path
+ * @returns {string|null}
+ */
+function extractChannelIdFromPath(path) {
+    if (!path) {
+        return null;
+    }
+    const match = path.match(/\/channel\/([^/?#]+)/i);
+    if (!match) {
+        return null;
+    }
+    return match[1] || null;
+}
+
+/**
  * Normalize channel path.
  * @param {string} path
  * @returns {string}
@@ -933,10 +949,18 @@ function isChannelLink(href) {
     if (!href) {
         return false;
     }
-    return href.startsWith('/channel/')
-        || href.startsWith('/@')
-        || href.startsWith('/c/')
-        || href.startsWith('/user/');
+    let path = href;
+    try {
+        if (path.startsWith('http')) {
+            path = new URL(path, location.origin).pathname;
+        }
+    } catch (_error) {
+        // Ignore URL parsing errors.
+    }
+    return path.startsWith('/channel/')
+        || path.startsWith('/@')
+        || path.startsWith('/c/')
+        || path.startsWith('/user/');
 }
 
 /**
@@ -1107,11 +1131,7 @@ function extractChannelInfo(card) {
         }
 
         const normalizedPath = normalizeChannelPath(path);
-        let channelId = null;
-        if (normalizedPath.startsWith('/channel/')) {
-            const parts = normalizedPath.split('/');
-            channelId = parts[2] || null;
-        }
+        let channelId = extractChannelIdFromPath(path);
         host = anchor.closest(`.${ROW_CLASS}`)
             || anchor.closest('ytd-channel-name, #channel-name, ytd-video-owner-renderer')
             || anchor.parentElement
