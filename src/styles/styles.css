@@ -2658,7 +2658,7 @@ body.yt-commander-windowed-lock {
     scrollbar-width: none;
     -ms-overflow-style: none;
     white-space: nowrap;
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
 }
 
 .yt-commander-sub-manager-chip-list::-webkit-scrollbar {
