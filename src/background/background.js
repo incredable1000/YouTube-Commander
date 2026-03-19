@@ -485,6 +485,26 @@ async function lockPrimarySyncAccountFromTab(tabId) {
 }
 
 /**
+ * Lock subscription sync account from current/target tab.
+ * @param {number} tabId
+ * @returns {Promise<{accountKey: string, source: string}>}
+ */
+async function lockSubscriptionSyncAccountFromTab(tabId) {
+    const identity = await getSyncIdentityFromTab(tabId);
+    const accountKey = normalizeAccountKey(identity.accountKey);
+    if (!accountKey || accountKey === DEFAULT_ACCOUNT_KEY) {
+        throw new Error('Failed to resolve YouTube account from tab');
+    }
+    await storageLocalSet({
+        [SUBSCRIPTION_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]: accountKey
+    });
+    return {
+        accountKey,
+        source: identity.source
+    };
+}
+
+/**
  * Resolve sync account key for manual actions.
  * If no primary account is locked yet, lock it to current active YouTube tab.
  * @param {number|undefined} preferredTabId
@@ -1797,11 +1817,13 @@ async function performSubscriptionSync(options = {}) {
         }
 
         let accountKey = normalizeAccountKey(state.primaryAccountKey) || DEFAULT_ACCOUNT_KEY;
-        try {
-            const identity = await getSyncIdentityFromTab(tabId);
-            accountKey = normalizeAccountKey(identity.accountKey) || DEFAULT_ACCOUNT_KEY;
-        } catch (_error) {
-            // Keep fallback account key when identity is unavailable.
+        if (!accountKey || accountKey === DEFAULT_ACCOUNT_KEY) {
+            try {
+                const identity = await getSyncIdentityFromTab(tabId);
+                accountKey = normalizeAccountKey(identity.accountKey) || DEFAULT_ACCOUNT_KEY;
+            } catch (_error) {
+                // Keep fallback account key when identity is unavailable.
+            }
         }
 
         const snapshot = await getSubscriptionSnapshotFromTab(tabId);
@@ -1931,41 +1953,9 @@ async function restoreSubscriptionsFromCloudflare(options = {}) {
         : state.apiToken;
 
     const endpoint = buildSubscriptionEndpoint(endpointRaw);
-    let accountKey = normalizeAccountKey(options.accountKey || state.primaryAccountKey || DEFAULT_ACCOUNT_KEY);
+    const accountKey = normalizeAccountKey(options.accountKey || state.primaryAccountKey || DEFAULT_ACCOUNT_KEY);
     if (!accountKey || accountKey === DEFAULT_ACCOUNT_KEY) {
-        const tabIds = [];
-        const preferredTabId = Number.isFinite(options.activeTabId) ? Number(options.activeTabId) : 0;
-        if (preferredTabId) {
-            tabIds.push(preferredTabId);
-        }
-        if (tabIds.length === 0) {
-            const candidates = await getYouTubeTabCandidates();
-            candidates.forEach((tab) => {
-                if (typeof tab.id === 'number') {
-                    tabIds.push(tab.id);
-                }
-            });
-        }
-        const seen = new Set();
-        for (const tabId of tabIds) {
-            if (!tabId || seen.has(tabId)) {
-                continue;
-            }
-            seen.add(tabId);
-            try {
-                const identity = await getSyncIdentityFromTab(tabId);
-                const candidate = normalizeAccountKey(identity.accountKey);
-                if (candidate && candidate !== DEFAULT_ACCOUNT_KEY) {
-                    accountKey = candidate;
-                    break;
-                }
-            } catch (_error) {
-                // Ignore tabs that cannot provide identity.
-            }
-        }
-    }
-    if (!accountKey || accountKey === DEFAULT_ACCOUNT_KEY) {
-        throw new Error('Sync account not detected. Open a YouTube tab and try again.');
+        throw new Error('Sync account not locked. Click "Use Current Account" in the subscription sync settings.');
     }
 
     subscriptionRestoreInProgress = true;
@@ -2589,10 +2579,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         restoreSubscriptionsFromCloudflare({
             endpointUrl: message.endpointUrl,
             apiToken: message.apiToken,
-            accountKey: message.accountKey,
-            activeTabId: Number.isFinite(message.activeTabId) ? Number(message.activeTabId) : undefined
+            accountKey: message.accountKey
         })
             .then((result) => sendResponse({ success: true, ...result }))
+            .catch((error) => sendResponse({ success: false, error: error.message }));
+        return true;
+    }
+    if (message.type === 'LOCK_SUBSCRIPTION_SYNC_ACCOUNT') {
+        const tabId = Number.isFinite(message.tabId) ? Number(message.tabId) : 0;
+        if (!tabId) {
+            sendResponse({ success: false, error: 'A valid YouTube tab is required to lock account' });
+            return false;
+        }
+
+        lockSubscriptionSyncAccountFromTab(tabId)
+            .then(async (result) => {
+                const status = await getSubscriptionSyncStatus();
+                sendResponse({
+                    success: true,
+                    ...status,
+                    accountKey: result.accountKey,
+                    source: result.source
+                });
+            })
             .catch((error) => sendResponse({ success: false, error: error.message }));
         return true;
     }

@@ -2347,12 +2347,10 @@ async function restoreSubscriptionsFromCloudflare() {
             throw new Error('Cloudflare Worker URL is required');
         }
 
-        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true, url: '*://*.youtube.com/*' });
         const response = await sendRuntimeMessage({
             type: 'RESTORE_SUBSCRIPTIONS_FROM_CLOUDFLARE',
             endpointUrl,
-            apiToken,
-            activeTabId: activeTab?.id
+            apiToken
         }, 240000);
 
         if (!response?.success) {
@@ -2631,6 +2629,45 @@ async function lockPrimarySyncAccount() {
 }
 
 /**
+ * Lock subscription sync to currently active YouTube account context.
+ */
+async function lockSubscriptionSyncAccount() {
+    const button = document.getElementById('lockSubscriptionSyncAccount');
+    if (!button) {
+        return;
+    }
+
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true, url: '*://*.youtube.com/*' });
+    if (!activeTab?.id) {
+        showStatus('Open a YouTube tab first to lock account', 'error');
+        return;
+    }
+
+    const initialLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Locking...';
+
+    try {
+        const response = await sendRuntimeMessage({
+            type: 'LOCK_SUBSCRIPTION_SYNC_ACCOUNT',
+            tabId: activeTab.id
+        }, 30000);
+
+        if (!response?.success) {
+            throw new Error(response?.error || 'Failed to lock subscription sync account');
+        }
+
+        renderSubscriptionSyncStatus(response);
+        showStatus('Subscription sync account locked to current YouTube tab', 'success');
+    } catch (error) {
+        showStatus(error?.message || 'Failed to lock subscription sync account', 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = initialLabel;
+    }
+}
+
+/**
  * Download IDs from Cloudflare and import to local IndexedDB.
  */
 async function downloadFromCloudflare() {
@@ -2835,6 +2872,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('syncToCloudflare').addEventListener('click', syncToCloudflare);
     document.getElementById('downloadFromCloudflare').addEventListener('click', downloadFromCloudflare);
     document.getElementById('lockPrimarySyncAccount').addEventListener('click', lockPrimarySyncAccount);
+    document.getElementById('lockSubscriptionSyncAccount').addEventListener('click', lockSubscriptionSyncAccount);
     document.getElementById('historyFileInput').addEventListener('change', handleFileImport);
     document.getElementById('exportSubscriptionCsv').addEventListener('click', exportSubscriptionCsvFromPopup);
     document.getElementById('importSubscriptionCsv').addEventListener('click', () => {
