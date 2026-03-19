@@ -4,11 +4,6 @@
 
 import { addEventListenerWithCleanup } from '../utils/events.js';
 import { getActiveShortsRenderer } from './pageContext.js';
-import {
-    BUMP_RESET_MS,
-    DELTA_LIFETIME_MS,
-    RESET_FEEDBACK_MS
-} from './constants.js';
 
 /**
  * Create Shorts counter UI controller.
@@ -115,7 +110,11 @@ function createShortsCounterUi(options) {
         counterLabel.setAttribute('aria-label', 'Shorts watched this tab. Click to reset.');
         counterLabel.title = 'Watched this tab (click to reset)';
         counterLabel.innerHTML = [
-            '<span class="yt-commander-shorts-counter__badge" aria-hidden="true"></span>',
+            '<span class="yt-commander-shorts-counter__icon" aria-hidden="true">',
+            '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">',
+            '<path d="M8 5v14l11-7z"></path>',
+            '</svg>',
+            '</span>',
             '<span class="yt-commander-shorts-counter__count">0</span>'
         ].join('');
 
@@ -137,57 +136,6 @@ function createShortsCounterUi(options) {
      * Show animated +N chip for count increments.
      * @param {number} delta
      */
-    function showDelta(delta) {
-        if (!counterLabel || delta <= 0) {
-            return;
-        }
-
-        const deltaChip = document.createElement('span');
-        deltaChip.className = 'yt-commander-shorts-counter__delta';
-        deltaChip.textContent = `+${delta}`;
-        counterLabel.appendChild(deltaChip);
-
-        window.requestAnimationFrame(() => {
-            deltaChip.classList.add('yt-commander-shorts-counter__delta--visible');
-        });
-
-        window.setTimeout(() => {
-            deltaChip.remove();
-        }, DELTA_LIFETIME_MS);
-    }
-
-    /**
-     * Trigger count increase animation.
-     * @param {number} delta
-     */
-    function animateIncrease(delta) {
-        if (!counterLabel || !counterValue) {
-            return;
-        }
-
-        counterLabel.classList.remove('yt-commander-shorts-counter--bump');
-        counterValue.classList.remove('yt-commander-shorts-counter__count--jump');
-        void counterLabel.offsetWidth;
-
-        counterLabel.classList.add('yt-commander-shorts-counter--bump');
-        counterValue.classList.add('yt-commander-shorts-counter__count--jump');
-        showDelta(delta);
-
-        if (animationTimer) {
-            window.clearTimeout(animationTimer);
-        }
-
-        animationTimer = window.setTimeout(() => {
-            if (counterLabel) {
-                counterLabel.classList.remove('yt-commander-shorts-counter--bump');
-            }
-            if (counterValue) {
-                counterValue.classList.remove('yt-commander-shorts-counter__count--jump');
-            }
-            animationTimer = null;
-        }, BUMP_RESET_MS);
-    }
-
     /**
      * Update displayed count.
      * @param {number} count
@@ -201,8 +149,9 @@ function createShortsCounterUi(options) {
         attachToHost();
         counterValue.textContent = Number(count || 0).toLocaleString();
 
-        if (options.animate) {
-            animateIncrease(Number.isFinite(options.delta) ? options.delta : 1);
+        if (animationTimer) {
+            window.clearTimeout(animationTimer);
+            animationTimer = null;
         }
     }
 
@@ -210,19 +159,7 @@ function createShortsCounterUi(options) {
      * Animate reset feedback.
      */
     function animateReset() {
-        if (!counterLabel) {
-            return;
-        }
-
-        counterLabel.classList.remove('yt-commander-shorts-counter--reset');
-        void counterLabel.offsetWidth;
-        counterLabel.classList.add('yt-commander-shorts-counter--reset');
-
-        window.setTimeout(() => {
-            if (counterLabel) {
-                counterLabel.classList.remove('yt-commander-shorts-counter--reset');
-            }
-        }, RESET_FEEDBACK_MS);
+        return;
     }
 
     return {
