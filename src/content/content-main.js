@@ -96,12 +96,13 @@ async function initializeMainWorldModules() {
             import('./qualityControls.js').catch(e => { logger.warn('Failed to import qualityControls:', e); throw e; }),
             import('./audioTrackControls.js').catch(e => { logger.warn('Failed to import audioTrackControls:', e); throw e; }),
             import('./playlistApi.js').catch(e => { logger.warn('Failed to import playlistApi:', e); throw e; }),
-            import('./subscriptionLabels.js').catch(e => { logger.warn('Failed to import subscriptionLabels:', e); throw e; })
+            import('./subscriptionLabels.js').catch(e => { logger.warn('Failed to import subscriptionLabels:', e); throw e; }),
+            import('./shortsVolumeBridge.js').catch(e => { logger.warn('Failed to import shortsVolumeBridge:', e); throw e; })
         ]);
         
         // Initialize successfully imported modules
         modules.forEach((result, index) => {
-            const moduleName = ['qualityControls', 'audioTrackControls', 'playlistApi', 'subscriptionLabels'][index];
+            const moduleName = ['qualityControls', 'audioTrackControls', 'playlistApi', 'subscriptionLabels', 'shortsVolumeBridge'][index];
             
             if (result.status === 'fulfilled') {
                 logger.info(`${moduleName} module loaded successfully`);
@@ -110,6 +111,11 @@ async function initializeMainWorldModules() {
                 if (moduleName === 'subscriptionLabels' && module.initSubscriptionLabels) {
                     module.initSubscriptionLabels().catch(error => {
                         logger.error('Failed to init subscriptionLabels', error);
+                    });
+                }
+                if (moduleName === 'shortsVolumeBridge' && module.initShortsVolumeBridge) {
+                    module.initShortsVolumeBridge().catch(error => {
+                        logger.error('Failed to init shortsVolumeBridge', error);
                     });
                 }
             } else {

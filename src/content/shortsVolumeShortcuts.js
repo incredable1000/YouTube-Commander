@@ -4,8 +4,8 @@
 
 import { createLogger } from './utils/logger.js';
 import { createKeyboardShortcut } from './utils/events.js';
-import { getActiveShortsVideoElement, isShortsWatchPage } from './shorts-counter/pageContext.js';
-import { getYouTubePlayer } from './utils/youtube.js';
+import { isShortsWatchPage } from './shorts-counter/pageContext.js';
+import { MESSAGE_TYPES } from '../shared/constants.js';
 
 const logger = createLogger('ShortsVolumeShortcuts');
 
@@ -68,47 +68,10 @@ function adjustVolume(direction) {
         return;
     }
 
-    const player = getYouTubePlayer();
-    if (player && typeof player.getVolume === 'function' && typeof player.setVolume === 'function') {
-        const current = Number(player.getVolume());
-        const safeCurrent = Number.isFinite(current) ? current : 0;
-        const next = Math.min(100, Math.max(0, safeCurrent + direction * VOLUME_STEP_PERCENT));
-        if (next === safeCurrent) {
-            return;
-        }
-
-        player.setVolume(next);
-
-        if (typeof player.isMuted === 'function') {
-            if (next === 0) {
-                if (!player.isMuted() && typeof player.mute === 'function') {
-                    player.mute();
-                }
-            } else if (player.isMuted() && typeof player.unMute === 'function') {
-                player.unMute();
-            }
-        }
-        return;
-    }
-
-    const video = getActiveShortsVideoElement();
-    if (!(video instanceof HTMLVideoElement)) {
-        return;
-    }
-
-    const current = Number.isFinite(video.volume) ? video.volume : 0;
-    const next = Math.min(1, Math.max(0, current + direction * (VOLUME_STEP_PERCENT / 100)));
-    if (next === current) {
-        return;
-    }
-
-    video.volume = next;
-
-    if (next === 0) {
-        video.muted = true;
-    } else if (video.muted) {
-        video.muted = false;
-    }
+    window.postMessage({
+        type: MESSAGE_TYPES.VOLUME_STEP,
+        delta: direction * VOLUME_STEP_PERCENT
+    }, '*');
 }
 
 export {
