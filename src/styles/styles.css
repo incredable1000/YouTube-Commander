@@ -2578,7 +2578,7 @@ body.yt-commander-windowed-lock {
     z-index: 9999999999;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     min-height: 40px;
     background: rgba(18, 24, 33, 0.94) !important;
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -2620,6 +2620,27 @@ body.yt-commander-windowed-lock {
     color: inherit;
 }
 
+.yt-commander-sub-manager-chipbar-nav {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.08);
+    color: inherit;
+    flex: 0 0 auto;
+}
+
+.yt-commander-sub-manager-chipbar-nav:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.yt-commander-sub-manager-chipbar-nav:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
 .yt-commander-sub-manager-chipbar-btn:hover {
     background: rgba(255, 255, 255, 0.16);
     border-color: rgba(255, 255, 255, 0.3);
@@ -2637,9 +2658,6 @@ body.yt-commander-windowed-lock {
     scrollbar-width: none;
     -ms-overflow-style: none;
     white-space: nowrap;
-    scroll-snap-type: x mandatory;
-    scroll-padding-left: 6px;
-    scroll-padding-right: 6px;
     scroll-behavior: smooth;
 }
 
@@ -2652,8 +2670,8 @@ body.yt-commander-windowed-lock {
     width: auto;
     min-width: 0;
     flex: 0 0 auto;
-    scroll-snap-align: start;
-    scroll-snap-stop: always;
+    scroll-snap-align: none;
+    scroll-snap-stop: normal;
 }
 
 .yt-commander-sub-manager-chipbar .yt-commander-sub-manager-filter-item {

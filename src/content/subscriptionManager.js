@@ -109,10 +109,10 @@ let sidebarAddButton = null;
 let sidebarCountEl = null;
 let chipbarWheelTarget = null;
 let chipbarWheelHandler = null;
-let chipbarSnapTimeoutId = 0;
-let chipbarIsSnapping = false;
 let chipbarScrollTarget = null;
 let chipbarScrollHandler = null;
+let chipbarPrevButton = null;
+let chipbarNextButton = null;
 let addCategoryButton = null;
 let removeCategoryButton = null;
 let unsubscribeButton = null;
@@ -303,10 +303,6 @@ function resetModalElements() {
     if (chipbarScrollTarget && chipbarScrollHandler) {
         chipbarScrollTarget.removeEventListener('scroll', chipbarScrollHandler);
     }
-    if (chipbarSnapTimeoutId) {
-        window.clearTimeout(chipbarSnapTimeoutId);
-        chipbarSnapTimeoutId = 0;
-    }
     window.removeEventListener('resize', handleVirtualResize);
 
     overlay = null;
@@ -334,8 +330,8 @@ function resetModalElements() {
     chipbarWheelHandler = null;
     chipbarScrollTarget = null;
     chipbarScrollHandler = null;
-    chipbarIsSnapping = false;
-    chipbarSnapTimeoutId = 0;
+    chipbarPrevButton = null;
+    chipbarNextButton = null;
     addCategoryButton = null;
     removeCategoryButton = null;
     unsubscribeButton = null;
@@ -1702,11 +1698,25 @@ function ensureModal() {
     chipbarLead.appendChild(sidebarAddButton);
     chipbarLead.appendChild(sidebarCountEl);
 
+    chipbarPrevButton = document.createElement('button');
+    chipbarPrevButton.type = 'button';
+    chipbarPrevButton.className = 'yt-commander-sub-manager-chipbar-nav';
+    chipbarPrevButton.setAttribute('data-action', 'chipbar-prev');
+    setIconButton(chipbarPrevButton, ICONS.prev, 'Scroll categories left');
+
     sidebarList = document.createElement('div');
     sidebarList.className = 'yt-commander-sub-manager-chip-list';
 
+    chipbarNextButton = document.createElement('button');
+    chipbarNextButton.type = 'button';
+    chipbarNextButton.className = 'yt-commander-sub-manager-chipbar-nav';
+    chipbarNextButton.setAttribute('data-action', 'chipbar-next');
+    setIconButton(chipbarNextButton, ICONS.next, 'Scroll categories right');
+
     sidebar.appendChild(chipbarLead);
+    sidebar.appendChild(chipbarPrevButton);
     sidebar.appendChild(sidebarList);
+    sidebar.appendChild(chipbarNextButton);
 
     cardsWrap = document.createElement('div');
     cardsWrap.className = CARDS_CLASS;
@@ -2247,63 +2257,18 @@ function updateRemoveCategoryButton() {
     setIconButton(removeCategoryButton, ICONS.categoryMove, label);
 }
 
-function snapChipbarToNearest() {
+function updateChipbarNavButtons() {
     if (!sidebarList) {
         return;
     }
-    const chips = Array.from(sidebarList.children)
-        .filter((child) => child instanceof HTMLElement
-            && child.classList.contains('yt-commander-sub-manager-sidebar-item'));
-    if (chips.length === 0) {
-        return;
-    }
-    const styles = window.getComputedStyle(sidebarList);
-    const scrollPaddingLeft = parseFloat(styles.scrollPaddingLeft || styles.paddingLeft || '0') || 0;
-    const scrollPaddingRight = parseFloat(styles.scrollPaddingRight || styles.paddingRight || '0') || 0;
-    const currentScrollLeft = sidebarList.scrollLeft;
     const maxScrollLeft = Math.max(0, sidebarList.scrollWidth - sidebarList.clientWidth);
-    const candidates = [];
-
-    chips.forEach((chip) => {
-        const leftPos = Math.max(0, Math.min(maxScrollLeft, chip.offsetLeft - scrollPaddingLeft));
-        candidates.push(leftPos);
-        const rightPos = chip.offsetLeft + chip.offsetWidth - (sidebarList.clientWidth - scrollPaddingRight);
-        if (Number.isFinite(rightPos)) {
-            const clampedRight = Math.max(0, Math.min(maxScrollLeft, rightPos));
-            candidates.push(clampedRight);
-        }
-    });
-
-    let nearest = currentScrollLeft;
-    let bestDelta = Infinity;
-    candidates.forEach((pos) => {
-        const delta = Math.abs(pos - currentScrollLeft);
-        if (delta < bestDelta) {
-            bestDelta = delta;
-            nearest = pos;
-        }
-    });
-
-    if (Math.abs(nearest - currentScrollLeft) < 1) {
-        return;
+    const currentScrollLeft = sidebarList.scrollLeft;
+    if (chipbarPrevButton) {
+        chipbarPrevButton.disabled = currentScrollLeft <= 0;
     }
-    chipbarIsSnapping = true;
-    sidebarList.scrollTo({ left: nearest, behavior: 'smooth' });
-    window.setTimeout(() => {
-        chipbarIsSnapping = false;
-    }, 220);
-}
-
-function scheduleChipbarSnap() {
-    if (chipbarSnapTimeoutId) {
-        window.clearTimeout(chipbarSnapTimeoutId);
+    if (chipbarNextButton) {
+        chipbarNextButton.disabled = currentScrollLeft >= maxScrollLeft - 1;
     }
-    chipbarSnapTimeoutId = window.setTimeout(() => {
-        chipbarSnapTimeoutId = 0;
-        if (!chipbarIsSnapping) {
-            snapChipbarToNearest();
-        }
-    }, 140);
 }
 
 function attachChipbarWheelScroll() {
@@ -2335,18 +2300,16 @@ function attachChipbarWheelScroll() {
         }
         event.preventDefault();
         sidebarList.scrollLeft += dominantDelta;
-        scheduleChipbarSnap();
+        updateChipbarNavButtons();
     };
     chipbarWheelTarget.addEventListener('wheel', chipbarWheelHandler, { passive: false });
 
     chipbarScrollTarget = sidebarList;
     chipbarScrollHandler = () => {
-        if (chipbarIsSnapping) {
-            return;
-        }
-        scheduleChipbarSnap();
+        updateChipbarNavButtons();
     };
     chipbarScrollTarget.addEventListener('scroll', chipbarScrollHandler, { passive: true });
+    updateChipbarNavButtons();
 }
 
 function updateCategoryActionButtons() {
@@ -2368,6 +2331,14 @@ function applySidebarState() {
     }
     sidebar.classList.toggle('is-collapsed', sidebarCollapsed);
     updateSidebarToggleButton();
+}
+
+function scrollChipbarBy(amount) {
+    if (!sidebarList) {
+        return;
+    }
+    sidebarList.scrollBy({ left: amount, behavior: 'smooth' });
+    updateChipbarNavButtons();
 }
 
 function resetSidebarDraftState() {
@@ -3199,6 +3170,16 @@ function handleModalClick(event) {
 
         if (action === 'new-category') {
             startSidebarCreate();
+            return;
+        }
+
+        if (action === 'chipbar-prev') {
+            scrollChipbarBy(-240);
+            return;
+        }
+
+        if (action === 'chipbar-next') {
+            scrollChipbarBy(240);
             return;
         }
 
