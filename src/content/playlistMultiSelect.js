@@ -110,6 +110,7 @@ let deferredRescanTimer = null;
 
 let lastKnownUrl = location.href;
 let statusTimer = null;
+let postSaveResetTimer = null;
 let lastPlaylistProbeVideoId = '';
 let createVisibility = 'PRIVATE';
 let selectAllMode = false;
@@ -1216,6 +1217,7 @@ async function saveSelectionToPlaylist(playlistId) {
             selectedPlaylistIds.add(playlistId);
             syncPlaylistSelectionVisuals();
             setStatusMessage(`Saved to ${playlistTitle}.`, STATUS_KIND.SUCCESS);
+            schedulePostSaveReset();
             return;
         }
 
@@ -1229,6 +1231,7 @@ async function saveSelectionToPlaylist(playlistId) {
                 selectedPlaylistIds.add(playlistId);
                 syncPlaylistSelectionVisuals();
                 setStatusMessage(`Saved to ${playlistTitle}.`, STATUS_KIND.SUCCESS);
+                schedulePostSaveReset();
                 return;
             }
             setStatusMessage('Save is still processing. Check the playlist shortly.', STATUS_KIND.INFO);
@@ -1239,6 +1242,17 @@ async function saveSelectionToPlaylist(playlistId) {
         submitting = false;
         updateActionUiState();
     }
+}
+
+function schedulePostSaveReset() {
+    if (postSaveResetTimer) {
+        clearTimeout(postSaveResetTimer);
+        postSaveResetTimer = null;
+    }
+    postSaveResetTimer = window.setTimeout(() => {
+        postSaveResetTimer = null;
+        setSelectionMode(false);
+    }, 650);
 }
 
 /**
@@ -1935,6 +1949,7 @@ function rejectPendingRequests(message) {
  * @param {boolean} active
  */
 function setSelectionMode(active) {
+    clearPostSaveResetTimer();
     if (!isEnabled && active) {
         return;
     }
@@ -1972,6 +1987,13 @@ function setSelectionMode(active) {
 
     if (selectionMode) {
         updateActionUiState();
+    }
+}
+
+function clearPostSaveResetTimer() {
+    if (postSaveResetTimer) {
+        clearTimeout(postSaveResetTimer);
+        postSaveResetTimer = null;
     }
 }
 
