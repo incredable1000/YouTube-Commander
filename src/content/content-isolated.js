@@ -101,6 +101,7 @@ async function initializeModules() {
             import('./shortsCounter.js').catch(e => { logger.warn('Failed to import shortsCounter:', e); throw e; }),
             import('./shortsUploadAge.js').catch(e => { logger.warn('Failed to import shortsUploadAge:', e); throw e; }),
             import('./shortsProgressBar.js').catch(e => { logger.warn('Failed to import shortsProgressBar:', e); throw e; }),
+            import('./shortsVolumeShortcuts.js').catch(e => { logger.warn('Failed to import shortsVolumeShortcuts:', e); throw e; }),
             import('./videoRotation.js').catch(e => { logger.warn('Failed to import videoRotation:', e); throw e; }),
             import('./windowedFullscreen.js').catch(e => { logger.warn('Failed to import windowedFullscreen:', e); throw e; }),
             import('./open-video-tab.js').catch(e => { logger.warn('Failed to import openVideoTab:', e); throw e; }),
@@ -123,6 +124,7 @@ async function initializeModules() {
                     'shortsCounter',
                     'shortsUploadAge',
                     'shortsProgressBar',
+                    'shortsVolumeShortcuts',
                     'videoRotation',
                     'windowedFullscreen',
                     'openVideoTab',
@@ -148,6 +150,7 @@ async function initializeModules() {
                 if (module.initShortsCounter) initPromises.push(module.initShortsCounter());
                 if (module.initShortsUploadAge) initPromises.push(module.initShortsUploadAge());
                 if (module.initShortsProgressBar) initPromises.push(module.initShortsProgressBar());
+                if (module.initShortsVolumeShortcuts) initPromises.push(module.initShortsVolumeShortcuts());
                 if (module.initVideoRotation) initPromises.push(module.initVideoRotation());
                 if (module.initWindowedFullscreen) initPromises.push(module.initWindowedFullscreen());
                 if (module.initOpenVideoTab) initPromises.push(module.initOpenVideoTab());
