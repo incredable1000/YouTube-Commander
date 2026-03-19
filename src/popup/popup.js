@@ -2347,10 +2347,12 @@ async function restoreSubscriptionsFromCloudflare() {
             throw new Error('Cloudflare Worker URL is required');
         }
 
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true, url: '*://*.youtube.com/*' });
         const response = await sendRuntimeMessage({
             type: 'RESTORE_SUBSCRIPTIONS_FROM_CLOUDFLARE',
             endpointUrl,
-            apiToken
+            apiToken,
+            activeTabId: activeTab?.id
         }, 240000);
 
         if (!response?.success) {
