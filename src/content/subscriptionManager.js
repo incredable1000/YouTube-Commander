@@ -1736,6 +1736,7 @@ function ensureModal() {
 
     content.appendChild(mainWrap);
     attachChipbarWheelScroll();
+    updateChipbarNavButtons();
 
     statusEl = document.createElement('div');
     statusEl.className = STATUS_CLASS;
