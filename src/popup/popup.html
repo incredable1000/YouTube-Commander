@@ -1147,11 +1147,11 @@
                         <div class="setting-label" style="margin-bottom: 6px;">Cloudflare Worker URL</div>
                         <input type="url" id="cloudflareSyncEndpoint" class="setting-input setting-input-wide" placeholder="https://your-worker.workers.dev">
                     </div>
-                    <div class="setting-row" style="display: block; margin-top: 8px;">
-                        <div class="setting-label" style="margin-bottom: 6px;">Cloudflare API Token (shared)</div>
-                        <div class="yt-commander-input-row">
-                            <input type="password" id="cloudflareSyncToken" class="setting-input setting-input-wide" placeholder="Bearer token (if your worker requires auth)" autocomplete="off">
-                            <button type="button" class="yt-commander-token-btn" id="cloudflareTokenToggle" aria-label="Show token" title="Show token" aria-pressed="false">
+                      <div class="setting-row" style="display: block; margin-top: 8px;">
+                          <div class="setting-label" style="margin-bottom: 6px;">Cloudflare API Token (shared)</div>
+                          <div class="yt-commander-input-row">
+                              <input type="password" id="cloudflareSyncToken" class="setting-input setting-input-wide" placeholder="Bearer token (if your worker requires auth)" autocomplete="off">
+                              <button type="button" class="yt-commander-token-btn" id="cloudflareTokenToggle" aria-label="Show token" title="Show token" aria-pressed="false">
                                 <svg class="yt-commander-icon-eye" viewBox="0 0 24 24" aria-hidden="true">
                                     <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
                                     <circle cx="12" cy="12" r="3.5"></circle>
@@ -1161,9 +1161,12 @@
                                     <path d="M4 4l16 16"></path>
                                     <path d="M9.5 9.5a3 3 0 0 0 4.2 4.2"></path>
                                 </svg>
-                            </button>
-                        </div>
-                    </div>
+                              </button>
+                          </div>
+                      </div>
+                      <div class="action-buttons" style="margin-top: 8px;">
+                          <button class="btn btn-secondary" id="lockPrimarySyncAccount">Use Current Account</button>
+                      </div>
                     <div class="setting-row" style="margin-top: 12px;">
                         <div class="setting-label" style="font-size: 13px;">Auto Sync (all)</div>
                         <div class="toggle-switch small-toggle active" id="cloudflareAutoSyncToggle">
@@ -1187,9 +1190,6 @@
                         <div class="action-buttons">
                             <button class="btn btn-secondary" id="syncToCloudflare">Sync</button>
                             <button class="btn btn-secondary" id="downloadFromCloudflare">Restore</button>
-                        </div>
-                        <div class="action-buttons" style="margin-top: 8px;">
-                            <button class="btn btn-secondary" id="lockPrimarySyncAccount">Use Current Account</button>
                         </div>
                         <div class="setting-row" style="display: block; margin-top: 8px; gap: 4px;">
                             <div class="setting-label" style="font-size: 12px;">Pending IDs: <span id="cloudflarePendingCount">0</span></div>

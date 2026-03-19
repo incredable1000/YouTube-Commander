@@ -389,9 +389,9 @@ function initializePopupUiV2HistoryTabs() {
     moveHistoryNodeToPane(historyContent, '#cloudflareSyncInterval', cloudPane);
     moveHistoryNodeToPane(historyContent, '#cloudflarePendingCount', cloudPane, 'ytc-v2-cloud-meta');
 
-    moveHistoryNodeToPane(historyContent, '#lockPrimarySyncAccount', settingsPane);
     moveHistoryNodeToPane(historyContent, '#cloudflareSyncEndpoint', settingsPane);
     moveHistoryNodeToPane(historyContent, '#cloudflareSyncToken', settingsPane);
+    moveHistoryNodeToPane(historyContent, '#lockPrimarySyncAccount', settingsPane);
 
     const note = historyContent.querySelector('.note');
 
