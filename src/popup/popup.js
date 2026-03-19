@@ -2609,58 +2609,41 @@ async function lockPrimarySyncAccount() {
     button.textContent = 'Locking...';
 
     try {
-        const response = await sendRuntimeMessage({
-            type: 'LOCK_PRIMARY_SYNC_ACCOUNT',
-            tabId: activeTab.id
-        }, 30000);
+        const errors = [];
+        let cloudResponse = null;
+        let subscriptionResponse = null;
 
-        if (!response?.success) {
-            throw new Error(response?.error || 'Failed to lock sync account');
+        try {
+            cloudResponse = await sendRuntimeMessage({
+                type: 'LOCK_PRIMARY_SYNC_ACCOUNT',
+                tabId: activeTab.id
+            }, 30000);
+            if (!cloudResponse?.success) {
+                throw new Error(cloudResponse?.error || 'Failed to lock watched history account');
+            }
+            renderCloudflareSyncStatus(cloudResponse);
+        } catch (error) {
+            errors.push(error?.message || 'Failed to lock watched history account');
         }
 
-        renderCloudflareSyncStatus(response);
-        showStatus('Sync account locked to current YouTube tab', 'success');
-    } catch (error) {
-        showStatus(error?.message || 'Failed to lock sync account', 'error');
-    } finally {
-        button.disabled = false;
-        button.textContent = initialLabel;
-    }
-}
-
-/**
- * Lock subscription sync to currently active YouTube account context.
- */
-async function lockSubscriptionSyncAccount() {
-    const button = document.getElementById('lockSubscriptionSyncAccount');
-    if (!button) {
-        return;
-    }
-
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true, url: '*://*.youtube.com/*' });
-    if (!activeTab?.id) {
-        showStatus('Open a YouTube tab first to lock account', 'error');
-        return;
-    }
-
-    const initialLabel = button.textContent;
-    button.disabled = true;
-    button.textContent = 'Locking...';
-
-    try {
-        const response = await sendRuntimeMessage({
-            type: 'LOCK_SUBSCRIPTION_SYNC_ACCOUNT',
-            tabId: activeTab.id
-        }, 30000);
-
-        if (!response?.success) {
-            throw new Error(response?.error || 'Failed to lock subscription sync account');
+        try {
+            subscriptionResponse = await sendRuntimeMessage({
+                type: 'LOCK_SUBSCRIPTION_SYNC_ACCOUNT',
+                tabId: activeTab.id
+            }, 30000);
+            if (!subscriptionResponse?.success) {
+                throw new Error(subscriptionResponse?.error || 'Failed to lock subscription account');
+            }
+            renderSubscriptionSyncStatus(subscriptionResponse);
+        } catch (error) {
+            errors.push(error?.message || 'Failed to lock subscription account');
         }
 
-        renderSubscriptionSyncStatus(response);
-        showStatus('Subscription sync account locked to current YouTube tab', 'success');
-    } catch (error) {
-        showStatus(error?.message || 'Failed to lock subscription sync account', 'error');
+        if (errors.length > 0) {
+            showStatus(errors[0], 'error');
+        } else {
+            showStatus('Sync accounts locked to current YouTube tab', 'success');
+        }
     } finally {
         button.disabled = false;
         button.textContent = initialLabel;
@@ -2872,7 +2855,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('syncToCloudflare').addEventListener('click', syncToCloudflare);
     document.getElementById('downloadFromCloudflare').addEventListener('click', downloadFromCloudflare);
     document.getElementById('lockPrimarySyncAccount').addEventListener('click', lockPrimarySyncAccount);
-    document.getElementById('lockSubscriptionSyncAccount').addEventListener('click', lockSubscriptionSyncAccount);
     document.getElementById('historyFileInput').addEventListener('change', handleFileImport);
     document.getElementById('exportSubscriptionCsv').addEventListener('click', exportSubscriptionCsvFromPopup);
     document.getElementById('importSubscriptionCsv').addEventListener('click', () => {
