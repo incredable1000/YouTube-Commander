@@ -653,11 +653,9 @@ body.yt-commander-windowed-lock {
     height: 44px;
     padding: 0 14px 0 12px;
     border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background:
-        radial-gradient(110px 52px at 12% 12%, rgba(255, 0, 0, 0.35), rgba(255, 0, 0, 0)),
-        linear-gradient(180deg, rgba(38, 38, 38, 0.96), rgba(15, 15, 15, 0.96));
-    color: #f1f1f1;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(33, 33, 33, 0.92);
+    color: #ffffff;
     font-family: "YouTube Noto", Roboto, Arial, sans-serif;
     line-height: 1;
     cursor: pointer;
@@ -665,7 +663,6 @@ body.yt-commander-windowed-lock {
     z-index: 99999;
     box-shadow:
         0 12px 30px rgba(0, 0, 0, 0.5),
-        0 0 0 1px rgba(255, 0, 0, 0.22),
         inset 0 1px 0 rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(12px) saturate(140%);
     -webkit-backdrop-filter: blur(12px) saturate(140%);
@@ -686,8 +683,6 @@ body.yt-commander-windowed-lock {
     border-color: rgba(255, 255, 255, 0.3);
     box-shadow:
         0 16px 34px rgba(0, 0, 0, 0.58),
-        0 0 0 1px rgba(255, 0, 0, 0.38),
-        0 0 18px rgba(255, 0, 0, 0.32),
         inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
@@ -699,8 +694,8 @@ body.yt-commander-windowed-lock {
     width: 9px;
     height: 9px;
     border-radius: 50%;
-    background: radial-gradient(circle at 35% 35%, #ffd1cc, #ff0000 62%);
-    box-shadow: 0 0 0 4px rgba(255, 0, 0, 0.24), 0 0 14px rgba(255, 0, 0, 0.55);
+    background: #ff0000;
+    box-shadow: 0 0 0 3px rgba(255, 0, 0, 0.2), 0 0 10px rgba(255, 0, 0, 0.5);
     flex: 0 0 auto;
     animation: yt-commander-shorts-counter-badge-pulse 1.8s ease-in-out infinite;
 }
@@ -712,7 +707,7 @@ body.yt-commander-windowed-lock {
     font-size: 24px;
     font-weight: 800;
     letter-spacing: 0.28px;
-    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55), 0 0 14px rgba(255, 0, 0, 0.28);
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
 }
 
 .yt-commander-shorts-counter--bump {
@@ -764,7 +759,6 @@ body.yt-commander-windowed-lock {
         transform: scale(1);
         box-shadow:
             0 12px 30px rgba(0, 0, 0, 0.5),
-            0 0 0 1px rgba(255, 0, 0, 0.22),
             inset 0 1px 0 rgba(255, 255, 255, 0.08);
         filter: saturate(1);
     }
@@ -839,7 +833,6 @@ body.yt-commander-windowed-lock {
         transform: scale(1);
         box-shadow:
             0 12px 30px rgba(0, 0, 0, 0.5),
-            0 0 0 1px rgba(255, 0, 0, 0.22),
             inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
     45% {
@@ -854,7 +847,6 @@ body.yt-commander-windowed-lock {
         transform: scale(1);
         box-shadow:
             0 12px 30px rgba(0, 0, 0, 0.5),
-            0 0 0 1px rgba(255, 0, 0, 0.22),
             inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
 }
