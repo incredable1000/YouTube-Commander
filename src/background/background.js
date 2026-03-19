@@ -1931,42 +1931,7 @@ async function restoreSubscriptionsFromCloudflare(options = {}) {
         : state.apiToken;
 
     const endpoint = buildSubscriptionEndpoint(endpointRaw);
-    let accountKey = normalizeAccountKey(options.accountKey || state.primaryAccountKey || DEFAULT_ACCOUNT_KEY);
-    if (!accountKey || accountKey === DEFAULT_ACCOUNT_KEY) {
-        const tabIds = [];
-        const preferredTabId = Number.isFinite(options.activeTabId) ? Number(options.activeTabId) : 0;
-        if (preferredTabId) {
-            tabIds.push(preferredTabId);
-        }
-        if (tabIds.length === 0) {
-            const candidates = await getYouTubeTabCandidates();
-            candidates.forEach((tab) => {
-                if (typeof tab.id === 'number') {
-                    tabIds.push(tab.id);
-                }
-            });
-        }
-        const seen = new Set();
-        for (const tabId of tabIds) {
-            if (!tabId || seen.has(tabId)) {
-                continue;
-            }
-            seen.add(tabId);
-            try {
-                const identity = await getSyncIdentityFromTab(tabId);
-                const candidate = normalizeAccountKey(identity.accountKey);
-                if (candidate && candidate !== DEFAULT_ACCOUNT_KEY) {
-                    accountKey = candidate;
-                    break;
-                }
-            } catch (_error) {
-                // Ignore tabs that cannot provide identity.
-            }
-        }
-    }
-    if (!accountKey || accountKey === DEFAULT_ACCOUNT_KEY) {
-        throw new Error('Sync account not detected. Open a YouTube tab and try again.');
-    }
+    const accountKey = normalizeAccountKey(options.accountKey || state.primaryAccountKey || DEFAULT_ACCOUNT_KEY);
 
     subscriptionRestoreInProgress = true;
 
@@ -2030,8 +1995,7 @@ async function restoreSubscriptionsFromCloudflare(options = {}) {
             },
             [SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_KEYS]: [],
             [SUBSCRIPTION_SYNC_STORAGE_KEYS.PENDING_COUNT]: 0,
-            [SUBSCRIPTION_SYNC_STORAGE_KEYS.COUNT]: channels.length,
-            [SUBSCRIPTION_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]: accountKey
+            [SUBSCRIPTION_SYNC_STORAGE_KEYS.COUNT]: channels.length
         });
 
         return {
@@ -2589,8 +2553,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         restoreSubscriptionsFromCloudflare({
             endpointUrl: message.endpointUrl,
             apiToken: message.apiToken,
-            accountKey: message.accountKey,
-            activeTabId: Number.isFinite(message.activeTabId) ? Number(message.activeTabId) : undefined
+            accountKey: message.accountKey
         })
             .then((result) => sendResponse({ success: true, ...result }))
             .catch((error) => sendResponse({ success: false, error: error.message }));
