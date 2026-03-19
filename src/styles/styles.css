@@ -866,7 +866,7 @@ body.yt-commander-windowed-lock {
     border-radius: inherit;
     appearance: none;
     -webkit-appearance: none;
-    background: linear-gradient(180deg, rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.26));
+    background: transparent;
     opacity: 0;
     pointer-events: none;
     cursor: pointer;
@@ -904,7 +904,7 @@ body.yt-commander-windowed-lock {
 }
 
 .yt-commander-playlist-selection-mode .yt-commander-playlist-host .yt-commander-playlist-overlay:hover {
-    background: linear-gradient(180deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.34));
+    background: transparent;
 }
 
 .yt-commander-playlist-host.yt-commander-playlist-selected .yt-commander-playlist-overlay {
