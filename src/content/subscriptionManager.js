@@ -3464,6 +3464,12 @@ async function handlePickerClick(event) {
     }
 
     const action = baseTarget?.closest('[data-action]')?.getAttribute('data-action');
+    if (action === 'open-channel') {
+        const url = baseTarget?.closest('[data-channel-url]')?.getAttribute('data-channel-url') || '';
+        openUrlInBackground(url);
+        closePicker();
+        return;
+    }
     if (action === 'picker-new-category') {
         closePicker();
         startSidebarCreate();
