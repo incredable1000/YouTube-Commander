@@ -65,8 +65,7 @@ const SUBSCRIPTION_MANAGER_STORAGE_KEYS = {
     PENDING_KEYS: 'subscriptionSyncPendingKeys',
     PENDING_COUNT: 'subscriptionSyncPendingCount'
 };
-const SUBSCRIPTION_COOLDOWN_KEY = 'subscriptionManagerCooldownMinutes';
-const SUBSCRIPTION_COOLDOWN_OPTIONS = [5, 10, 30, 60, 120, 240];
+const SYNC_INTERVAL_OPTIONS = [5, 10, 30, 60, 120, 240];
 const SQL_EXPORT_TABLE_NAME = 'watched_videos';
 const SQL_EXPORT_IDS_PER_FILE = 200000;
 const SQL_EXPORT_VALUES_PER_STATEMENT = 300;
@@ -696,9 +695,6 @@ function loadSettings() {
         loadSubscriptionSyncSettings().catch((error) => {
             showStatus(error?.message || 'Failed to load subscription sync settings', 'error');
         });
-        loadSubscriptionCooldownSetting().catch((error) => {
-            showStatus(error?.message || 'Failed to load subscription cooldown setting', 'error');
-        });
         cleanupLegacyFeatureFlags();
     });
 }
@@ -1300,35 +1296,7 @@ function normalizeSyncIntervalMinutes(raw, fallback) {
     if (!Number.isFinite(parsed)) {
         return fallback;
     }
-    return SUBSCRIPTION_COOLDOWN_OPTIONS.includes(parsed) ? parsed : fallback;
-}
-
-/**
- * Normalize subscription fetch cooldown minutes.
- * @param {number|string} raw
- * @returns {number}
- */
-function normalizeSubscriptionCooldownMinutes(raw) {
-    const parsed = Number.parseInt(raw, 10);
-    if (!Number.isFinite(parsed)) {
-        return SUBSCRIPTION_COOLDOWN_OPTIONS[0];
-    }
-    const matched = SUBSCRIPTION_COOLDOWN_OPTIONS.find((option) => option === parsed);
-    return matched || SUBSCRIPTION_COOLDOWN_OPTIONS[0];
-}
-
-/**
- * Load subscription fetch cooldown setting.
- * @returns {Promise<void>}
- */
-async function loadSubscriptionCooldownSetting() {
-    const select = document.getElementById('subscriptionFetchCooldown');
-    if (!select) {
-        return;
-    }
-    const result = await chrome.storage.local.get([SUBSCRIPTION_COOLDOWN_KEY]);
-    const value = normalizeSubscriptionCooldownMinutes(result[SUBSCRIPTION_COOLDOWN_KEY]);
-    select.value = String(value);
+    return SYNC_INTERVAL_OPTIONS.includes(parsed) ? parsed : fallback;
 }
 
 /**
@@ -1555,28 +1523,6 @@ function setupSubscriptionSyncControls() {
     };
 
     endpointInput?.addEventListener('blur', saveOnBlur);
-}
-
-/**
- * Setup subscription fetch cooldown control.
- */
-function setupSubscriptionCooldownControl() {
-    const select = document.getElementById('subscriptionFetchCooldown');
-    if (!select) {
-        return;
-    }
-    select.addEventListener('change', async () => {
-        const value = normalizeSubscriptionCooldownMinutes(select.value);
-        select.value = String(value);
-        try {
-            await chrome.storage.local.set({
-                [SUBSCRIPTION_COOLDOWN_KEY]: value
-            });
-            showStatus(`Subscription fetch cooldown set to ${value} min.`, 'success');
-        } catch (error) {
-            showStatus(error?.message || 'Failed to save subscription cooldown', 'error');
-        }
-    });
 }
 
 /**
@@ -2845,7 +2791,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setupDeleteVideosToggle();
     setupCloudflareSyncControls();
     setupSubscriptionSyncControls();
-    setupSubscriptionCooldownControl();
     setupTokenVisibilityToggle('cloudflareSyncToken', 'cloudflareTokenToggle');
     setupPopupSettingsModal();
     setupAutoSave();

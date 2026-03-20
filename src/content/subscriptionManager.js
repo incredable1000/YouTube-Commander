@@ -19,7 +19,6 @@ const STORAGE_KEYS = {
     SNAPSHOT: 'subscriptionManagerSnapshot',
     FILTER: 'subscriptionManagerFilter',
     SORT: 'subscriptionManagerSort',
-    COOLDOWN_MINUTES: 'subscriptionManagerCooldownMinutes',
     SIDEBAR_COLLAPSED: 'subscriptionManagerSidebarCollapsed',
     PENDING_KEYS: 'subscriptionSyncPendingKeys',
     PENDING_COUNT: 'subscriptionSyncPendingCount'
@@ -68,15 +67,13 @@ const FILTER_ITEM_CLASS = 'yt-commander-sub-manager-filter-item';
 const FILTER_DOT_CLASS = 'yt-commander-sub-manager-filter-dot';
 const FILTER_COUNT_CLASS = 'yt-commander-sub-manager-filter-count';
 const QUICK_ADD_CLASS = 'yt-commander-sub-manager-quick-add';
-const MODAL_VERSION = '2026-03-17-1';
+const MODAL_VERSION = '2026-03-20-1';
 
 const CARD_ROW_HEIGHT_ESTIMATE = 312;
 const CARD_MIN_WIDTH = 260;
 const CARD_GAP = 14;
 const VIRTUAL_OVERSCAN = 6;
 const SNAPSHOT_TTL_MS = 30 * 60 * 1000;
-const DEFAULT_API_COOLDOWN_MS = 5 * 60 * 1000;
-const COOLDOWN_MINUTES_OPTIONS = [5, 10, 30, 60, 120, 240];
 const bridgeClient = createBridgeClient({
     source: BRIDGE_SOURCE,
     requestType: REQUEST_TYPE,
@@ -135,6 +132,7 @@ let confirmResolve = null;
 let tooltipPortal = null;
 let tooltipPortalTarget = null;
 
+let refreshButton = null;
 let channels = [];
 let channelsFetchedAt = 0;
 let lastFetchAttemptAt = 0;
@@ -150,8 +148,6 @@ let assignmentCache = new Map();
 let categoryCountsCache = null;
 let categoryCountsCacheKey = '';
 let lastSnapshotHash = '';
-let apiCooldownMinutes = COOLDOWN_MINUTES_OPTIONS[0];
-let apiCooldownMs = DEFAULT_API_COOLDOWN_MS;
 let filterMode = 'all';
 let sortMode = 'name';
 let selectedChannelIds = new Set();
@@ -429,7 +425,8 @@ const ICONS = {
     expand: 'M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z',
     prev: 'M15.41 7.41 14 6 8 12 14 18 15.41 16.59 10.83 12z',
     next: 'M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z',
-    chevronDown: 'M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z'
+    chevronDown: 'M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z',
+    refresh: 'M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7a5 5 0 1 1-5 5H5a7 7 0 1 0 12.65-5.65z'
 };
 
 /**
@@ -448,20 +445,6 @@ function setIconButton(button, iconPath, label) {
     button.appendChild(icon);
     button.classList.add('yt-commander-sub-manager-icon-btn');
     setTooltip(button, label);
-}
-
-/**
- * Normalize cooldown minutes selection.
- * @param {number} value
- * @returns {number}
- */
-function normalizeCooldownMinutes(value) {
-    const minutes = Number(value);
-    if (!Number.isFinite(minutes)) {
-        return COOLDOWN_MINUTES_OPTIONS[0];
-    }
-    const matched = COOLDOWN_MINUTES_OPTIONS.find((option) => option === minutes);
-    return matched || COOLDOWN_MINUTES_OPTIONS[0];
 }
 
 /**
@@ -869,7 +852,6 @@ async function loadLocalState() {
         STORAGE_KEYS.ASSIGNMENTS,
         STORAGE_KEYS.FILTER,
         STORAGE_KEYS.SORT,
-        STORAGE_KEYS.COOLDOWN_MINUTES,
         STORAGE_KEYS.SIDEBAR_COLLAPSED
     ]);
 
@@ -879,8 +861,6 @@ async function loadLocalState() {
     markAssignmentsDirty();
     filterMode = typeof result[STORAGE_KEYS.FILTER] === 'string' ? result[STORAGE_KEYS.FILTER] : 'all';
     sortMode = result[STORAGE_KEYS.SORT] === 'subscribers' ? 'subscribers' : 'name';
-    apiCooldownMinutes = normalizeCooldownMinutes(result[STORAGE_KEYS.COOLDOWN_MINUTES]);
-    apiCooldownMs = apiCooldownMinutes * 60 * 1000;
     sidebarCollapsed = result[STORAGE_KEYS.SIDEBAR_COLLAPSED] === true;
 }
 
@@ -1654,6 +1634,12 @@ function ensureModal() {
     unsubscribeButton.setAttribute('data-action', 'unsubscribe-selected');
     setIconButton(unsubscribeButton, ICONS.trash, 'Unsubscribe selected');
 
+    refreshButton = document.createElement('button');
+    refreshButton.type = 'button';
+    refreshButton.className = 'yt-commander-sub-manager-toggle';
+    refreshButton.setAttribute('data-action', 'refresh-subscriptions');
+    setIconButton(refreshButton, ICONS.refresh, 'Refresh subscriptions');
+
     sortButton = document.createElement('button');
     sortButton.type = 'button';
     sortButton.className = 'yt-commander-sub-manager-toggle';
@@ -1666,6 +1652,7 @@ function ensureModal() {
     const headerDivider = document.createElement('div');
     headerDivider.className = 'yt-commander-sub-manager-header-divider';
 
+    headerActions.appendChild(refreshButton);
     headerActions.appendChild(sortButton);
     headerActions.appendChild(headerDivider);
     headerActions.appendChild(actionGroup);
@@ -3159,6 +3146,15 @@ function handleModalClick(event) {
             return;
         }
 
+        if (action === 'refresh-subscriptions') {
+            loadSubscriptions({ force: true }).then(() => {
+                renderList();
+            }).catch((error) => {
+                setStatus(error?.message || 'Failed to refresh subscriptions', 'error');
+            });
+            return;
+        }
+
         if (action === 'unsubscribe-selected') {
             unsubscribeSelected().catch((error) => {
                 setStatus(error?.message || 'Failed to unsubscribe', 'error');
@@ -3454,7 +3450,7 @@ async function handlePickerClick(event) {
 /**
  * Load subscriptions list from main world.
  * @param {boolean | {force?: boolean, background?: boolean}} [options]
- * @returns {Promise<{status: 'skipped' | 'fetched' | 'error', cooldownRemainingMs?: number}>}
+ * @returns {Promise<{status: 'skipped' | 'fetched' | 'error'}>}
  */
 async function loadSubscriptions(options = {}) {
     const resolved = typeof options === 'boolean' ? { force: options } : (options || {});
@@ -3470,16 +3466,7 @@ async function loadSubscriptions(options = {}) {
         return { status: 'skipped' };
     }
 
-    const cooldownRemainingMs = apiCooldownMs - (now - lastCallAt);
     const shouldUpdateStatus = !background || overlay?.classList.contains('is-visible');
-    if (cooldownRemainingMs > 0) {
-        if (shouldUpdateStatus) {
-            const waitMinutes = Math.ceil(cooldownRemainingMs / 60000);
-            setStatus(`Refresh cooldown: try again in ${waitMinutes} min.`, 'info');
-        }
-        return { status: 'skipped', cooldownRemainingMs };
-    }
-
     lastFetchAttemptAt = now;
     if (shouldUpdateStatus) {
         setStatus(background ? 'Refreshing subscriptions...' : 'Loading subscriptions...', 'info');
