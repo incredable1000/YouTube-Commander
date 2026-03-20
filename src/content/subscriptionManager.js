@@ -159,6 +159,7 @@ let cardById = new Map();
 let quickAddRetryTimer = 0;
 let suppressContextMenu = false;
 let suppressContextMenuTimer = 0;
+let isCtrlPressed = false;
 
 let quickAddObserver = null;
 let quickAddPending = false;
@@ -3281,7 +3282,8 @@ function handleModalClick(event) {
  * @param {MouseEvent} event
  */
 function handleModalMouseDown(event) {
-    if (event.button !== 2 || !event.ctrlKey) {
+    const ctrlActive = event.ctrlKey || isCtrlPressed || event.getModifierState?.('Control') === true;
+    if (event.button !== 2 || !ctrlActive) {
         return;
     }
     const target = event.target instanceof Element ? event.target : null;
@@ -3314,6 +3316,26 @@ function handleModalMouseDown(event) {
 }
 
 /**
+ * Track control key state for contextmenu edge-cases.
+ * @param {KeyboardEvent} event
+ */
+function handleGlobalKeydown(event) {
+    if (event.key === 'Control') {
+        isCtrlPressed = true;
+    }
+}
+
+/**
+ * Track control key release.
+ * @param {KeyboardEvent} event
+ */
+function handleGlobalKeyup(event) {
+    if (event.key === 'Control') {
+        isCtrlPressed = false;
+    }
+}
+
+/**
  * Handle modal right-clicks to open category picker.
  * @param {MouseEvent} event
  */
@@ -3333,7 +3355,8 @@ function handleModalContextMenu(event) {
         return;
     }
 
-    const ctrlCard = event.ctrlKey ? target.closest('.yt-commander-sub-manager-card') : null;
+    const ctrlActive = event.ctrlKey || isCtrlPressed || event.getModifierState?.('Control') === true;
+    const ctrlCard = ctrlActive ? target.closest('.yt-commander-sub-manager-card') : null;
     if (ctrlCard) {
         event.preventDefault();
         event.stopPropagation();
@@ -4217,6 +4240,8 @@ export async function initSubscriptionManager() {
 
     window.addEventListener('message', bridgeClient.handleResponse);
     window.addEventListener('keydown', handleKeydown);
+    window.addEventListener('keydown', handleGlobalKeydown, true);
+    window.addEventListener('keyup', handleGlobalKeyup, true);
     document.addEventListener('click', handleDocumentClick, true);
 
     isInitialized = true;
