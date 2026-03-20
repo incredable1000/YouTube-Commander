@@ -3278,6 +3278,19 @@ function handleModalContextMenu(event) {
     if (!target || !modal?.contains(target)) {
         return;
     }
+    const card = target.closest('.yt-commander-sub-manager-card');
+    if (event.ctrlKey && card) {
+        event.preventDefault();
+        event.stopPropagation();
+        const channelId = card.getAttribute('data-channel-id') || '';
+        if (channelId) {
+            const channel = channels.find((item) => item.channelId === channelId);
+            const url = resolveChannelUrl(channel);
+            openUrlInBackground(url);
+        }
+        return;
+    }
+
     const interactive = target.closest(
         'button, a, input, select, textarea, .yt-commander-sub-manager-categories, .yt-commander-sub-manager-picker'
     );
@@ -3285,22 +3298,12 @@ function handleModalContextMenu(event) {
         return;
     }
 
-    const card = target.closest('.yt-commander-sub-manager-card');
     const anchorItem = card;
     if (!anchorItem) {
         return;
     }
     const channelId = anchorItem.getAttribute('data-channel-id') || '';
     if (!channelId) {
-        return;
-    }
-
-    if (event.ctrlKey) {
-        event.preventDefault();
-        event.stopPropagation();
-        const channel = channels.find((item) => item.channelId === channelId);
-        const url = resolveChannelUrl(channel);
-        openUrlInBackground(url);
         return;
     }
 
@@ -3315,17 +3318,6 @@ function handleModalContextMenu(event) {
 
     const ids = Array.from(selectedChannelIds);
     if (ids.length === 0) {
-        return;
-    }
-
-    if (event.ctrlKey) {
-        if (ids.length !== 1) {
-            setStatus('Select a single channel to open.', 'info');
-            return;
-        }
-        const channel = channels.find((item) => item.channelId === ids[0]);
-        const url = resolveChannelUrl(channel);
-        openUrlInBackground(url);
         return;
     }
 
@@ -4060,8 +4052,7 @@ async function openModal() {
     overlay.classList.add('is-visible');
     renderList();
     if (!hydrated) {
-        await loadSubscriptions({ force: true });
-        renderList();
+        setStatus('No cached subscriptions yet. Click refresh to load.', 'info');
     }
 }
 
