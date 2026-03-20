@@ -160,6 +160,7 @@ let quickAddRetryTimer = 0;
 let suppressContextMenu = false;
 let suppressContextMenuTimer = 0;
 let isCtrlPressed = false;
+let lastCtrlDownAt = 0;
 
 let quickAddObserver = null;
 let quickAddPending = false;
@@ -1759,8 +1760,8 @@ function ensureModal() {
 
     overlay.addEventListener('click', handleOverlayClick);
     modal.addEventListener('click', handleModalClick);
-    modal.addEventListener('mousedown', handleModalMouseDown, true);
-    modal.addEventListener('contextmenu', handleModalContextMenu, true);
+    document.addEventListener('mousedown', handleModalMouseDown, true);
+    document.addEventListener('contextmenu', handleModalContextMenu, true);
     modal.addEventListener('dblclick', handleModalDoubleClick);
     modal.addEventListener('change', handleModalChange);
     modal.addEventListener('input', handleModalInput);
@@ -1769,6 +1770,9 @@ function ensureModal() {
         mainWrap.addEventListener('scroll', handleMainScroll, { passive: true });
     }
     window.addEventListener('resize', handleVirtualResize);
+    window.addEventListener('blur', () => {
+        isCtrlPressed = false;
+    });
     ensurePicker();
     ensureTooltipPortal();
     ensureConfirmDialog();
@@ -3282,7 +3286,11 @@ function handleModalClick(event) {
  * @param {MouseEvent} event
  */
 function handleModalMouseDown(event) {
-    const ctrlActive = event.ctrlKey || isCtrlPressed || event.getModifierState?.('Control') === true;
+    const now = Date.now();
+    const ctrlActive = event.ctrlKey
+        || isCtrlPressed
+        || event.getModifierState?.('Control') === true
+        || (lastCtrlDownAt && (now - lastCtrlDownAt) < 400);
     if (event.button !== 2 || !ctrlActive) {
         return;
     }
@@ -3322,6 +3330,7 @@ function handleModalMouseDown(event) {
 function handleGlobalKeydown(event) {
     if (event.key === 'Control') {
         isCtrlPressed = true;
+        lastCtrlDownAt = Date.now();
     }
 }
 
@@ -3355,7 +3364,11 @@ function handleModalContextMenu(event) {
         return;
     }
 
-    const ctrlActive = event.ctrlKey || isCtrlPressed || event.getModifierState?.('Control') === true;
+    const now = Date.now();
+    const ctrlActive = event.ctrlKey
+        || isCtrlPressed
+        || event.getModifierState?.('Control') === true
+        || (lastCtrlDownAt && (now - lastCtrlDownAt) < 400);
     const ctrlCard = ctrlActive ? target.closest('.yt-commander-sub-manager-card') : null;
     if (ctrlCard) {
         event.preventDefault();
