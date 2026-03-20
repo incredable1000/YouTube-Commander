@@ -2965,12 +2965,8 @@ body.yt-commander-windowed-lock {
     flex-direction: column;
     gap: 12px;
     box-shadow: 0 16px 32px rgba(0, 0, 0, 0.25);
-    cursor: grab;
+    cursor: pointer;
     transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
-}
-
-.yt-commander-sub-manager-card:active {
-    cursor: grabbing;
 }
 
 .yt-commander-sub-manager-card.is-selected {

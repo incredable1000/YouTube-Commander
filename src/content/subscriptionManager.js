@@ -156,6 +156,8 @@ let selectionAnchorId = '';
 let currentPageIds = [];
 let cardById = new Map();
 let quickAddRetryTimer = 0;
+let suppressContextMenu = false;
+let suppressContextMenuTimer = 0;
 
 let quickAddObserver = null;
 let quickAddPending = false;
@@ -1753,7 +1755,8 @@ function ensureModal() {
 
     overlay.addEventListener('click', handleOverlayClick);
     modal.addEventListener('click', handleModalClick);
-    modal.addEventListener('contextmenu', handleModalContextMenu);
+    modal.addEventListener('mousedown', handleModalMouseDown, true);
+    modal.addEventListener('contextmenu', handleModalContextMenu, true);
     modal.addEventListener('dblclick', handleModalDoubleClick);
     modal.addEventListener('change', handleModalChange);
     modal.addEventListener('input', handleModalInput);
@@ -3270,12 +3273,59 @@ function handleModalClick(event) {
 }
 
 /**
+ * Handle ctrl+right-click before the native context menu opens.
+ * @param {MouseEvent} event
+ */
+function handleModalMouseDown(event) {
+    if (event.button !== 2 || !event.ctrlKey) {
+        return;
+    }
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || !modal?.contains(target)) {
+        return;
+    }
+    const card = target.closest('.yt-commander-sub-manager-card');
+    if (!card) {
+        return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const channelId = card.getAttribute('data-channel-id') || '';
+    if (channelId) {
+        const channel = channels.find((item) => item.channelId === channelId);
+        const url = resolveChannelUrl(channel);
+        openUrlInBackground(url);
+    }
+
+    suppressContextMenu = true;
+    if (suppressContextMenuTimer) {
+        window.clearTimeout(suppressContextMenuTimer);
+    }
+    suppressContextMenuTimer = window.setTimeout(() => {
+        suppressContextMenu = false;
+        suppressContextMenuTimer = 0;
+    }, 500);
+}
+
+/**
  * Handle modal right-clicks to open category picker.
  * @param {MouseEvent} event
  */
 function handleModalContextMenu(event) {
     const target = event.target instanceof Element ? event.target : null;
     if (!target || !modal?.contains(target)) {
+        return;
+    }
+    if (suppressContextMenu) {
+        event.preventDefault();
+        event.stopPropagation();
+        suppressContextMenu = false;
+        if (suppressContextMenuTimer) {
+            window.clearTimeout(suppressContextMenuTimer);
+            suppressContextMenuTimer = 0;
+        }
         return;
     }
     const card = target.closest('.yt-commander-sub-manager-card');
