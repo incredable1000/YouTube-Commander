@@ -353,12 +353,46 @@ function remountWindowedRoot(nextRoot) {
     forcePlayerRelayout(nextRoot);
 }
 
+function createRestoreAnchorInParent(parent) {
+    if (!isUsableMountParent(parent)) {
+        return null;
+    }
+
+    const anchor = document.createElement('div');
+    anchor.className = RESTORE_ANCHOR_CLASS;
+    anchor.setAttribute('aria-hidden', 'true');
+    anchor.style.display = 'none';
+    parent.appendChild(anchor);
+    return anchor;
+}
+
+function ensureRestoreAnchorFallback() {
+    if (restoreAnchor && restoreAnchor.isConnected) {
+        return;
+    }
+
+    const fallbackParent = findFallbackPlayerMount();
+    if (!fallbackParent) {
+        return;
+    }
+
+    if (restoreAnchor && restoreAnchor.parentNode) {
+        restoreAnchor.remove();
+    }
+
+    restoreAnchor = createRestoreAnchorInParent(fallbackParent);
+    originalRootParent = fallbackParent;
+    originalRootNextSibling = null;
+}
+
 /**
  * Exit windowed fullscreen mode.
  */
 function exitWindowedMode() {
     const externalRoot = findExternalRootPlayer();
     const hasExternalReplacement = externalRoot instanceof Element
+        && externalRoot.isConnected
+        && isUsableMountParent(externalRoot.parentNode)
         && (!(mountedRootPlayer instanceof Element) || externalRoot !== mountedRootPlayer);
 
     if (mountedRootPlayer) {
@@ -370,6 +404,9 @@ function exitWindowedMode() {
     });
 
     const rootToRestore = mountedRootPlayer instanceof Element ? mountedRootPlayer : null;
+    if (!hasExternalReplacement && !isUsableMountParent(originalRootParent)) {
+        ensureRestoreAnchorFallback();
+    }
     let restored = false;
     if (!hasExternalReplacement) {
         restored = restoreMountedRootPlayer();
@@ -587,6 +624,9 @@ function syncUiState() {
         const player = getActivePlayer();
         const rootPlayer = getRootPlayerHost(player);
         const externalRoot = findExternalRootPlayer();
+        if (!restoreAnchor || !restoreAnchor.isConnected || !isUsableMountParent(originalRootParent)) {
+            ensureRestoreAnchorFallback();
+        }
         if (externalRoot && externalRoot !== mountedRootPlayer) {
             remountWindowedRoot(externalRoot);
         } else if (!player || !rootPlayer) {
