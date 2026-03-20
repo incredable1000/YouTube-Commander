@@ -2042,7 +2042,8 @@ body.yt-commander-windowed-lock {
 
 .yt-commander-sub-manager-modal {
     width: 96vw;
-    max-height: 96vh;
+    height: 96vh;
+    min-height: 96vh;
     background: #151a24;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 18px;
@@ -3286,7 +3287,8 @@ body.yt-commander-windowed-lock {
 @media (max-width: 720px) {
     .yt-commander-sub-manager-modal {
         width: 100vw;
-        max-height: 94vh;
+        height: 94vh;
+        min-height: 94vh;
     }
 
     .yt-commander-sub-manager-content {
