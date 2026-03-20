@@ -3295,6 +3295,15 @@ function handleModalContextMenu(event) {
         return;
     }
 
+    if (event.ctrlKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        const channel = channels.find((item) => item.channelId === channelId);
+        const url = resolveChannelUrl(channel);
+        openUrlInBackground(url);
+        return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
 
@@ -4049,15 +4058,11 @@ async function openModal() {
     applySidebarState();
     const hydrated = await hydrateSnapshotFromStorage();
     overlay.classList.add('is-visible');
-    if (hydrated) {
-        renderList();
-        loadSubscriptions({ force: true, background: true }).then(() => {
-            renderList();
-        }).catch(() => undefined);
-        return;
-    }
-    await loadSubscriptions({ force: true });
     renderList();
+    if (!hydrated) {
+        await loadSubscriptions({ force: true });
+        renderList();
+    }
 }
 
 /**
