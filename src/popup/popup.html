@@ -334,6 +334,28 @@
             overflow-y: visible;
         }
 
+        body.yt-commander-popup-v2 .ytc-v2-shortcut-group {
+            border: 1px solid var(--ytc-v2-border);
+            border-radius: 12px;
+            background: rgba(12, 18, 30, 0.82);
+            padding: 10px 12px;
+            display: grid;
+            gap: 8px;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-shortcut-group-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--ytc-v2-text);
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-shortcut-note {
+            font-size: 12px;
+            color: var(--ytc-v2-muted);
+        }
+
         body.yt-commander-popup-v2 .setting-row {
             display: flex;
             align-items: center;
@@ -1108,10 +1130,7 @@
                 </div>
             </div>
             <div class="feature-content expanded" id="rotationContent">
-                <div class="setting-row">
-                    <div class="setting-label">Shortcut</div>
-                    <input type="text" id="rotationShortcut" class="setting-input" value="r" maxlength="20" spellcheck="false" autocomplete="off">
-                </div>
+                <div class="note">Rotation shortcut settings live in the Shortcuts tab.</div>
                 <div class="note">Adds controls to rotate videos that were recorded in the wrong orientation</div>
             </div>
         </div>
@@ -1126,24 +1145,69 @@
             </div>
             <div class="feature-content expanded" id="windowedFullscreenContent">
                 <div class="setting-row">
-                    <div class="setting-label">Shortcut</div>
-                    <input type="text" id="windowedFullscreenShortcut" class="setting-input" value="Enter" maxlength="20" spellcheck="false" autocomplete="off">
-                </div>
-                <div class="setting-row">
-                    <div class="setting-label">Open video tab</div>
-                    <input type="text" id="openVideoNewTabShortcut" class="setting-input" value="Ctrl+Enter" maxlength="20" spellcheck="false" autocomplete="off">
-                </div>
-                <div class="setting-row">
-                    <div class="setting-label">Open channel tab</div>
-                    <input type="text" id="openChannelNewTabShortcut" class="setting-input" value="Shift+Enter" maxlength="20" spellcheck="false" autocomplete="off">
-                </div>
-                <div class="setting-row">
                     <div class="setting-label" style="font-size: 13px;">Auto windowed mode</div>
                     <div class="toggle-switch small-toggle" id="windowedFullscreenAutoToggle">
                         <div class="toggle-slider"></div>
                     </div>
                 </div>
-                <div class="note">Enter toggles windowed fullscreen. Use modifiers (Ctrl/Shift) for open-in-new-tab shortcuts.</div>
+                <div class="note">Shortcuts for windowed fullscreen and open-in-new-tab live in the Shortcuts tab.</div>
+            </div>
+        </div>
+
+        <!-- Shortcuts Feature -->
+        <div class="feature-card">
+            <div class="feature-header expanded" data-feature="shortcuts">
+                <div class="feature-title">
+                    <div class="feature-name">Shortcuts</div>
+                    <div class="feature-description">All keyboard shortcuts in one place</div>
+                </div>
+            </div>
+            <div class="feature-content expanded" id="shortcutsContent">
+                <div class="ytc-v2-shortcut-group">
+                    <div class="ytc-v2-shortcut-group-title">Seek (Arrow Left/Right)</div>
+                    <div class="setting-row">
+                        <div class="setting-label">Short seek</div>
+                        <input type="text" id="shortSeekKey" class="setting-input" value="ArrowRight" maxlength="20" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="setting-row">
+                        <div class="setting-label">Medium seek</div>
+                        <input type="text" id="mediumSeekKey" class="setting-input" value="Shift+ArrowRight" maxlength="20" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="setting-row">
+                        <div class="setting-label">Long seek</div>
+                        <input type="text" id="longSeekKey" class="setting-input" value="Ctrl+Shift+ArrowRight" maxlength="20" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="ytc-v2-shortcut-note">Edit modifiers (Ctrl/Shift/Alt). Arrow keys stay mapped to left/right seek.</div>
+                </div>
+
+                <div class="ytc-v2-shortcut-group">
+                    <div class="ytc-v2-shortcut-group-title">Windowed & Tabs</div>
+                    <div class="setting-row">
+                        <div class="setting-label">Windowed fullscreen</div>
+                        <input type="text" id="windowedFullscreenShortcut" class="setting-input" value="Enter" maxlength="20" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="setting-row">
+                        <div class="setting-label">Open video in new tab</div>
+                        <input type="text" id="openVideoNewTabShortcut" class="setting-input" value="Ctrl+Enter" maxlength="20" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="setting-row">
+                        <div class="setting-label">Open channel in new tab</div>
+                        <input type="text" id="openChannelNewTabShortcut" class="setting-input" value="Shift+Enter" maxlength="20" spellcheck="false" autocomplete="off">
+                    </div>
+                </div>
+
+                <div class="ytc-v2-shortcut-group">
+                    <div class="ytc-v2-shortcut-group-title">Video Rotation</div>
+                    <div class="setting-row">
+                        <div class="setting-label">Rotate video</div>
+                        <input type="text" id="rotationShortcut" class="setting-input" value="r" maxlength="20" spellcheck="false" autocomplete="off">
+                    </div>
+                </div>
+
+                <div class="ytc-v2-shortcut-group">
+                    <div class="ytc-v2-shortcut-group-title">Shorts Volume</div>
+                    <div class="ytc-v2-shortcut-note">Ctrl+Up / Ctrl+Down (fixed)</div>
+                </div>
             </div>
         </div>
 

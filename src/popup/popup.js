@@ -81,6 +81,7 @@ const POPUP_UI_V2_NAV_ITEMS = [
     { feature: 'audio', label: 'Audio' },
     { feature: 'playlist', label: 'Multi select' },
     { feature: 'windowedFullscreen', label: 'Windowed fullscreen' },
+    { feature: 'shortcuts', label: 'Shortcuts' },
     { feature: 'rotation', label: 'Rotate video' },
     { feature: 'shorts', label: 'Shorts counter' },
     { feature: 'shortsUploadAge', label: 'Shorts upload age' },
@@ -432,6 +433,7 @@ function buildV2NavIcon(feature) {
         subscriptionManager: 'M4 5h11v2H4V5zm0 4h11v2H4V9zm0 4h11v2H4v-2zm13-7h3v9h-3V6zm-1 10H4v2h12v-2z',
         playlist: 'M4 6h10v2H4V6zm0 5h10v2H4v-2zm0 5h6v2H4v-2zm13-8h3v3h-3v-3zm0 5h3v3h-3v-3z',
         windowedFullscreen: 'M5 6h14v12H5V6zm2 2v8h10V8H7z',
+        shortcuts: 'M4 7h10v2H4V7zm0 4h16v2H4v-2zm0 4h10v2H4v-2zm14-8h2v2h-2V7zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2z',
         rotation: 'M12 6V3l4 4-4 4V8a4 4 0 104 4h2a6 6 0 11-6-6z',
         shorts: 'M8 4h8v16H8V4zm2 3l5 2.5L10 12V7z',
         shortsUploadAge: 'M6 4h12v3H6V4zm0 5h12v9H6V9zm3 2h2v2H9v-2zm4 0h2v2h-2v-2z',
@@ -600,6 +602,11 @@ function parseShortcutComboInput(id, fallback) {
     return parseShortcutCombo(rawValue, fallback);
 }
 
+function parseSeekShortcutComboInput(id, fallback) {
+    const parsed = parseShortcutComboInput(id, fallback);
+    return { ...parsed, key: fallback.key };
+}
+
 function parseShortcutCombo(rawValue, fallback) {
     if (!rawValue) {
         return { ...fallback };
@@ -655,6 +662,11 @@ function formatShortcutCombo(value, fallback) {
     return parts.join('+');
 }
 
+function formatSeekShortcutCombo(value, fallback) {
+    const normalized = (!value || typeof value !== 'object') ? { ...fallback } : value;
+    return formatShortcutCombo({ ...normalized, key: fallback.key }, fallback);
+}
+
 // Load saved settings
 function loadSettings() {
     chrome.storage.sync.get(defaultSettings, (settings) => {
@@ -663,6 +675,18 @@ function loadSettings() {
         document.getElementById('shortSeek').value = currentSettings.shortSeek;
         document.getElementById('mediumSeek').value = currentSettings.mediumSeek;
         document.getElementById('longSeek').value = currentSettings.longSeek;
+        document.getElementById('shortSeekKey').value = formatSeekShortcutCombo(
+            currentSettings.shortSeekKey,
+            defaultSettings.shortSeekKey
+        );
+        document.getElementById('mediumSeekKey').value = formatSeekShortcutCombo(
+            currentSettings.mediumSeekKey,
+            defaultSettings.mediumSeekKey
+        );
+        document.getElementById('longSeekKey').value = formatSeekShortcutCombo(
+            currentSettings.longSeekKey,
+            defaultSettings.longSeekKey
+        );
         document.getElementById('maxQuality').value = normalizeQualityId(
             currentSettings.maxQuality,
             defaultSettings.maxQuality
@@ -836,9 +860,9 @@ function saveSyncSettings(showMessage = false) {
             'openChannelNewTabShortcut',
             defaultSettings.openChannelNewTabShortcut
         ),
-        shortSeekKey: defaultSettings.shortSeekKey,
-        mediumSeekKey: defaultSettings.mediumSeekKey,
-        longSeekKey: defaultSettings.longSeekKey
+        shortSeekKey: parseSeekShortcutComboInput('shortSeekKey', defaultSettings.shortSeekKey),
+        mediumSeekKey: parseSeekShortcutComboInput('mediumSeekKey', defaultSettings.mediumSeekKey),
+        longSeekKey: parseSeekShortcutComboInput('longSeekKey', defaultSettings.longSeekKey)
     });
 
     currentSettings = settings;
@@ -882,6 +906,9 @@ function setupAutoSave() {
         'shortSeek',
         'mediumSeek',
         'longSeek',
+        'shortSeekKey',
+        'mediumSeekKey',
+        'longSeekKey',
         'rotationShortcut',
         'windowedFullscreenShortcut',
         'openVideoNewTabShortcut',
