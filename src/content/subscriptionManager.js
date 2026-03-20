@@ -119,6 +119,7 @@ let pickerMode = 'toggle';
 let pickerTargetIds = [];
 let pickerAnchorEl = null;
 let pickerContextAnchor = null;
+let pickerContextChannelId = '';
 let sidebarCollapsed = false;
 let sidebarEditingId = '';
 let sidebarEditingName = '';
@@ -1553,6 +1554,7 @@ async function handleQuickAddClick(event) {
     if (!assignmentKey) {
         if (isQuickAddPage()) {
             setStatus('Select a category to retry channel lookup.', 'info');
+            pickerContextChannelId = channelId || '';
             ensurePicker();
             openPicker(button, 'toggle', []);
             if (quickAddRetryTimer) {
@@ -1570,6 +1572,7 @@ async function handleQuickAddClick(event) {
 
     button.setAttribute('data-channel-key', assignmentKey);
     updateQuickAddButtonState(button, { channelId, handle: identity.handle, url: identity.url });
+    pickerContextChannelId = channelId || '';
     ensurePicker();
     openPicker(button, 'toggle', [assignmentKey]);
 }
@@ -1814,9 +1817,9 @@ function renderPicker() {
 
     picker.innerHTML = '';
 
-    const singleTargetId = pickerTargetIds.length === 1 ? pickerTargetIds[0] : '';
-    const channelForPicker = singleTargetId
-        ? channels.find((channel) => channel.channelId === singleTargetId)
+    const contextId = pickerContextChannelId || (pickerTargetIds.length === 1 ? pickerTargetIds[0] : '');
+    const channelForPicker = contextId
+        ? channels.find((channel) => channel.channelId === contextId)
         : null;
     const openButton = buildPickerOpenChannelButton(channelForPicker);
     const divider = document.createElement('div');
@@ -1961,6 +1964,7 @@ function closePicker() {
     }
     pickerAnchorEl = null;
     pickerTargetIds = [];
+    pickerContextChannelId = '';
     if (pickerContextAnchor) {
         pickerContextAnchor.remove();
         pickerContextAnchor = null;
@@ -3328,6 +3332,19 @@ function handleModalContextMenu(event) {
         }
         return;
     }
+
+    const ctrlCard = event.ctrlKey ? target.closest('.yt-commander-sub-manager-card') : null;
+    if (ctrlCard) {
+        event.preventDefault();
+        event.stopPropagation();
+        const channelId = ctrlCard.getAttribute('data-channel-id') || '';
+        if (channelId) {
+            const channel = channels.find((item) => item.channelId === channelId);
+            const url = resolveChannelUrl(channel);
+            openUrlInBackground(url);
+        }
+        return;
+    }
     const card = target.closest('.yt-commander-sub-manager-card');
     if (event.ctrlKey && card) {
         event.preventDefault();
@@ -3365,6 +3382,7 @@ function handleModalContextMenu(event) {
         selectionAnchorId = channelId;
         renderList();
     }
+    pickerContextChannelId = channelId;
 
     const ids = Array.from(selectedChannelIds);
     if (ids.length === 0) {
