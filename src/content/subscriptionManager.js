@@ -161,6 +161,8 @@ let suppressContextMenu = false;
 let suppressContextMenuTimer = 0;
 let isCtrlPressed = false;
 let lastCtrlDownAt = 0;
+let suppressNextClick = false;
+let suppressNextClickTimer = 0;
 
 let quickAddObserver = null;
 let quickAddPending = false;
@@ -3165,6 +3167,11 @@ function handleDocumentClick(event) {
  * @param {MouseEvent} event
  */
 function handleModalClick(event) {
+    if (suppressNextClick) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+    }
     const baseTarget = event.target instanceof Element ? event.target : event.target?.parentElement;
     const actionTarget = baseTarget?.closest('[data-action]');
     const action = actionTarget?.getAttribute('data-action');
@@ -3291,7 +3298,7 @@ function handleModalMouseDown(event) {
         || isCtrlPressed
         || event.getModifierState?.('Control') === true
         || (lastCtrlDownAt && (now - lastCtrlDownAt) < 400);
-    if (event.button !== 2 || !ctrlActive) {
+    if (!ctrlActive || (event.button !== 2 && event.button !== 0)) {
         return;
     }
     const target = event.target instanceof Element ? event.target : null;
@@ -3314,12 +3321,20 @@ function handleModalMouseDown(event) {
     }
 
     suppressContextMenu = true;
+    suppressNextClick = true;
     if (suppressContextMenuTimer) {
         window.clearTimeout(suppressContextMenuTimer);
     }
     suppressContextMenuTimer = window.setTimeout(() => {
         suppressContextMenu = false;
         suppressContextMenuTimer = 0;
+    }, 500);
+    if (suppressNextClickTimer) {
+        window.clearTimeout(suppressNextClickTimer);
+    }
+    suppressNextClickTimer = window.setTimeout(() => {
+        suppressNextClick = false;
+        suppressNextClickTimer = 0;
     }, 500);
 }
 
