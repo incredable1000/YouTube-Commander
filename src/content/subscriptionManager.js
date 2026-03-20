@@ -3309,6 +3309,17 @@ function handleModalContextMenu(event) {
         return;
     }
 
+    if (event.ctrlKey) {
+        if (ids.length !== 1) {
+            setStatus('Select a single channel to open.', 'info');
+            return;
+        }
+        const channel = channels.find((item) => item.channelId === ids[0]);
+        const url = resolveChannelUrl(channel);
+        openUrlInBackground(url);
+        return;
+    }
+
     ensurePicker();
     const contextAnchor = createPickerContextAnchor(event.clientX, event.clientY);
     openPicker(contextAnchor, 'move', ids);
