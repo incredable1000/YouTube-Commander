@@ -1563,6 +1563,44 @@ function setupPopupSettingsModal() {
     });
 }
 
+/**
+ * Setup popup about modal toggles.
+ */
+function setupPopupAboutModal() {
+    const modal = document.getElementById('popupAboutModal');
+    const openButton = document.getElementById('popupAboutButton');
+    if (!modal || !openButton) {
+        return;
+    }
+
+    const openModal = () => {
+        modal.classList.add('is-visible');
+        modal.setAttribute('aria-hidden', 'false');
+    };
+
+    const closeModal = () => {
+        modal.classList.remove('is-visible');
+        modal.setAttribute('aria-hidden', 'true');
+    };
+
+    openButton.addEventListener('click', () => {
+        openModal();
+    });
+
+    modal.addEventListener('click', (event) => {
+        const action = event.target?.closest('[data-action="close-about"]');
+        if (action) {
+            closeModal();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && modal.classList.contains('is-visible')) {
+            closeModal();
+        }
+    });
+}
+
 
 // Export history functionality (using legacy direct approach)
 async function exportHistory() {
@@ -2793,6 +2831,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupSubscriptionSyncControls();
     setupTokenVisibilityToggle('cloudflareSyncToken', 'cloudflareTokenToggle');
     setupPopupSettingsModal();
+    setupPopupAboutModal();
     setupAutoSave();
     document.getElementById('exportHistory').addEventListener('click', exportHistory);
     document.getElementById('importHistory').addEventListener('click', importHistory);

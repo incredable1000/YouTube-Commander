@@ -815,6 +815,56 @@
             display: none;
         }
 
+        body.yt-commander-popup-v2 .ytc-v2-about-panel {
+            max-height: 88vh;
+            overflow-y: auto;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-about-content {
+            display: grid;
+            gap: 12px;
+            color: var(--ytc-v2-muted);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-about-intro {
+            color: var(--ytc-v2-text);
+            font-weight: 500;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-about-section {
+            border: 1px solid var(--ytc-v2-border);
+            border-radius: 12px;
+            background: rgba(12, 18, 30, 0.8);
+            padding: 10px 12px;
+            display: grid;
+            gap: 6px;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-about-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--ytc-v2-text);
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-about-list {
+            margin: 0;
+            padding-left: 18px;
+            display: grid;
+            gap: 6px;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-about-list li strong {
+            color: var(--ytc-v2-text);
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-about-list li::marker {
+            color: var(--ytc-v2-cyan);
+        }
+
         body.yt-commander-popup-v2 .version {
             color: var(--ytc-v2-muted);
             font-size: 12px;
@@ -1230,8 +1280,87 @@
         </div>
     </div>
 
+    <div class="ytc-v2-settings-modal ytc-v2-about-modal" id="popupAboutModal" aria-hidden="true">
+        <div class="ytc-v2-settings-backdrop" data-action="close-about"></div>
+        <div class="ytc-v2-settings-panel ytc-v2-about-panel" role="dialog" aria-modal="true" aria-label="About YouTube Commander">
+            <div class="ytc-v2-settings-header">
+                <div class="ytc-v2-settings-title">About YouTube Commander</div>
+                <button type="button" class="ytc-v2-settings-close" data-action="close-about" aria-label="Close about">X</button>
+            </div>
+            <div class="ytc-v2-about-content">
+                <div class="ytc-v2-about-intro">
+                    YouTube Commander is a power toolkit for playback control, Shorts, playlists, and subscriptions.
+                    Everything runs locally unless you enable optional Cloudflare sync.
+                </div>
+
+                <div class="ytc-v2-about-section">
+                    <div class="ytc-v2-about-title">Player & Playback</div>
+                    <ul class="ytc-v2-about-list">
+                        <li><strong>Seek controls:</strong> 3-tier seek buttons + shortcuts with burst indicator.</li>
+                        <li><strong>Quality controls:</strong> auto-set max quality every playback.</li>
+                        <li><strong>Audio track controls:</strong> auto-switch to original audio when available.</li>
+                        <li><strong>Windowed fullscreen:</strong> expand player without native fullscreen.</li>
+                        <li><strong>Open in new tab:</strong> clean watch URL + channel shortcuts.</li>
+                        <li><strong>Video rotation:</strong> quick rotate for misoriented videos.</li>
+                    </ul>
+                </div>
+
+                <div class="ytc-v2-about-section">
+                    <div class="ytc-v2-about-title">Shorts Enhancements</div>
+                    <ul class="ytc-v2-about-list">
+                        <li><strong>Shorts counter:</strong> session indicator near action buttons.</li>
+                        <li><strong>Auto-advance:</strong> optional auto-scroll to next Short at end.</li>
+                        <li><strong>Volume shortcuts:</strong> Ctrl+Up/Down adjusts by 5%.</li>
+                        <li><strong>Progress bar:</strong> keep Shorts progress visible.</li>
+                        <li><strong>Upload age:</strong> “x ago” labels on Shorts cards.</li>
+                    </ul>
+                </div>
+
+                <div class="ytc-v2-about-section">
+                    <div class="ytc-v2-about-title">Subscriptions</div>
+                    <ul class="ytc-v2-about-list">
+                        <li><strong>Subscription Manager:</strong> categories, chip filters, quick add, and bulk tools.</li>
+                        <li><strong>Context menu:</strong> move/add categories directly from cards.</li>
+                        <li><strong>Subscribed label:</strong> pill on Home feed (handle + channel ID fallback).</li>
+                        <li><strong>CSV import/export:</strong> backup category assignments.</li>
+                    </ul>
+                </div>
+
+                <div class="ytc-v2-about-section">
+                    <div class="ytc-v2-about-title">Playlists & Multi-Select</div>
+                    <ul class="ytc-v2-about-list">
+                        <li><strong>Multi-select:</strong> bulk save/remove from playlists, create playlists.</li>
+                        <li><strong>Watch later quick action:</strong> one-tap save on the multi-select dock.</li>
+                        <li><strong>Mini-guide playlist shortcut:</strong> jump to playlists quickly.</li>
+                    </ul>
+                </div>
+
+                <div class="ytc-v2-about-section">
+                    <div class="ytc-v2-about-title">History & Sync</div>
+                    <ul class="ytc-v2-about-list">
+                        <li><strong>Watched history:</strong> mark watched videos + optional hide watched.</li>
+                        <li><strong>Export/import:</strong> move history between browsers.</li>
+                        <li><strong>Cloudflare sync (optional):</strong> watched history + subscriptions to D1.</li>
+                    </ul>
+                </div>
+
+                <div class="ytc-v2-about-section">
+                    <div class="ytc-v2-about-title">Navigation</div>
+                    <ul class="ytc-v2-about-list">
+                        <li><strong>Scroll to top:</strong> floating quick navigation button.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="footer">
         <div class="ytc-v2-footer-actions">
+            <button type="button" class="ytc-v2-footer-btn" id="popupAboutButton" aria-label="About" title="About">
+                <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+                    <path d="M12 2a10 10 0 1 0 10 10A10.01 10.01 0 0 0 12 2zm0 4.6a1.4 1.4 0 1 1-1.4 1.4A1.4 1.4 0 0 1 12 6.6zm2 10.8h-4a1 1 0 0 1 0-2h1v-4h-1a1 1 0 0 1 0-2h2a1 1 0 0 1 1 1v5h1a1 1 0 0 1 0 2z"></path>
+                </svg>
+            </button>
             <button type="button" class="ytc-v2-footer-btn" id="popupSettingsButton" aria-label="Settings" title="Settings">
                 <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
                     <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 00.12-.65l-1.92-3.32a.5.5 0 00-.61-.22l-2.39.96a7.07 7.07 0 00-1.63-.94l-.36-2.54A.5.5 0 0014.39 2h-3.78a.5.5 0 00-.5.43l-.36 2.54c-.58.22-1.12.52-1.63.94l-2.39-.96a.5.5 0 00-.61.22L2.2 8.49a.5.5 0 00.12.65l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.32 14.18a.5.5 0 00-.12.65l1.92 3.32c.13.23.4.32.61.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54c.04.24.25.43.5.43h3.78c.25 0 .46-.19.5-.43l.36-2.54c.58-.22 1.12-.52 1.63-.94l2.39.96c.23.1.48.01.61-.22l1.92-3.32a.5.5 0 00-.12-.65l-2.03-1.58zM12 15.5A3.5 3.5 0 1115.5 12 3.5 3.5 0 0112 15.5z"></path>
