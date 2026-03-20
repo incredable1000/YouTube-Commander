@@ -2550,25 +2550,6 @@ body.yt-commander-windowed-lock {
     display: block;
 }
 
-.yt-commander-sub-manager-open-channel {
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    color: #dfe6f2;
-}
-
-.yt-commander-sub-manager-open-channel:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.16);
-    border-color: rgba(255, 255, 255, 0.3);
-}
-
-.yt-commander-sub-manager-open-channel:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
 .yt-commander-sub-manager-tooltip {
     position: relative;
     overflow: visible;
@@ -3005,17 +2986,6 @@ body.yt-commander-windowed-lock {
     background: #0f141d;
 }
 
-.yt-commander-sub-manager-open-channel.is-card {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 30px;
-    height: 30px;
-    background: rgba(15, 20, 29, 0.72);
-    border-color: rgba(255, 255, 255, 0.24);
-    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
-}
-
 .yt-commander-sub-manager-card-image {
     width: 100%;
     aspect-ratio: 1 / 1;
@@ -3211,6 +3181,41 @@ body.yt-commander-windowed-lock {
     padding: 12px;
     z-index: 10000;
     box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
+}
+
+.yt-commander-sub-manager-picker-open {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.08);
+    color: #e8edf5;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.yt-commander-sub-manager-picker-open:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.yt-commander-sub-manager-picker-open:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.yt-commander-sub-manager-picker-open-label {
+    flex: 1;
+    text-align: left;
+}
+
+.yt-commander-sub-manager-picker-divider {
+    height: 1px;
+    margin: 10px 0;
+    background: rgba(255, 255, 255, 0.12);
 }
 
 .yt-commander-sub-manager-picker-title {

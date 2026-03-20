@@ -496,18 +496,31 @@ function updateOpenChannelButton(button, channel) {
 }
 
 /**
- * Build open-channel button.
- * @param {object} channel
- * @param {string} className
+ * Build open-channel button for picker context menu.
+ * @param {object|null} channel
+ * @param {string} [emptyLabel]
  * @returns {HTMLButtonElement}
  */
-function buildOpenChannelButton(channel, className) {
+function buildPickerOpenChannelButton(channel, emptyLabel = 'Select one channel to open') {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `yt-commander-sub-manager-open-channel ${className || ''}`.trim();
+    button.className = 'yt-commander-sub-manager-picker-open';
     button.setAttribute('data-action', 'open-channel');
-    setIconButton(button, ICONS.openNewTab, 'Open channel in new tab');
-    updateOpenChannelButton(button, channel);
+    const icon = createIcon(ICONS.openNewTab);
+    icon.classList.add('yt-commander-sub-manager-icon');
+    const label = document.createElement('span');
+    label.className = 'yt-commander-sub-manager-picker-open-label';
+    label.textContent = 'Open channel in new tab';
+    button.appendChild(icon);
+    button.appendChild(label);
+
+    if (channel) {
+        updateOpenChannelButton(button, channel);
+        return button;
+    }
+
+    button.disabled = true;
+    setTooltip(button, emptyLabel);
     return button;
 }
 
@@ -1798,6 +1811,14 @@ function renderPicker() {
 
     picker.innerHTML = '';
 
+    const singleTargetId = pickerTargetIds.length === 1 ? pickerTargetIds[0] : '';
+    const channelForPicker = singleTargetId
+        ? channels.find((channel) => channel.channelId === singleTargetId)
+        : null;
+    const openButton = buildPickerOpenChannelButton(channelForPicker);
+    const divider = document.createElement('div');
+    divider.className = 'yt-commander-sub-manager-picker-divider';
+
     const title = document.createElement('div');
     title.className = 'yt-commander-sub-manager-picker-title';
     title.textContent = pickerMode === 'remove'
@@ -1865,6 +1886,8 @@ function renderPicker() {
         });
     }
 
+    picker.appendChild(openButton);
+    picker.appendChild(divider);
     picker.appendChild(title);
     picker.appendChild(list);
     if (overlay?.classList.contains('is-visible')) {
@@ -3716,8 +3739,6 @@ function buildCard(channel) {
         avatar.src = channel.avatar;
     }
     media.appendChild(avatar);
-    const cardOpenButton = buildOpenChannelButton(channel, 'is-card');
-    media.appendChild(cardOpenButton);
     card.appendChild(media);
 
     const stats = document.createElement('div');
@@ -3752,10 +3773,6 @@ function updateCard(card, channel) {
     const handle = card.querySelector('[data-field="handle"]');
     if (handle) {
         handle.remove();
-    }
-    const openButton = card.querySelector('.yt-commander-sub-manager-open-channel');
-    if (openButton) {
-        updateOpenChannelButton(openButton, channel);
     }
     const avatar = card.querySelector('img.yt-commander-sub-manager-card-image');
     if (avatar && channel.avatar) {
