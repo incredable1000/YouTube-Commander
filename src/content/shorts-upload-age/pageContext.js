@@ -333,6 +333,13 @@ function isBelowThumbnail(element, thumbnailBottom) {
  * @returns {{host: Element|null, mode: 'inline'|'block'}}
  */
 function findLabelHost(container) {
+    const explicitOutsideSubhead = container.querySelector(
+        '.shortsLockupViewModelHostOutsideMetadataSubhead, [class*="OutsideMetadataSubhead"]'
+    );
+    if (explicitOutsideSubhead instanceof Element) {
+        return { host: explicitOutsideSubhead, mode: 'inline' };
+    }
+
     const thumbnailBottom = getThumbnailBottom(container);
     const viewsRowHost = findViewsRowHost(container);
     if (viewsRowHost) {
