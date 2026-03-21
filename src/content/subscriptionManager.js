@@ -4263,7 +4263,6 @@ export async function initSubscriptionManager() {
 
     window.addEventListener('resize', () => {
         positionPicker();
-        positionFilterMenu();
     });
 
     window.addEventListener('message', bridgeClient.handleResponse);
