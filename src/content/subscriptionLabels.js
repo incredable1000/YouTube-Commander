@@ -930,26 +930,15 @@ function injectStyles() {
             border: 1px solid rgba(46, 204, 113, 0.4);
         }
 
-        .yt-commander-short-upload-age-inline-host.${HOST_CLASS} {
-            flex-wrap: nowrap;
-            column-gap: 4px;
-            row-gap: 0;
-            white-space: nowrap;
-        }
-
         .${LABEL_CLASS}[${LABEL_STYLE_ATTR}='${LABEL_STYLE_SHORTS_ICON}'] {
             display: inline-flex;
-            padding: 0;
-            margin-left: 0;
-            min-width: 0;
-            min-height: 0;
+            padding: 3px 6px;
+            min-width: 18px;
+            min-height: 18px;
             font-size: 0;
             text-transform: none;
             letter-spacing: 0;
             justify-content: center;
-            background: transparent;
-            border: none;
-            color: var(--yt-spec-themed-green, #2ba640);
         }
 
         .${LABEL_CLASS}[${LABEL_STYLE_ATTR}='${LABEL_STYLE_SHORTS_ICON}'] svg {
