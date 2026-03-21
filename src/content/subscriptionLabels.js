@@ -9,6 +9,8 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const LABEL_CLASS = 'yt-commander-subscription-label';
 const LABEL_KIND_ATTR = 'data-yt-commander-subscription-kind';
 const LABEL_KIND_SUBSCRIBED = 'subscribed';
+const LABEL_STYLE_ATTR = 'data-yt-commander-subscription-style';
+const LABEL_STYLE_SHORTS_ICON = 'shorts-icon';
 const HOST_CLASS = 'yt-commander-subscription-host';
 const CARD_SELECTOR = 'ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer';
 const ROW_CLASS = 'yt-content-metadata-view-model__metadata-row';
@@ -927,6 +929,22 @@ function injectStyles() {
             color: #b8f2cd;
             border: 1px solid rgba(46, 204, 113, 0.4);
         }
+
+        .${LABEL_CLASS}[${LABEL_STYLE_ATTR}='${LABEL_STYLE_SHORTS_ICON}'] {
+            display: inline-flex;
+            padding: 3px 6px;
+            min-width: 18px;
+            min-height: 18px;
+            font-size: 0;
+            text-transform: none;
+            letter-spacing: 0;
+            justify-content: center;
+        }
+
+        .${LABEL_CLASS}[${LABEL_STYLE_ATTR}='${LABEL_STYLE_SHORTS_ICON}'] svg {
+            width: 12px;
+            height: 12px;
+        }
     `;
 
     document.head.appendChild(style);
@@ -1179,6 +1197,41 @@ function ensureLabel(anchor, hostOverride = null) {
     return label;
 }
 
+function clearLabelContents(label) {
+    while (label.firstChild) {
+        label.removeChild(label.firstChild);
+    }
+}
+
+function createSubscribedIcon() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M9.0 16.2L5.5 12.7l1.4-1.4 2.1 2.1 5.1-5.1 1.4 1.4z');
+    path.setAttribute('fill', 'currentColor');
+    svg.appendChild(path);
+    return svg;
+}
+
+function applySubscribedLabel(label, isShortsCard) {
+    if (!label) {
+        return;
+    }
+    label.setAttribute(LABEL_KIND_ATTR, LABEL_KIND_SUBSCRIBED);
+    if (isShortsCard) {
+        label.setAttribute(LABEL_STYLE_ATTR, LABEL_STYLE_SHORTS_ICON);
+        label.setAttribute('aria-label', 'Subscribed');
+        clearLabelContents(label);
+        label.appendChild(createSubscribedIcon());
+        return;
+    }
+
+    label.removeAttribute(LABEL_STYLE_ATTR);
+    label.removeAttribute('aria-label');
+    label.textContent = 'Subscribed';
+}
+
 /**
  * Decorate a card with subscription label.
  * @param {Element} card
@@ -1192,13 +1245,14 @@ function decorateCard(card) {
         return;
     }
 
+    const shortsVideoId = getShortsVideoId(card);
+    const isShortsCard = Boolean(shortsVideoId);
     const { channelId, channelPath, anchor, host } = extractChannelInfo(card);
     if ((!anchor && !host) || (!channelId && !channelPath)) {
         const existing = card.querySelector(`.${LABEL_CLASS}`);
         if (existing) {
             existing.remove();
         }
-        const shortsVideoId = getShortsVideoId(card);
         if (shortsVideoId) {
             const cachedChannelId = shortsChannelCache.get(shortsVideoId);
             if (cachedChannelId) {
@@ -1206,8 +1260,7 @@ function decorateCard(card) {
                 if (subscribed) {
                     const label = ensureLabel(anchor, host);
                     if (label) {
-                        label.setAttribute(LABEL_KIND_ATTR, LABEL_KIND_SUBSCRIBED);
-                        label.textContent = 'Subscribed';
+                        applySubscribedLabel(label, true);
                     }
                 }
                 return;
@@ -1225,7 +1278,6 @@ function decorateCard(card) {
         if (existing) {
             existing.remove();
         }
-        const shortsVideoId = getShortsVideoId(card);
         if (shortsVideoId && !shortsChannelCache.has(shortsVideoId)) {
             enqueueShortsLookup(shortsVideoId, card);
         }
@@ -1236,8 +1288,7 @@ function decorateCard(card) {
     if (!label) {
         return;
     }
-    label.setAttribute(LABEL_KIND_ATTR, LABEL_KIND_SUBSCRIBED);
-    label.textContent = 'Subscribed';
+    applySubscribedLabel(label, isShortsCard);
     renderedCount += 1;
     try {
         document.documentElement.setAttribute('data-yt-commander-subs-rendered', String(renderedCount));
