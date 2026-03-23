@@ -269,25 +269,25 @@
 .yt-commander-windowed-overlay {
     position: fixed !important;
     inset: 0 !important;
-    z-index: 2147483647 !important;
+    z-index: 2147483646 !important;
     width: 100vw !important;
     height: 100vh !important;
     background: #000 !important;
     margin: 0 !important;
     padding: 0 !important;
     overflow: hidden !important;
+    pointer-events: auto !important;
 }
 
 /* Windowed fullscreen player state */
 .yt-commander-windowed-player {
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
+    position: fixed !important;
+    inset: 0 !important;
     width: 100vw !important;
     height: 100vh !important;
     max-width: none !important;
     max-height: none !important;
-    z-index: 1 !important;
+    z-index: 2147483647 !important;
     background: #000 !important;
     margin: 0 !important;
     padding: 0 !important;

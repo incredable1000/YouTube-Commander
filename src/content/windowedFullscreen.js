@@ -80,6 +80,38 @@ function getMountedPlayerElement() {
 }
 
 /**
+ * Resolve the current watch-page root player from YouTube's live player mount.
+ * @returns {Element|null}
+ */
+function getLiveRootPlayer() {
+    const fallbackParent = findFallbackPlayerMount();
+    if (fallbackParent instanceof Element) {
+        const root = fallbackParent.querySelector('#movie_player');
+        if (root instanceof Element) {
+            return root;
+        }
+    }
+
+    if (mountedRootPlayer instanceof Element && mountedRootPlayer.isConnected) {
+        return mountedRootPlayer;
+    }
+
+    return getRootPlayerHost(getActivePlayer());
+}
+
+/**
+ * Resolve the current live player element, preferring the watch-page mount.
+ * @returns {HTMLElement|null}
+ */
+function getLivePlayerElement() {
+    const liveRoot = getLiveRootPlayer();
+    const livePlayer = resolvePlayerFromRoot(liveRoot);
+    return livePlayer instanceof HTMLElement
+        ? livePlayer
+        : (getMountedPlayerElement() || getActivePlayer());
+}
+
+/**
  * Remove stale duplicated player roots left behind after YouTube rebuilds the player.
  * @param {Element|null} rootToKeep
  */
@@ -275,9 +307,8 @@ function createWindowedButton() {
  * Restore keyboard focus to the YouTube player after interacting with custom controls.
  */
 function focusPlayerForKeyboardControls() {
-    const player = getMountedPlayerElement()
-        || (activePlayer instanceof HTMLElement ? activePlayer : null)
-        || getActivePlayer();
+    const player = getLivePlayerElement()
+        || (activePlayer instanceof HTMLElement ? activePlayer : null);
     if (player instanceof HTMLElement) {
         try {
             player.focus({ preventScroll: true });
@@ -326,8 +357,8 @@ function enterWindowedMode() {
         return;
     }
 
-    const player = getActivePlayer();
-    const rootPlayer = getRootPlayerHost(player);
+    const rootPlayer = getLiveRootPlayer();
+    const player = resolvePlayerFromRoot(rootPlayer) || getActivePlayer();
     if (!player || !rootPlayer) {
         return;
     }
@@ -336,25 +367,17 @@ function enterWindowedMode() {
 
     activePlayer = player;
     mountedRootPlayer = rootPlayer;
-    originalRootParent = rootPlayer.parentNode;
-    originalRootNextSibling = rootPlayer.nextSibling;
-    restoreAnchor = createRestoreAnchor(rootPlayer);
+    originalRootParent = null;
+    originalRootNextSibling = null;
+    restoreAnchor = null;
 
     overlayHost = ensureOverlayHost();
     if (!overlayHost) {
-        if (restoreAnchor && restoreAnchor.parentNode) {
-            restoreAnchor.remove();
-        }
         mountedRootPlayer = null;
-        originalRootParent = null;
-        originalRootNextSibling = null;
-        restoreAnchor = null;
         return;
     }
 
-    overlayHost.appendChild(rootPlayer);
     rootPlayer.classList.add(PLAYER_ACTIVE_CLASS);
-    cleanupStaleOverlayRoots(rootPlayer);
 
     document.documentElement.classList.add(ROOT_LOCK_CLASS);
     document.body.classList.add(ROOT_LOCK_CLASS);
@@ -436,17 +459,13 @@ function remountWindowedRoot(nextRoot) {
     if (mountedRootPlayer && mountedRootPlayer !== nextRoot) {
         mountedRootPlayer.classList.remove(PLAYER_ACTIVE_CLASS);
     }
-    if (restoreAnchor && restoreAnchor.parentNode) {
-        restoreAnchor.remove();
-    }
-    restoreAnchor = createRestoreAnchor(nextRoot);
-    originalRootParent = nextRoot.parentNode;
-    originalRootNextSibling = nextRoot.nextSibling;
-    overlayHost.appendChild(nextRoot);
+
     nextRoot.classList.add(PLAYER_ACTIVE_CLASS);
     mountedRootPlayer = nextRoot;
     activePlayer = resolvePlayerFromRoot(nextRoot) || activePlayer;
-    cleanupStaleOverlayRoots(nextRoot);
+    originalRootParent = null;
+    originalRootNextSibling = null;
+    restoreAnchor = null;
 
     document.documentElement.classList.add(ROOT_LOCK_CLASS);
     document.body.classList.add(ROOT_LOCK_CLASS);
@@ -491,11 +510,6 @@ function ensureRestoreAnchorFallback() {
  * Exit windowed fullscreen mode.
  */
 function exitWindowedMode() {
-    const externalRoot = findExternalRootPlayer();
-    if (externalRoot && externalRoot !== mountedRootPlayer) {
-        remountWindowedRoot(externalRoot);
-    }
-
     if (mountedRootPlayer) {
         mountedRootPlayer.classList.remove(PLAYER_ACTIVE_CLASS);
     }
@@ -504,17 +518,6 @@ function exitWindowedMode() {
         player.classList.remove(PLAYER_ACTIVE_CLASS);
     });
 
-    const rootToRestore = mountedRootPlayer instanceof Element ? mountedRootPlayer : null;
-    if (!isUsableMountParent(originalRootParent)) {
-        ensureRestoreAnchorFallback();
-    }
-    const restored = restoreMountedRootPlayer();
-
-    if (restoreAnchor && restoreAnchor.parentNode) {
-        restoreAnchor.remove();
-    }
-    restoreAnchor = null;
-
     if (overlayHost && overlayHost.parentNode) {
         overlayHost.remove();
     }
@@ -522,16 +525,7 @@ function exitWindowedMode() {
     document.documentElement.classList.remove(ROOT_LOCK_CLASS);
     document.body.classList.remove(ROOT_LOCK_CLASS);
 
-    const relayoutTarget = mountedRootPlayer || getRootPlayerHost(getActivePlayer());
-
-    if (!restored && rootToRestore) {
-        scheduleDeferredRestore(rootToRestore);
-        logger.warn('Windowed player restore deferred until mount target becomes available');
-    }
-
-    if (restored && rootToRestore) {
-        removeDuplicateRootPlayers(rootToRestore);
-    }
+    const relayoutTarget = getLiveRootPlayer() || mountedRootPlayer || getRootPlayerHost(getActivePlayer());
 
     activePlayer = null;
     mountedRootPlayer = null;
@@ -718,25 +712,18 @@ function syncUiState() {
     }
 
     if (isWindowed) {
-        cleanupStaleOverlayRoots(mountedRootPlayer);
-
-        const player = getMountedPlayerElement() || getActivePlayer();
-        const rootPlayer = getRootPlayerHost(player);
-        const externalRoot = findExternalRootPlayer();
-        if (!restoreAnchor || !restoreAnchor.isConnected || !isUsableMountParent(originalRootParent)) {
-            ensureRestoreAnchorFallback();
-        }
-        if (externalRoot && externalRoot !== mountedRootPlayer) {
-            remountWindowedRoot(externalRoot);
-        } else if (!player || !rootPlayer) {
+        const rootPlayer = getLiveRootPlayer();
+        const player = resolvePlayerFromRoot(rootPlayer) || getLivePlayerElement();
+        if (!player || !rootPlayer) {
             exitWindowedMode();
         } else if (mountedRootPlayer && rootPlayer !== mountedRootPlayer) {
-            mountedRootPlayer = rootPlayer;
+            remountWindowedRoot(rootPlayer);
+        } else if (mountedRootPlayer) {
             activePlayer = player;
-        } else if (mountedRootPlayer && overlayHost && !overlayHost.contains(mountedRootPlayer)) {
-            overlayHost.appendChild(mountedRootPlayer);
-            mountedRootPlayer.classList.add(PLAYER_ACTIVE_CLASS);
-            forcePlayerRelayout(mountedRootPlayer);
+            if (!mountedRootPlayer.classList.contains(PLAYER_ACTIVE_CLASS)) {
+                mountedRootPlayer.classList.add(PLAYER_ACTIVE_CLASS);
+                forcePlayerRelayout(mountedRootPlayer);
+            }
         }
     }
 
@@ -940,7 +927,7 @@ function findControlsHost() {
         return rotationButton.parentElement;
     }
 
-    const player = getMountedPlayerElement() || getActivePlayer();
+    const player = getLivePlayerElement();
     if (!player) {
         return null;
     }
