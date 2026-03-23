@@ -52,38 +52,156 @@ const teardownCallbacks = [];
 const CLOUD_PENDING_QUEUE_KEY = 'cloudflareSyncPendingVideoIds';
 const CLOUD_PENDING_COUNT_KEY = 'cloudflareSyncPendingCount';
 const CLOUD_PENDING_BY_ACCOUNT_KEY = 'cloudflareSyncPendingByAccount';
-const SYNC_ACCOUNT_KEY_STORAGE = 'ytCommanderSyncAccountKeyV1';
 const DEFAULT_SYNC_ACCOUNT_KEY = 'default';
+const SUBSCRIPTION_IDENTITY_BRIDGE_SOURCE = 'yt-commander';
+const SUBSCRIPTION_IDENTITY_REQUEST_TYPE = 'YT_COMMANDER_SUBSCRIPTION_ACCOUNT_REQUEST';
+const SUBSCRIPTION_IDENTITY_RESPONSE_TYPE = 'YT_COMMANDER_SUBSCRIPTION_ACCOUNT_RESPONSE';
+const SUBSCRIPTION_IDENTITY_ACTION = 'GET_ACTIVE_CHANNEL_IDENTITY';
+const SUBSCRIPTION_IDENTITY_TIMEOUT_MS = 20000;
+const CHANNEL_ACCOUNT_KEY_PATTERN = /^ytch:UC[A-Za-z0-9_-]{20,}$/;
 
 let syncAccountKey = DEFAULT_SYNC_ACCOUNT_KEY;
+let syncAccountSource = 'fallback';
+let syncAccountIsPrimaryCandidate = false;
+let syncAccountIdentityPromise = null;
+let subscriptionIdentityRequestCounter = 0;
+const pendingSubscriptionIdentityRequests = new Map();
+let subscriptionIdentityResponseListenerAttached = false;
 
 /**
- * Generate a stable per-storage-context key so multi-login tabs stay isolated.
- * @returns {string}
+ * Check whether a key is a portable YouTube channel account key.
+ * @param {any} rawAccountKey
+ * @returns {boolean}
  */
-function createSyncAccountKey() {
-    const randomPart = Math.random().toString(36).slice(2, 12);
-    return `ctx_${Date.now().toString(36)}_${randomPart}`;
+function isChannelAccountKey(rawAccountKey) {
+    const value = typeof rawAccountKey === 'string' ? rawAccountKey.trim() : '';
+    return CHANNEL_ACCOUNT_KEY_PATTERN.test(value);
 }
 
 /**
- * Read or create sync account key from page localStorage context.
- * Different Cent multi-login containers keep separate localStorage, which
- * gives us account-level partitioning without extra permissions.
- * @returns {string}
+ * Handle channel identity bridge responses from main world.
+ * @param {MessageEvent} event
  */
-function getOrCreateSyncAccountKey() {
-    try {
-        const existing = window.localStorage.getItem(SYNC_ACCOUNT_KEY_STORAGE);
-        if (typeof existing === 'string' && existing.trim()) {
-            return existing.trim().slice(0, 120);
+function handleSubscriptionIdentityBridgeResponse(event) {
+    if (event.source !== window || !event.data || typeof event.data !== 'object') {
+        return;
+    }
+
+    const message = event.data;
+    if (message.source !== SUBSCRIPTION_IDENTITY_BRIDGE_SOURCE
+        || message.type !== SUBSCRIPTION_IDENTITY_RESPONSE_TYPE) {
+        return;
+    }
+
+    const requestId = typeof message.requestId === 'string' ? message.requestId : '';
+    if (!requestId || !pendingSubscriptionIdentityRequests.has(requestId)) {
+        return;
+    }
+
+    const pending = pendingSubscriptionIdentityRequests.get(requestId);
+    pendingSubscriptionIdentityRequests.delete(requestId);
+    window.clearTimeout(pending.timeoutId);
+
+    if (message.success === true) {
+        pending.resolve(message.data || {});
+        return;
+    }
+
+    pending.reject(new Error(message.error || 'Failed to resolve YouTube channel identity'));
+}
+
+/**
+ * Ensure the channel identity bridge response listener is attached once.
+ */
+function ensureSubscriptionIdentityBridgeListener() {
+    if (subscriptionIdentityResponseListenerAttached) {
+        return;
+    }
+
+    window.addEventListener('message', handleSubscriptionIdentityBridgeResponse);
+    subscriptionIdentityResponseListenerAttached = true;
+}
+
+/**
+ * Request the active signed-in YouTube channel identity from main world.
+ * @returns {Promise<{accountKey: string, channelId: string, source: string, isPrimaryCandidate: boolean}>}
+ */
+function requestSubscriptionSyncIdentity() {
+    ensureSubscriptionIdentityBridgeListener();
+
+    return new Promise((resolve, reject) => {
+        subscriptionIdentityRequestCounter += 1;
+        const requestId = `watched-identity-${Date.now()}-${subscriptionIdentityRequestCounter}`;
+        const timeoutId = window.setTimeout(() => {
+            pendingSubscriptionIdentityRequests.delete(requestId);
+            reject(new Error('Timed out while resolving YouTube channel identity'));
+        }, SUBSCRIPTION_IDENTITY_TIMEOUT_MS);
+
+        pendingSubscriptionIdentityRequests.set(requestId, {
+            resolve,
+            reject,
+            timeoutId
+        });
+
+        window.postMessage({
+            source: SUBSCRIPTION_IDENTITY_BRIDGE_SOURCE,
+            type: SUBSCRIPTION_IDENTITY_REQUEST_TYPE,
+            action: SUBSCRIPTION_IDENTITY_ACTION,
+            requestId
+        }, '*');
+    });
+}
+
+/**
+ * Resolve and cache the sync account identity for watched history.
+ * @returns {Promise<{accountKey: string, source: string, isPrimaryCandidate: boolean}>}
+ */
+async function resolveSyncAccountIdentity() {
+    if (syncAccountKey && syncAccountKey !== DEFAULT_SYNC_ACCOUNT_KEY) {
+        return {
+            accountKey: syncAccountKey,
+            source: syncAccountSource,
+            isPrimaryCandidate: syncAccountIsPrimaryCandidate
+        };
+    }
+
+    if (syncAccountIdentityPromise) {
+        return syncAccountIdentityPromise;
+    }
+
+    syncAccountIdentityPromise = (async () => {
+        try {
+            const identity = await requestSubscriptionSyncIdentity();
+            const accountKey = typeof identity.accountKey === 'string' ? identity.accountKey.trim() : '';
+            if (isChannelAccountKey(accountKey)) {
+                syncAccountKey = accountKey;
+                syncAccountSource = typeof identity.source === 'string' ? identity.source : 'youtube-channel';
+                syncAccountIsPrimaryCandidate = identity.isPrimaryCandidate !== false;
+                return {
+                    accountKey: syncAccountKey,
+                    source: syncAccountSource,
+                    isPrimaryCandidate: syncAccountIsPrimaryCandidate
+                };
+            }
+            logger.warn('Invalid channel identity response for watched history sync', identity);
+        } catch (error) {
+            logger.warn('Failed to resolve YouTube channel identity for watched history sync', error);
         }
 
-        const created = createSyncAccountKey();
-        window.localStorage.setItem(SYNC_ACCOUNT_KEY_STORAGE, created);
-        return created;
-    } catch (_error) {
-        return DEFAULT_SYNC_ACCOUNT_KEY;
+        syncAccountKey = DEFAULT_SYNC_ACCOUNT_KEY;
+        syncAccountSource = 'fallback';
+        syncAccountIsPrimaryCandidate = false;
+        return {
+            accountKey: syncAccountKey,
+            source: syncAccountSource,
+            isPrimaryCandidate: syncAccountIsPrimaryCandidate
+        };
+    })();
+
+    try {
+        return await syncAccountIdentityPromise;
+    } finally {
+        syncAccountIdentityPromise = null;
     }
 }
 
@@ -231,7 +349,8 @@ async function ensureInitialized() {
 
     initializingPromise = (async () => {
         logger.info('Initializing watched history');
-        syncAccountKey = getOrCreateSyncAccountKey();
+        const identity = await resolveSyncAccountIdentity();
+        syncAccountKey = identity.accountKey;
         await initDB();
         await loadDeleteModeSetting();
         await hydrateWatchedIdCache();
@@ -245,7 +364,11 @@ async function ensureInitialized() {
         scheduleRender('init', true);
         schedulePlaybackBinding();
 
-        logger.info('Watched history initialized', { watchedCount: watchedIds.size, syncAccountKey });
+        logger.info('Watched history initialized', {
+            watchedCount: watchedIds.size,
+            syncAccountKey,
+            syncAccountSource: identity.source
+        });
     })();
 
     try {
@@ -411,8 +534,10 @@ function attachListeners() {
             }
 
             if (message.type === 'GET_SYNC_ACCOUNT_IDENTITY') {
-                sendResponse({ success: true, ...getSyncAccountIdentity() });
-                return undefined;
+                getSyncAccountIdentity()
+                    .then((identity) => sendResponse({ success: true, ...identity }))
+                    .catch((error) => sendResponse({ success: false, error: error.message }));
+                return true;
             }
 
             if (message.type === 'SEED_SYNC_QUEUE_FROM_HISTORY') {
@@ -1399,16 +1524,8 @@ function updateSettings(settings) {
  * Return account identity used for cloud-sync partitioning.
  * @returns {{accountKey: string, source: string, isPrimaryCandidate: boolean}}
  */
-function getSyncAccountIdentity() {
-    if (!syncAccountKey) {
-        syncAccountKey = getOrCreateSyncAccountKey();
-    }
-
-    return {
-        accountKey: syncAccountKey || DEFAULT_SYNC_ACCOUNT_KEY,
-        source: 'localStorage-context',
-        isPrimaryCandidate: true
-    };
+async function getSyncAccountIdentity() {
+    return resolveSyncAccountIdentity();
 }
 
 /**

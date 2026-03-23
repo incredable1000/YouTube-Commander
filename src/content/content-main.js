@@ -97,12 +97,13 @@ async function initializeMainWorldModules() {
             import('./audioTrackControls.js').catch(e => { logger.warn('Failed to import audioTrackControls:', e); throw e; }),
             import('./playlistApi.js').catch(e => { logger.warn('Failed to import playlistApi:', e); throw e; }),
             import('./subscriptionLabels.js').catch(e => { logger.warn('Failed to import subscriptionLabels:', e); throw e; }),
-            import('./shortsVolumeBridge.js').catch(e => { logger.warn('Failed to import shortsVolumeBridge:', e); throw e; })
+            import('./shortsVolumeBridge.js').catch(e => { logger.warn('Failed to import shortsVolumeBridge:', e); throw e; }),
+            import('./subscriptionSyncIdentityBridge.js').catch(e => { logger.warn('Failed to import subscriptionSyncIdentityBridge:', e); throw e; })
         ]);
         
         // Initialize successfully imported modules
         modules.forEach((result, index) => {
-            const moduleName = ['qualityControls', 'audioTrackControls', 'playlistApi', 'subscriptionLabels', 'shortsVolumeBridge'][index];
+            const moduleName = ['qualityControls', 'audioTrackControls', 'playlistApi', 'subscriptionLabels', 'shortsVolumeBridge', 'subscriptionSyncIdentityBridge'][index];
             
             if (result.status === 'fulfilled') {
                 logger.info(`${moduleName} module loaded successfully`);
@@ -116,6 +117,11 @@ async function initializeMainWorldModules() {
                 if (moduleName === 'shortsVolumeBridge' && module.initShortsVolumeBridge) {
                     module.initShortsVolumeBridge().catch(error => {
                         logger.error('Failed to init shortsVolumeBridge', error);
+                    });
+                }
+                if (moduleName === 'subscriptionSyncIdentityBridge' && module.initSubscriptionSyncIdentityBridge) {
+                    module.initSubscriptionSyncIdentityBridge().catch(error => {
+                        logger.error('Failed to init subscriptionSyncIdentityBridge', error);
                     });
                 }
             } else {

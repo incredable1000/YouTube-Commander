@@ -955,10 +955,12 @@ function formatAccountKey(accountKey) {
     if (!value || value === 'default') {
         return 'Not locked';
     }
-    if (value.length <= 22) {
-        return value;
+
+    const displayValue = value.startsWith('ytch:') ? value.slice(5) : value;
+    if (displayValue.length <= 22) {
+        return displayValue;
     }
-    return `${value.slice(0, 10)}...${value.slice(-8)}`;
+    return `${displayValue.slice(0, 10)}...${displayValue.slice(-8)}`;
 }
 
 /**
@@ -2358,10 +2360,12 @@ async function restoreSubscriptionsFromCloudflare() {
             throw new Error('Cloudflare Worker URL is required');
         }
 
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true, url: '*://*.youtube.com/*' });
         const response = await sendRuntimeMessage({
             type: 'RESTORE_SUBSCRIPTIONS_FROM_CLOUDFLARE',
             endpointUrl,
-            apiToken
+            apiToken,
+            activeTabId: activeTab?.id
         }, 240000);
 
         if (!response?.success) {

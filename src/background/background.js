@@ -77,6 +77,7 @@ let subscriptionSyncInProgress = false;
 let subscriptionRestoreInProgress = false;
 let pendingQueueMutationChain = Promise.resolve();
 const DEFAULT_ACCOUNT_KEY = 'default';
+const SUBSCRIPTION_ACCOUNT_KEY_PREFIX = 'ytch:';
 let lastWatchedPendingCount = 0;
 let lastSubscriptionPendingCount = 0;
 
@@ -438,7 +439,7 @@ async function resolveYouTubeTabForHistory() {
  * @returns {Promise<{accountKey: string, source: string, isPrimaryCandidate: boolean}>}
  */
 async function getSyncIdentityFromTab(tabId) {
-    const response = await sendMessageToTab(tabId, { type: 'GET_SYNC_ACCOUNT_IDENTITY' }, 8000);
+    const response = await sendMessageToTab(tabId, { type: 'GET_SYNC_ACCOUNT_IDENTITY' }, 20000);
     if (!response?.success) {
         throw new Error(response?.error || 'Failed to read account identity from tab');
     }
@@ -448,6 +449,36 @@ async function getSyncIdentityFromTab(tabId) {
         source: typeof response.source === 'string' ? response.source : 'unknown',
         isPrimaryCandidate: response.isPrimaryCandidate !== false
     };
+}
+
+/**
+ * Read subscription sync identity from a YouTube tab.
+ * @param {number} tabId
+ * @returns {Promise<{accountKey: string, channelId: string, source: string, isPrimaryCandidate: boolean}>}
+ */
+async function getSubscriptionSyncIdentityFromTab(tabId) {
+    const response = await sendMessageToTab(tabId, { type: 'GET_SUBSCRIPTION_SYNC_ACCOUNT_IDENTITY' }, 20000);
+    if (!response?.success) {
+        throw new Error(response?.error || 'Failed to read subscription account identity from tab');
+    }
+
+    return {
+        accountKey: normalizeAccountKey(response.accountKey),
+        channelId: typeof response.channelId === 'string' ? response.channelId.trim() : '',
+        source: typeof response.source === 'string' ? response.source : 'unknown',
+        isPrimaryCandidate: response.isPrimaryCandidate !== false
+    };
+}
+
+/**
+ * Check whether account key is a portable YouTube channel-based subscription key.
+ * @param {any} rawAccountKey
+ * @returns {boolean}
+ */
+function isSubscriptionChannelAccountKey(rawAccountKey) {
+    const normalized = normalizeAccountKey(rawAccountKey);
+    return normalized.startsWith(`${SUBSCRIPTION_ACCOUNT_KEY_PREFIX}UC`)
+        && /^ytch:UC[A-Za-z0-9_-]{20,}$/.test(normalized);
 }
 
 /**
@@ -477,9 +508,13 @@ async function setPrimarySyncAccountKey(accountKey) {
  */
 async function lockPrimarySyncAccountFromTab(tabId) {
     const identity = await getSyncIdentityFromTab(tabId);
-    const accountKey = await setPrimarySyncAccountKey(identity.accountKey);
+    const accountKey = normalizeAccountKey(identity.accountKey);
+    if (!isSubscriptionChannelAccountKey(accountKey)) {
+        throw new Error('Failed to resolve the signed-in YouTube channel from tab');
+    }
+    const lockedKey = await setPrimarySyncAccountKey(accountKey);
     return {
-        accountKey,
+        accountKey: lockedKey,
         source: identity.source
     };
 }
@@ -490,10 +525,10 @@ async function lockPrimarySyncAccountFromTab(tabId) {
  * @returns {Promise<{accountKey: string, source: string}>}
  */
 async function lockSubscriptionSyncAccountFromTab(tabId) {
-    const identity = await getSyncIdentityFromTab(tabId);
+    const identity = await getSubscriptionSyncIdentityFromTab(tabId);
     const accountKey = normalizeAccountKey(identity.accountKey);
-    if (!accountKey || accountKey === DEFAULT_ACCOUNT_KEY) {
-        throw new Error('Failed to resolve YouTube account from tab');
+    if (!isSubscriptionChannelAccountKey(accountKey)) {
+        throw new Error('Failed to resolve the signed-in YouTube channel from tab');
     }
     await storageLocalSet({
         [SUBSCRIPTION_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]: accountKey
@@ -505,6 +540,85 @@ async function lockSubscriptionSyncAccountFromTab(tabId) {
 }
 
 /**
+ * Persist locked subscription account key.
+ * @param {string} accountKey
+ * @returns {Promise<string>}
+ */
+async function setSubscriptionSyncAccountKey(accountKey) {
+    const normalized = normalizeAccountKey(accountKey);
+    if (!isSubscriptionChannelAccountKey(normalized)) {
+        throw new Error('Subscription sync requires a YouTube channel-based account key');
+    }
+
+    await storageLocalSet({
+        [SUBSCRIPTION_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]: normalized
+    });
+
+    return normalized;
+}
+
+/**
+ * Resolve a portable subscription sync account key for sync/restore actions.
+ * @param {{accountKey?: string, preferredTabId?: number, state?: any}} options
+ * @returns {Promise<{accountKey: string, source: string, usedTabId: number, createdTab: boolean}>}
+ */
+async function resolveSubscriptionSyncAccountKey(options = {}) {
+    const explicitAccountKey = normalizeAccountKey(options.accountKey);
+    if (isSubscriptionChannelAccountKey(explicitAccountKey)) {
+        return {
+            accountKey: explicitAccountKey,
+            source: 'provided',
+            usedTabId: 0,
+            createdTab: false
+        };
+    }
+
+    const state = options.state || await readSubscriptionSyncState();
+    const storedAccountKey = normalizeAccountKey(state.primaryAccountKey);
+    if (isSubscriptionChannelAccountKey(storedAccountKey)) {
+        return {
+            accountKey: storedAccountKey,
+            source: 'stored',
+            usedTabId: 0,
+            createdTab: false
+        };
+    }
+
+    let createdTab = false;
+    let usedTabId = 0;
+
+    const preferredTabId = Number.isFinite(options.preferredTabId) ? Number(options.preferredTabId) : 0;
+    if (preferredTabId) {
+        const hasReceiver = await hasWatchedHistoryReceiver(preferredTabId, 1);
+        if (hasReceiver) {
+            usedTabId = preferredTabId;
+        }
+    }
+
+    if (!usedTabId) {
+        const tabInfo = await resolveYouTubeTabForHistory();
+        createdTab = tabInfo.created;
+        usedTabId = tabInfo.tabId;
+    }
+
+    try {
+        const identity = await getSubscriptionSyncIdentityFromTab(usedTabId);
+        const accountKey = await setSubscriptionSyncAccountKey(identity.accountKey);
+        return {
+            accountKey,
+            source: identity.source,
+            usedTabId,
+            createdTab
+        };
+    } catch (error) {
+        if (createdTab && usedTabId) {
+            await removeTab(usedTabId);
+        }
+        throw error;
+    }
+}
+
+/**
  * Resolve sync account key for manual actions.
  * If no primary account is locked yet, lock it to current active YouTube tab.
  * @param {number|undefined} preferredTabId
@@ -513,7 +627,7 @@ async function lockSubscriptionSyncAccountFromTab(tabId) {
 async function resolveManualSyncAccountKey(preferredTabId) {
     const result = await storageLocalGet([CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]);
     const currentPrimary = normalizeAccountKey(result[CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]);
-    if (currentPrimary && currentPrimary !== DEFAULT_ACCOUNT_KEY) {
+    if (isSubscriptionChannelAccountKey(currentPrimary)) {
         return currentPrimary;
     }
 
@@ -531,7 +645,7 @@ async function resolveManualSyncAccountKey(preferredTabId) {
         const locked = await lockPrimarySyncAccountFromTab(tabId);
         return locked.accountKey;
     } catch (_error) {
-        return currentPrimary || DEFAULT_ACCOUNT_KEY;
+        return DEFAULT_ACCOUNT_KEY;
     }
 }
 
@@ -546,6 +660,9 @@ async function autoLockPrimaryAccountIfMissing(accountKey, senderTab) {
     if (!candidateKey || candidateKey === DEFAULT_ACCOUNT_KEY) {
         return;
     }
+    if (!isSubscriptionChannelAccountKey(candidateKey)) {
+        return;
+    }
 
     if (senderTab?.incognito === true) {
         return;
@@ -553,7 +670,7 @@ async function autoLockPrimaryAccountIfMissing(accountKey, senderTab) {
 
     const result = await storageLocalGet([CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]);
     const currentPrimary = normalizeAccountKey(result[CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]);
-    if (currentPrimary && currentPrimary !== DEFAULT_ACCOUNT_KEY) {
+    if (isSubscriptionChannelAccountKey(currentPrimary)) {
         return;
     }
 
@@ -857,7 +974,7 @@ async function readPendingByAccount() {
 async function resolveSyncAccountKey() {
     const result = await storageLocalGet([CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]);
     const primaryAccountKey = normalizeAccountKey(result[CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY]);
-    if (primaryAccountKey) {
+    if (isSubscriptionChannelAccountKey(primaryAccountKey)) {
         return primaryAccountKey;
     }
     return DEFAULT_ACCOUNT_KEY;
@@ -1277,7 +1394,7 @@ async function getSubscriptionSnapshotFromTab(tabId) {
  */
 async function postCloudflareSyncBatch(endpoint, apiToken, videoIds, accountKey) {
     const payload = { videoIds };
-    if (accountKey) {
+    if (isSubscriptionChannelAccountKey(accountKey)) {
         payload.accountKey = accountKey;
     }
     console.info('[YT-Commander][CloudSync] Sending batch to API', {
@@ -1431,11 +1548,14 @@ async function fetchSubscriptionRestorePayload(endpoint, apiToken, accountKey) {
  * @param {number} limit
  * @returns {Promise<{videoIds: string[], nextCursor: string|null, hasMore: boolean}>}
  */
-async function fetchCloudflarePullPage(pullEndpoint, apiToken, cursor, limit) {
+async function fetchCloudflarePullPage(pullEndpoint, apiToken, cursor, limit, accountKey) {
     const requestUrl = new URL(pullEndpoint.toString());
     requestUrl.searchParams.set('limit', String(Math.max(1, Math.min(limit, 1000))));
     if (typeof cursor === 'string' && cursor) {
         requestUrl.searchParams.set('cursor', cursor);
+    }
+    if (accountKey) {
+        requestUrl.searchParams.set('accountKey', accountKey);
     }
 
     const headers = {
@@ -1526,6 +1646,10 @@ async function downloadFromCloudflare(options = {}) {
 
     const syncEndpoint = parseCloudflareEndpoint(endpointRaw);
     const pullEndpoint = buildCloudflarePullEndpoint(syncEndpoint);
+    const resolvedAccountKey = await resolveSyncAccountKey();
+    const accountKey = isSubscriptionChannelAccountKey(resolvedAccountKey)
+        ? resolvedAccountKey
+        : '';
 
     cloudSyncInProgress = true;
 
@@ -1545,7 +1669,7 @@ async function downloadFromCloudflare(options = {}) {
         const maxPages = 5000;
 
         while (pageCount < maxPages) {
-            const page = await fetchCloudflarePullPage(pullEndpoint, apiToken, cursor, pageLimit);
+            const page = await fetchCloudflarePullPage(pullEndpoint, apiToken, cursor, pageLimit, accountKey);
             pageCount += 1;
 
             if (page.videoIds.length === 0) {
@@ -1609,7 +1733,7 @@ async function performCloudflareSync(options = {}) {
         : state.apiToken;
     const syncAccountKey = manual
         ? await resolveManualSyncAccountKey(options.activeTabId)
-        : normalizeAccountKey(state.primaryAccountKey);
+        : await resolveSyncAccountKey();
 
     const endpoint = parseCloudflareEndpoint(endpointRaw);
 
@@ -1803,26 +1927,29 @@ async function performSubscriptionSync(options = {}) {
 
     try {
         const requestedTabId = Number.isFinite(options.activeTabId) ? Number(options.activeTabId) : 0;
-        if (requestedTabId) {
-            const hasReceiver = await hasWatchedHistoryReceiver(requestedTabId, 1);
-            if (hasReceiver) {
-                tabId = requestedTabId;
-            }
+        const accountResolution = await resolveSubscriptionSyncAccountKey({
+            preferredTabId: requestedTabId,
+            state
+        });
+
+        let accountKey = accountResolution.accountKey;
+        if (accountResolution.usedTabId) {
+            tabId = accountResolution.usedTabId;
+            createdTab = accountResolution.createdTab;
         }
 
         if (!tabId) {
-            const tabInfo = await resolveYouTubeTabForHistory();
-            createdTab = tabInfo.created;
-            tabId = tabInfo.tabId;
-        }
+            if (requestedTabId) {
+                const hasReceiver = await hasWatchedHistoryReceiver(requestedTabId, 1);
+                if (hasReceiver) {
+                    tabId = requestedTabId;
+                }
+            }
 
-        let accountKey = normalizeAccountKey(state.primaryAccountKey) || DEFAULT_ACCOUNT_KEY;
-        if (!accountKey || accountKey === DEFAULT_ACCOUNT_KEY) {
-            try {
-                const identity = await getSyncIdentityFromTab(tabId);
-                accountKey = normalizeAccountKey(identity.accountKey) || DEFAULT_ACCOUNT_KEY;
-            } catch (_error) {
-                // Keep fallback account key when identity is unavailable.
+            if (!tabId) {
+                const tabInfo = await resolveYouTubeTabForHistory();
+                createdTab = tabInfo.created;
+                tabId = tabInfo.tabId;
             }
         }
 
@@ -1953,14 +2080,22 @@ async function restoreSubscriptionsFromCloudflare(options = {}) {
         : state.apiToken;
 
     const endpoint = buildSubscriptionEndpoint(endpointRaw);
-    const accountKey = normalizeAccountKey(options.accountKey || state.primaryAccountKey || DEFAULT_ACCOUNT_KEY);
-    if (!accountKey || accountKey === DEFAULT_ACCOUNT_KEY) {
-        throw new Error('Sync account not locked. Click "Use Current Account" in the subscription sync settings.');
-    }
 
     subscriptionRestoreInProgress = true;
 
+    let createdTab = false;
+    let cleanupTabId = 0;
+
     try {
+        const accountResolution = await resolveSubscriptionSyncAccountKey({
+            accountKey: options.accountKey,
+            preferredTabId: options.activeTabId,
+            state
+        });
+        const accountKey = accountResolution.accountKey;
+        createdTab = accountResolution.createdTab;
+        cleanupTabId = accountResolution.usedTabId;
+
         const payload = await fetchSubscriptionRestorePayload(endpoint, apiToken, accountKey);
         const snapshot = payload && typeof payload.snapshot === 'object' ? payload.snapshot : {};
         const rawChannels = Array.isArray(payload.channels)
@@ -2031,6 +2166,9 @@ async function restoreSubscriptionsFromCloudflare(options = {}) {
             endpointHost: endpoint.host
         };
     } finally {
+        if (createdTab && cleanupTabId) {
+            await removeTab(cleanupTabId);
+        }
         subscriptionRestoreInProgress = false;
     }
 }
@@ -2041,7 +2179,9 @@ async function restoreSubscriptionsFromCloudflare(options = {}) {
  */
 async function getCloudSyncStatus() {
     const state = await readCloudSyncState();
-    const syncAccountKey = normalizeAccountKey(state.primaryAccountKey);
+    const syncAccountKey = isSubscriptionChannelAccountKey(state.primaryAccountKey)
+        ? normalizeAccountKey(state.primaryAccountKey)
+        : DEFAULT_ACCOUNT_KEY;
     const pendingCount = (await readPendingQueue(syncAccountKey)).length;
     const nextSyncAt = getNextSyncAt(state);
 
@@ -2069,6 +2209,9 @@ async function getSubscriptionSyncStatus() {
     const pendingKeys = await readSubscriptionPendingKeys();
     const pendingCount = pendingKeys.length;
     const nextSyncAt = getNextSyncAt(state);
+    const primaryAccountKey = isSubscriptionChannelAccountKey(state.primaryAccountKey)
+        ? normalizeAccountKey(state.primaryAccountKey)
+        : DEFAULT_ACCOUNT_KEY;
 
     return {
         success: true,
@@ -2080,7 +2223,7 @@ async function getSubscriptionSyncStatus() {
         error: state.error,
         syncedCount: state.count,
         pendingCount,
-        primaryAccountKey: normalizeAccountKey(state.primaryAccountKey),
+        primaryAccountKey,
         nextSyncAt,
         backoffUntil: state.backoffUntil
     };
@@ -2111,7 +2254,10 @@ async function updateCloudSyncConfig(config = {}) {
     }
 
     if (typeof config.primaryAccountKey === 'string') {
-        nextValues[CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY] = normalizeAccountKey(config.primaryAccountKey);
+        const normalizedKey = normalizeAccountKey(config.primaryAccountKey);
+        if (normalizedKey === DEFAULT_ACCOUNT_KEY || isSubscriptionChannelAccountKey(normalizedKey)) {
+            nextValues[CLOUD_SYNC_STORAGE_KEYS.PRIMARY_ACCOUNT_KEY] = normalizedKey;
+        }
     }
 
     if (Object.keys(nextValues).length > 0) {
@@ -2579,7 +2725,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         restoreSubscriptionsFromCloudflare({
             endpointUrl: message.endpointUrl,
             apiToken: message.apiToken,
-            accountKey: message.accountKey
+            accountKey: message.accountKey,
+            activeTabId: Number.isFinite(message.activeTabId) ? Number(message.activeTabId) : undefined
         })
             .then((result) => sendResponse({ success: true, ...result }))
             .catch((error) => sendResponse({ success: false, error: error.message }));
@@ -2670,7 +2817,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             ...(Array.isArray(message.videoIds) ? message.videoIds : []),
             ...(typeof message.videoId === 'string' ? [message.videoId] : [])
         ]);
-        const accountKey = normalizeAccountKey(message.accountKey);
+        const rawAccountKey = normalizeAccountKey(message.accountKey);
+        const accountKey = isSubscriptionChannelAccountKey(rawAccountKey)
+            ? rawAccountKey
+            : DEFAULT_ACCOUNT_KEY;
 
         autoLockPrimaryAccountIfMissing(accountKey, sender.tab).catch((error) => {
             console.warn('[YT-Commander][CloudSync] Could not auto-lock primary account', error);

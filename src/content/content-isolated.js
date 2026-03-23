@@ -88,6 +88,90 @@ window.addEventListener('unhandledrejection', (event) => {
 // Global module references for dynamic enable/disable
 let moduleInstances = {};
 let currentSettings = {};
+let subscriptionIdentityRequestCounter = 0;
+
+const SUBSCRIPTION_IDENTITY_BRIDGE_SOURCE = 'yt-commander';
+const SUBSCRIPTION_IDENTITY_REQUEST_TYPE = 'YT_COMMANDER_SUBSCRIPTION_ACCOUNT_REQUEST';
+const SUBSCRIPTION_IDENTITY_RESPONSE_TYPE = 'YT_COMMANDER_SUBSCRIPTION_ACCOUNT_RESPONSE';
+const SUBSCRIPTION_IDENTITY_ACTION = 'GET_ACTIVE_CHANNEL_IDENTITY';
+const SUBSCRIPTION_IDENTITY_TIMEOUT_MS = 20000;
+
+const pendingSubscriptionIdentityRequests = new Map();
+let subscriptionIdentityResponseListenerAttached = false;
+
+/**
+ * Handle subscription identity bridge responses from main world.
+ * @param {MessageEvent} event
+ */
+function handleSubscriptionIdentityBridgeResponse(event) {
+    if (event.source !== window || !event.data || typeof event.data !== 'object') {
+        return;
+    }
+
+    const message = event.data;
+    if (message.source !== SUBSCRIPTION_IDENTITY_BRIDGE_SOURCE
+        || message.type !== SUBSCRIPTION_IDENTITY_RESPONSE_TYPE) {
+        return;
+    }
+
+    const requestId = typeof message.requestId === 'string' ? message.requestId : '';
+    if (!requestId || !pendingSubscriptionIdentityRequests.has(requestId)) {
+        return;
+    }
+
+    const pending = pendingSubscriptionIdentityRequests.get(requestId);
+    pendingSubscriptionIdentityRequests.delete(requestId);
+    window.clearTimeout(pending.timeoutId);
+
+    if (message.success === true) {
+        pending.resolve(message.data || {});
+        return;
+    }
+
+    pending.reject(new Error(message.error || 'Failed to resolve YouTube subscription identity'));
+}
+
+/**
+ * Ensure the main-world bridge response listener is attached once.
+ */
+function ensureSubscriptionIdentityBridgeListener() {
+    if (subscriptionIdentityResponseListenerAttached) {
+        return;
+    }
+
+    window.addEventListener('message', handleSubscriptionIdentityBridgeResponse);
+    subscriptionIdentityResponseListenerAttached = true;
+}
+
+/**
+ * Request the active signed-in YouTube channel identity from main world.
+ * @returns {Promise<{accountKey: string, channelId: string, source: string, isPrimaryCandidate: boolean}>}
+ */
+function requestSubscriptionSyncIdentity() {
+    ensureSubscriptionIdentityBridgeListener();
+
+    return new Promise((resolve, reject) => {
+        subscriptionIdentityRequestCounter += 1;
+        const requestId = `subscription-identity-${Date.now()}-${subscriptionIdentityRequestCounter}`;
+        const timeoutId = window.setTimeout(() => {
+            pendingSubscriptionIdentityRequests.delete(requestId);
+            reject(new Error('Timed out while resolving YouTube channel identity'));
+        }, SUBSCRIPTION_IDENTITY_TIMEOUT_MS);
+
+        pendingSubscriptionIdentityRequests.set(requestId, {
+            resolve,
+            reject,
+            timeoutId
+        });
+
+        window.postMessage({
+            source: SUBSCRIPTION_IDENTITY_BRIDGE_SOURCE,
+            type: SUBSCRIPTION_IDENTITY_REQUEST_TYPE,
+            action: SUBSCRIPTION_IDENTITY_ACTION,
+            requestId
+        }, '*');
+    });
+}
 
 // Import and initialize modules
 async function initializeModules() {
@@ -353,16 +437,33 @@ try {
                     sendResponse({ success: false, error: 'Watched history module not available' });
                 } else if (message.type === 'GET_SYNC_ACCOUNT_IDENTITY') {
                     if (watchedModule && watchedModule.getSyncAccountIdentity) {
-                        const identity = watchedModule.getSyncAccountIdentity();
-                        sendResponse({ success: true, ...identity });
+                        Promise.resolve(watchedModule.getSyncAccountIdentity())
+                            .then((identity) => sendResponse({ success: true, ...identity }))
+                            .catch((error) => {
+                                logger.error('Failed to resolve watched sync identity:', error);
+                                sendResponse({ success: false, error: error.message });
+                            });
+                        return true;
                     } else {
-                        sendResponse({
-                            success: true,
-                            accountKey: 'default',
-                            source: 'fallback',
-                            isPrimaryCandidate: false
+                        requestSubscriptionSyncIdentity().then((identity) => {
+                            sendResponse({ success: true, ...identity });
+                        }).catch((error) => {
+                            logger.error('Failed to resolve watched sync identity:', error);
+                            sendResponse({
+                                success: false,
+                                error: error.message || 'Failed to resolve watched sync identity'
+                            });
                         });
+                        return true;
                     }
+                } else if (message.type === 'GET_SUBSCRIPTION_SYNC_ACCOUNT_IDENTITY') {
+                    requestSubscriptionSyncIdentity().then((identity) => {
+                        sendResponse({ success: true, ...identity });
+                    }).catch((error) => {
+                        logger.error('Failed to resolve subscription sync identity:', error);
+                        sendResponse({ success: false, error: error.message });
+                    });
+                    return true;
                 } else if (message.type === 'IMPORT_WATCHED_VIDEOS') {
                     if (watchedModule && watchedModule.importWatchedHistory) {
                         watchedModule.importWatchedHistory(message.videoIds, message.options).then((count) => {

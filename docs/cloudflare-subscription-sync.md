@@ -10,6 +10,10 @@ In the popup, set `Subscription Worker URL` to:
 - If you point it at `/sync`, the extension will automatically normalize to
   `/subscriptions`.
 
+The extension now sends subscription `accountKey` values in the form
+`ytch:<channelId>`, where `<channelId>` is the active signed-in YouTube channel
+id such as `UC...`.
+
 ## D1 Schema
 
 Run this once in your D1 database:
