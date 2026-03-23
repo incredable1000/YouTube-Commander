@@ -357,15 +357,51 @@ function findExternalRootPlayer() {
     if (!overlayHost || !overlayHost.isConnected) {
         return roots[0];
     }
-    return roots.find((root) => !overlayHost.contains(root)) || null;
+    return roots.find((root) => (
+        !overlayHost.contains(root)
+        && isStableRootPlayer(root)
+    )) || null;
 }
 
 function resolvePlayerFromRoot(rootPlayer) {
     if (!(rootPlayer instanceof Element)) {
         return null;
     }
+    if (rootPlayer.matches('.html5-video-player')) {
+        return rootPlayer;
+    }
     const player = rootPlayer.querySelector('.html5-video-player');
     return player instanceof Element ? player : null;
+}
+
+/**
+ * Determine whether a rebuilt root player is ready to replace the mounted overlay player.
+ * @param {Element|null} rootPlayer
+ * @returns {boolean}
+ */
+function isStableRootPlayer(rootPlayer) {
+    if (!(rootPlayer instanceof Element) || !rootPlayer.isConnected) {
+        return false;
+    }
+
+    if (!isUsableMountParent(rootPlayer.parentNode)) {
+        return false;
+    }
+
+    const player = resolvePlayerFromRoot(rootPlayer);
+    if (!(player instanceof HTMLElement)) {
+        return false;
+    }
+
+    const video = rootPlayer.querySelector('video.html5-main-video, .html5-video-container video');
+    const controls = player.querySelector('.ytp-right-controls, .ytp-left-controls, .ytp-chrome-bottom');
+    const rect = rootPlayer.getBoundingClientRect();
+
+    return (
+        video instanceof HTMLVideoElement
+        || controls instanceof Element
+        || (rect.width > 0 && rect.height > 0 && player.childElementCount > 0)
+    );
 }
 
 function remountWindowedRoot(nextRoot) {
@@ -670,7 +706,7 @@ function syncUiState() {
     if (isWindowed) {
         cleanupStaleOverlayRoots(mountedRootPlayer);
 
-        const player = getActivePlayer() || resolvePlayerFromRoot(mountedRootPlayer);
+        const player = getMountedPlayerElement() || getActivePlayer();
         const rootPlayer = getRootPlayerHost(player);
         const externalRoot = findExternalRootPlayer();
         if (!restoreAnchor || !restoreAnchor.isConnected || !isUsableMountParent(originalRootParent)) {
@@ -890,7 +926,7 @@ function findControlsHost() {
         return rotationButton.parentElement;
     }
 
-    const player = getActivePlayer();
+    const player = getMountedPlayerElement() || getActivePlayer();
     if (!player) {
         return null;
     }
