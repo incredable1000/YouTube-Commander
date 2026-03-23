@@ -66,7 +66,7 @@ export function ensureOverlayHost(overlayClass) {
 
     const host = document.createElement('div');
     host.className = overlayClass;
-    host.setAttribute('aria-hidden', 'true');
+    host.setAttribute('role', 'presentation');
     document.body.appendChild(host);
     return host;
 }

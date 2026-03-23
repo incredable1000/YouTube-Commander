@@ -71,6 +71,49 @@ function ensureOverlayHost() {
 }
 
 /**
+ * Resolve the currently mounted windowed player element when available.
+ * @returns {HTMLElement|null}
+ */
+function getMountedPlayerElement() {
+    const mountedPlayer = resolvePlayerFromRoot(mountedRootPlayer);
+    return mountedPlayer instanceof HTMLElement ? mountedPlayer : null;
+}
+
+/**
+ * Remove stale duplicated player roots left behind after YouTube rebuilds the player.
+ * @param {Element|null} rootToKeep
+ */
+function cleanupStaleOverlayRoots(rootToKeep = mountedRootPlayer) {
+    if (
+        !(overlayHost instanceof Element)
+        || !overlayHost.isConnected
+        || !(rootToKeep instanceof Element)
+        || !overlayHost.contains(rootToKeep)
+    ) {
+        return;
+    }
+
+    let removedFocusedRoot = false;
+
+    findRootPlayers().forEach((root) => {
+        if (!(root instanceof Element) || !overlayHost.contains(root) || root === rootToKeep) {
+            return;
+        }
+
+        if (root.contains(document.activeElement)) {
+            removedFocusedRoot = true;
+        }
+
+        root.classList.remove(PLAYER_ACTIVE_CLASS);
+        root.remove();
+    });
+
+    if (removedFocusedRoot) {
+        focusPlayerForKeyboardControls();
+    }
+}
+
+/**
  * Initialize module.
  */
 async function initWindowedFullscreen() {
@@ -213,7 +256,9 @@ function createWindowedButton() {
  * Restore keyboard focus to the YouTube player after interacting with custom controls.
  */
 function focusPlayerForKeyboardControls() {
-    const player = getActivePlayer();
+    const player = getMountedPlayerElement()
+        || (activePlayer instanceof HTMLElement ? activePlayer : null)
+        || getActivePlayer();
     if (player instanceof HTMLElement) {
         try {
             player.focus({ preventScroll: true });
@@ -290,6 +335,7 @@ function enterWindowedMode() {
 
     overlayHost.appendChild(rootPlayer);
     rootPlayer.classList.add(PLAYER_ACTIVE_CLASS);
+    cleanupStaleOverlayRoots(rootPlayer);
 
     document.documentElement.classList.add(ROOT_LOCK_CLASS);
     document.body.classList.add(ROOT_LOCK_CLASS);
@@ -345,6 +391,7 @@ function remountWindowedRoot(nextRoot) {
     nextRoot.classList.add(PLAYER_ACTIVE_CLASS);
     mountedRootPlayer = nextRoot;
     activePlayer = resolvePlayerFromRoot(nextRoot) || activePlayer;
+    cleanupStaleOverlayRoots(nextRoot);
 
     document.documentElement.classList.add(ROOT_LOCK_CLASS);
     document.body.classList.add(ROOT_LOCK_CLASS);
@@ -621,7 +668,9 @@ function syncUiState() {
     }
 
     if (isWindowed) {
-        const player = getActivePlayer();
+        cleanupStaleOverlayRoots(mountedRootPlayer);
+
+        const player = getActivePlayer() || resolvePlayerFromRoot(mountedRootPlayer);
         const rootPlayer = getRootPlayerHost(player);
         const externalRoot = findExternalRootPlayer();
         if (!restoreAnchor || !restoreAnchor.isConnected || !isUsableMountParent(originalRootParent)) {
