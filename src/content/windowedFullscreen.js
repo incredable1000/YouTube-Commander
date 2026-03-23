@@ -114,6 +114,25 @@ function cleanupStaleOverlayRoots(rootToKeep = mountedRootPlayer) {
 }
 
 /**
+ * Remove duplicate watch-page movie_player roots while preserving the currently mounted one.
+ * @param {Element|null} rootToKeep
+ */
+function removeDuplicateRootPlayers(rootToKeep = mountedRootPlayer) {
+    if (!(rootToKeep instanceof Element)) {
+        return;
+    }
+
+    findRootPlayers().forEach((root) => {
+        if (!(root instanceof Element) || root === rootToKeep || root.closest('ytd-miniplayer')) {
+            return;
+        }
+
+        root.classList.remove(PLAYER_ACTIVE_CLASS);
+        root.remove();
+    });
+}
+
+/**
  * Initialize module.
  */
 async function initWindowedFullscreen() {
@@ -473,10 +492,9 @@ function ensureRestoreAnchorFallback() {
  */
 function exitWindowedMode() {
     const externalRoot = findExternalRootPlayer();
-    const hasExternalReplacement = externalRoot instanceof Element
-        && externalRoot.isConnected
-        && isUsableMountParent(externalRoot.parentNode)
-        && (!(mountedRootPlayer instanceof Element) || externalRoot !== mountedRootPlayer);
+    if (externalRoot && externalRoot !== mountedRootPlayer) {
+        remountWindowedRoot(externalRoot);
+    }
 
     if (mountedRootPlayer) {
         mountedRootPlayer.classList.remove(PLAYER_ACTIVE_CLASS);
@@ -487,15 +505,10 @@ function exitWindowedMode() {
     });
 
     const rootToRestore = mountedRootPlayer instanceof Element ? mountedRootPlayer : null;
-    if (!hasExternalReplacement && !isUsableMountParent(originalRootParent)) {
+    if (!isUsableMountParent(originalRootParent)) {
         ensureRestoreAnchorFallback();
     }
-    let restored = false;
-    if (!hasExternalReplacement) {
-        restored = restoreMountedRootPlayer();
-    } else {
-        restored = true;
-    }
+    const restored = restoreMountedRootPlayer();
 
     if (restoreAnchor && restoreAnchor.parentNode) {
         restoreAnchor.remove();
@@ -509,25 +522,19 @@ function exitWindowedMode() {
     document.documentElement.classList.remove(ROOT_LOCK_CLASS);
     document.body.classList.remove(ROOT_LOCK_CLASS);
 
-    const relayoutTarget = hasExternalReplacement
-        ? externalRoot
-        : (mountedRootPlayer || getRootPlayerHost(getActivePlayer()));
+    const relayoutTarget = mountedRootPlayer || getRootPlayerHost(getActivePlayer());
 
     if (!restored && rootToRestore) {
         scheduleDeferredRestore(rootToRestore);
         logger.warn('Windowed player restore deferred until mount target becomes available');
     }
 
-    if (hasExternalReplacement) {
-        if (rootToRestore && rootToRestore.parentNode === overlayHost) {
-            rootToRestore.remove();
-        }
-        mountedRootPlayer = null;
-        activePlayer = resolvePlayerFromRoot(externalRoot) || null;
-    } else {
-        activePlayer = null;
-        mountedRootPlayer = null;
+    if (restored && rootToRestore) {
+        removeDuplicateRootPlayers(rootToRestore);
     }
+
+    activePlayer = null;
+    mountedRootPlayer = null;
     originalRootParent = null;
     originalRootNextSibling = null;
     restoreAnchor = null;
@@ -564,6 +571,19 @@ function restoreMountedRootPlayer() {
         return false;
     }
 
+    const fallbackParent = findFallbackPlayerMount();
+    if (fallbackParent) {
+        removeDuplicateRootPlayers(mountedRootPlayer);
+
+        if (restoreAnchor && restoreAnchor.parentNode === fallbackParent) {
+            fallbackParent.insertBefore(mountedRootPlayer, restoreAnchor);
+        } else {
+            fallbackParent.appendChild(mountedRootPlayer);
+        }
+
+        return true;
+    }
+
     if (restoreAnchor && restoreAnchor.parentNode instanceof Node) {
         restoreAnchor.parentNode.insertBefore(mountedRootPlayer, restoreAnchor);
         return true;
@@ -578,12 +598,6 @@ function restoreMountedRootPlayer() {
         } else {
             originalRootParent.appendChild(mountedRootPlayer);
         }
-        return true;
-    }
-
-    const fallbackParent = findFallbackPlayerMount();
-    if (fallbackParent) {
-        fallbackParent.appendChild(mountedRootPlayer);
         return true;
     }
 
