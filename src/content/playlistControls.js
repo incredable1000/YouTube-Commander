@@ -68,13 +68,13 @@ function getVideoUrlFromPlaylistItem(row) {
     try {
         const thumbnailLink = row.querySelector('a#thumbnail');
         if (thumbnailLink && thumbnailLink.href) {
-            return thumbnailLink.href;
+            return normalizeVideoUrl(thumbnailLink.href);
         }
         
         // Fallback: try to find any video link
         const videoLink = row.querySelector('a[href*="/watch?v="]');
         if (videoLink && videoLink.href) {
-            return videoLink.href;
+            return normalizeVideoUrl(videoLink.href);
         }
         
         logger.warn('Could not find video URL in playlist item');
@@ -83,6 +83,36 @@ function getVideoUrlFromPlaylistItem(row) {
         logger.error('Error extracting video URL', error);
         return null;
     }
+}
+
+/**
+ * Normalize a YouTube video URL so playlist params are removed.
+ * @param {string} videoUrl
+ * @returns {string|null}
+ */
+function normalizeVideoUrl(videoUrl) {
+    if (!videoUrl || typeof videoUrl !== 'string') {
+        return null;
+    }
+
+    try {
+        const parsed = new URL(videoUrl, window.location.origin);
+        const videoId = parsed.searchParams.get('v');
+
+        if (videoId) {
+            return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+        }
+    } catch (error) {
+        logger.warn('Failed to parse playlist video URL, falling back to pattern match', error);
+    }
+
+    const match = videoUrl.match(/[?&]v=([A-Za-z0-9_-]{10,15})/);
+    if (match && match[1]) {
+        return `https://www.youtube.com/watch?v=${encodeURIComponent(match[1])}`;
+    }
+
+    logger.warn('Could not normalize playlist video URL', { videoUrl });
+    return null;
 }
 
 /**
