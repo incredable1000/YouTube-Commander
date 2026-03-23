@@ -272,11 +272,11 @@
     z-index: 2147483646 !important;
     width: 100vw !important;
     height: 100vh !important;
-    background: #000 !important;
+    background: transparent !important;
     margin: 0 !important;
     padding: 0 !important;
     overflow: hidden !important;
-    pointer-events: auto !important;
+    pointer-events: none !important;
 }
 
 /* Windowed fullscreen player state */
@@ -360,6 +360,7 @@ ytd-shorts desktop-shorts-player-controls .ytPlayerProgressBarDragContainer {
 html.yt-commander-windowed-lock,
 body.yt-commander-windowed-lock {
     overflow: hidden !important;
+    background: #000 !important;
 }
 
 body.yt-commander-windowed-lock {
