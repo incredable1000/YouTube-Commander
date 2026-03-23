@@ -36,6 +36,7 @@ import {
     createWatchLaterIcon,
     createCloseIcon,
     createPlusIcon,
+    createPlaylistAddIcon,
     createChevronDownIcon,
     createCheckIcon,
     createRemoveIcon,
@@ -81,6 +82,7 @@ let actionCount = null;
 let actionTotalCount = null;
 let actionWatchLaterButton = null;
 let actionSaveButton = null;
+let actionQuickCreateButton = null;
 let actionRemoveButton = null;
 let actionSelectAllButton = null;
 let actionUnselectAllButton = null;
@@ -117,6 +119,31 @@ let lastPlaylistProbeVideoId = '';
 let createVisibility = 'PRIVATE';
 let selectAllMode = false;
 const WATCH_LATER_PLAYLIST_ID = 'WL';
+const QUICK_PLAYLIST_PREFIX = 'Quicklist';
+const QUICK_PLAYLIST_ADJECTIVES = [
+    'Bright',
+    'Calm',
+    'Golden',
+    'Hidden',
+    'Lucky',
+    'Quiet',
+    'Rapid',
+    'Silver',
+    'Sunny',
+    'Vivid'
+];
+const QUICK_PLAYLIST_NOUNS = [
+    'Harbor',
+    'Horizon',
+    'Meadow',
+    'Nova',
+    'Orbit',
+    'River',
+    'Summit',
+    'Trail',
+    'Voyage',
+    'Zenith'
+];
 
 const selectedVideoIds = new Set();
 const selectedPlaylistIds = new Set();
@@ -149,6 +176,21 @@ function clamp(value, min, max) {
 function visibilityLabel(value) {
     const option = VISIBILITY_OPTIONS.find((item) => item.value === value);
     return option ? option.label : 'Private';
+}
+
+function pickRandom(list) {
+    if (!Array.isArray(list) || list.length === 0) {
+        return '';
+    }
+    return list[Math.floor(Math.random() * list.length)];
+}
+
+function generateQuickPlaylistTitle() {
+    const adjective = pickRandom(QUICK_PLAYLIST_ADJECTIVES) || 'Fresh';
+    const noun = pickRandom(QUICK_PLAYLIST_NOUNS) || 'List';
+    const timeToken = Date.now().toString(36).slice(-3).toUpperCase();
+    const randomToken = Math.random().toString(36).slice(2, 5).toUpperCase();
+    return `${QUICK_PLAYLIST_PREFIX} ${adjective} ${noun} ${timeToken}${randomToken}`;
 }
 
 /**
@@ -274,6 +316,7 @@ function ensureActionBar() {
 
     actionWatchLaterButton = createActionIconButton(createWatchLaterIcon(), 'Save to Watch later');
     actionSaveButton = createActionIconButton(createBookmarkIcon(), 'Save to playlist');
+    actionQuickCreateButton = createActionIconButton(createPlaylistAddIcon(), 'Save to new playlist');
     actionRemoveButton = createActionIconButton(createRemoveIcon(), getRemoveActionLabel());
     actionSelectAllButton = createActionIconButton(createSelectAllIcon(), 'Select all');
     actionUnselectAllButton = createActionIconButton(createUnselectAllIcon(), 'Unselect all');
@@ -289,6 +332,7 @@ function ensureActionBar() {
     actionBar.appendChild(countWrap);
     actionBar.appendChild(actionWatchLaterButton);
     actionBar.appendChild(actionSaveButton);
+    actionBar.appendChild(actionQuickCreateButton);
     actionBar.appendChild(actionRemoveButton);
     actionBar.appendChild(actionSelectAllButton);
     actionBar.appendChild(actionUnselectAllButton);
@@ -303,6 +347,7 @@ function ensureActionBar() {
 
     actionWatchLaterButton.addEventListener('click', handleActionWatchLaterClick);
     actionSaveButton.addEventListener('click', handleActionSaveClick);
+    actionQuickCreateButton.addEventListener('click', handleActionQuickCreateClick);
     actionRemoveButton.addEventListener('click', handleActionRemoveClick);
     actionSelectAllButton.addEventListener('click', handleActionSelectAllClick);
     actionUnselectAllButton.addEventListener('click', handleActionUnselectAllClick);
@@ -310,6 +355,7 @@ function ensureActionBar() {
 
     cleanupCallbacks.push(() => actionWatchLaterButton?.removeEventListener('click', handleActionWatchLaterClick));
     cleanupCallbacks.push(() => actionSaveButton?.removeEventListener('click', handleActionSaveClick));
+    cleanupCallbacks.push(() => actionQuickCreateButton?.removeEventListener('click', handleActionQuickCreateClick));
     cleanupCallbacks.push(() => actionRemoveButton?.removeEventListener('click', handleActionRemoveClick));
     cleanupCallbacks.push(() => actionSelectAllButton?.removeEventListener('click', handleActionSelectAllClick));
     cleanupCallbacks.push(() => actionUnselectAllButton?.removeEventListener('click', handleActionUnselectAllClick));
@@ -873,6 +919,10 @@ function updateActionUiState() {
         actionSaveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
 
+    if (actionQuickCreateButton) {
+        actionQuickCreateButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+    }
+
     if (actionWatchLaterButton) {
         actionWatchLaterButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
@@ -1253,6 +1303,65 @@ async function saveSelectionToPlaylist(playlistId) {
         setStatusMessage(error instanceof Error ? error.message : 'Failed to save videos.', STATUS_KIND.ERROR);
     } finally {
         submitting = false;
+        updateActionUiState();
+    }
+}
+
+/**
+ * Create a new playlist with a random title and save selected videos to it.
+ */
+async function createQuickPlaylistAndSave() {
+    if (createSubmitting || submitting) {
+        return;
+    }
+
+    const videoIds = Array.from(selectedVideoIds);
+    if (videoIds.length === 0) {
+        setStatusMessage('Select at least one video.', STATUS_KIND.ERROR);
+        return;
+    }
+
+    const title = generateQuickPlaylistTitle();
+    createSubmitting = true;
+    updateActionUiState();
+    setStatusMessage(`Creating "${title}"...`, STATUS_KIND.INFO);
+
+    try {
+        const response = await sendBridgeRequest(ACTIONS.CREATE_PLAYLIST_AND_ADD, {
+            title,
+            privacyStatus: createVisibility || 'PRIVATE',
+            collaborate: false,
+            videoIds
+        });
+
+        const addedCount = Number(response?.addedCount) || 0;
+        const requestedCount = Number(response?.requestedVideoCount) || videoIds.length;
+        const failureCount = Array.isArray(response?.failures) ? response.failures.length : 0;
+
+        lastPlaylistProbeVideoId = '';
+        playlistOptions = [];
+        selectedPlaylistIds.clear();
+        closePlaylistPanel();
+        closeCreateModal(true);
+        clearSelectedVideos();
+
+        if (failureCount > 0) {
+            const savedLabel = `${addedCount}/${requestedCount}`;
+            setStatusMessage(`Created "${title}". Saved ${savedLabel} video(s).`, STATUS_KIND.INFO);
+        } else {
+            setStatusMessage(`Created "${title}" and saved ${addedCount} video(s).`, STATUS_KIND.SUCCESS);
+        }
+
+        schedulePostSaveReset();
+    } catch (error) {
+        logger.warn('Failed to create quick playlist', error);
+        if (isBridgeTimeoutError(error)) {
+            setStatusMessage('Playlist creation is taking longer than expected. Check playlists shortly.', STATUS_KIND.INFO);
+            return;
+        }
+        setStatusMessage(error instanceof Error ? error.message : 'Failed to create playlist.', STATUS_KIND.ERROR);
+    } finally {
+        createSubmitting = false;
         updateActionUiState();
     }
 }
@@ -2056,6 +2165,18 @@ function handleActionSaveClick(event) {
     event.stopPropagation();
     openPlaylistPanel().catch((error) => {
         logger.warn('Failed to open playlist panel', error);
+    });
+}
+
+/**
+ * Handle "save to new playlist" action click.
+ * @param {MouseEvent} event
+ */
+function handleActionQuickCreateClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    createQuickPlaylistAndSave().catch((error) => {
+        logger.warn('Failed to create quick playlist', error);
     });
 }
 

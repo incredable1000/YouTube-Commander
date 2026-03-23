@@ -66,6 +66,13 @@ function createPlusIcon() {
 /**
  * @returns {SVGSVGElement}
  */
+function createPlaylistAddIcon() {
+    return createSvgIcon('M3 10h10v2H3v-2zm0-4h10v2H3V6zm0 8h6v2H3v-2zm12 0v-3h-3v-2h3V6h2v3h3v2h-3v3h-2z');
+}
+
+/**
+ * @returns {SVGSVGElement}
+ */
 function createChevronDownIcon() {
     return createSvgIcon('M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z');
 }
@@ -106,6 +113,7 @@ export {
     createWatchLaterIcon,
     createCloseIcon,
     createPlusIcon,
+    createPlaylistAddIcon,
     createChevronDownIcon,
     createCheckIcon,
     createRemoveIcon,
