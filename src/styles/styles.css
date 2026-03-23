@@ -367,6 +367,32 @@ body.yt-commander-windowed-lock {
     overscroll-behavior: none;
 }
 
+/* Windowed fullscreen: hide watch page chrome outside the player */
+body.yt-commander-windowed-lock ytd-masthead,
+body.yt-commander-windowed-lock #masthead-container,
+body.yt-commander-windowed-lock #masthead,
+body.yt-commander-windowed-lock ytd-mini-guide-renderer,
+body.yt-commander-windowed-lock ytd-guide-renderer,
+body.yt-commander-windowed-lock #guide,
+body.yt-commander-windowed-lock #guide-content,
+body.yt-commander-windowed-lock #secondary,
+body.yt-commander-windowed-lock ytd-watch-metadata,
+body.yt-commander-windowed-lock #below,
+body.yt-commander-windowed-lock #bottom-row,
+body.yt-commander-windowed-lock #comments,
+body.yt-commander-windowed-lock #chat,
+body.yt-commander-windowed-lock #related,
+body.yt-commander-windowed-lock #donation-shelf,
+body.yt-commander-windowed-lock #ticker,
+body.yt-commander-windowed-lock #merch-shelf,
+body.yt-commander-windowed-lock #info-contents,
+body.yt-commander-windowed-lock #description,
+body.yt-commander-windowed-lock #primary-inner,
+body.yt-commander-windowed-lock #panels,
+body.yt-commander-windowed-lock #columns {
+    display: none !important;
+}
+
 /* Seek Indicator Styles */
 .custom-seek-indicator {
     position: absolute;
