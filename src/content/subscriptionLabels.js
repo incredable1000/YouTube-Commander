@@ -21,7 +21,6 @@ const HIDE_TARGET_SELECTOR = [
     'ytd-reel-item-renderer',
     'ytm-shorts-lockup-view-model'
 ].join(', ');
-const VIDEO_LINK_SELECTOR = 'a[href*="/watch?v="], a[href*="/shorts/"]';
 const ROW_CLASS = 'yt-content-metadata-view-model__metadata-row';
 const METADATA_ROW_SELECTORS = [
     `.${ROW_CLASS}`,
@@ -145,7 +144,17 @@ function clearHiddenFromCard(card) {
     if (!card) {
         return;
     }
-    collectHideTargets(card).forEach((target) => target.classList.remove(HIDDEN_SUBSCRIBED_CLASS));
+    card.classList.remove(HIDDEN_SUBSCRIBED_CLASS);
+    const targets = new Set();
+    const primaryTarget = card.closest(HIDE_TARGET_SELECTOR);
+    if (primaryTarget && primaryTarget !== card) {
+        targets.add(primaryTarget);
+    }
+    const gridMedia = card.querySelector('ytd-rich-grid-media');
+    if (gridMedia) {
+        targets.add(gridMedia);
+    }
+    targets.forEach((target) => target.classList.remove(HIDDEN_SUBSCRIBED_CLASS));
 }
 
 function setHiddenOnCard(card, hidden) {
@@ -153,36 +162,17 @@ function setHiddenOnCard(card, hidden) {
         return;
     }
     const shouldHide = hidden === true;
-    collectHideTargets(card).forEach((target) => target.classList.toggle(HIDDEN_SUBSCRIBED_CLASS, shouldHide));
-}
-
-function collectHideTargets(card) {
+    card.classList.toggle(HIDDEN_SUBSCRIBED_CLASS, shouldHide);
     const targets = new Set();
-    if (!card) {
-        return targets;
+    const primaryTarget = card.closest(HIDE_TARGET_SELECTOR);
+    if (primaryTarget) {
+        targets.add(primaryTarget);
     }
-
-    const link = card.querySelector(VIDEO_LINK_SELECTOR);
-    const primary = link?.closest?.(HIDE_TARGET_SELECTOR)
-        || card.closest?.(HIDE_TARGET_SELECTOR)
-        || card;
-    if (primary) {
-        targets.add(primary);
-    }
-
-    const richItem = primary?.closest?.('ytd-rich-item-renderer');
-    if (richItem) {
-        targets.add(richItem);
-    }
-
-    const gridMedia = primary?.querySelector?.('ytd-rich-grid-media')
-        || card.querySelector?.('ytd-rich-grid-media');
+    const gridMedia = card.querySelector('ytd-rich-grid-media');
     if (gridMedia) {
         targets.add(gridMedia);
     }
-
-    targets.add(card);
-    return targets;
+    targets.forEach((target) => target.classList.toggle(HIDDEN_SUBSCRIBED_CLASS, shouldHide));
 }
 
 function clearHiddenCards() {
