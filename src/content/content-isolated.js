@@ -193,6 +193,7 @@ async function initializeModules() {
             import('./playlistMultiSelect.js').catch(e => { logger.warn('Failed to import playlistMultiSelect:', e); throw e; }),
             import('./qualityControls-wrapper.js').catch(e => { logger.warn('Failed to import qualityControls-wrapper:', e); throw e; }),
             import('./watchedHistory.js').catch(e => { logger.warn('Failed to import watchedHistory:', e); throw e; }),
+            import('./hideSubscribedVideos.js').catch(e => { logger.warn('Failed to import hideSubscribedVideos:', e); throw e; }),
             import('./subscriptionManager.js').catch(e => { logger.warn('Failed to import subscriptionManager:', e); throw e; }),
             import('./miniGuidePlaylistButton.js').catch(e => { logger.warn('Failed to import miniGuidePlaylistButton:', e); throw e; })
         ]);
@@ -216,6 +217,7 @@ async function initializeModules() {
                     'playlistMultiSelect',
                     'qualityControlsWrapper',
                     'watchedHistory',
+                    'hideSubscribedVideos',
                     'subscriptionManager',
                     'miniGuidePlaylistButton'
                 ];
@@ -242,6 +244,7 @@ async function initializeModules() {
                 if (module.initPlaylistMultiSelect) initPromises.push(module.initPlaylistMultiSelect());
                 if (module.initQualityWrapper) initPromises.push(module.initQualityWrapper());
                 if (module.initWatchedHistory) initPromises.push(module.initWatchedHistory());
+                if (module.initHideSubscribedVideos) initPromises.push(module.initHideSubscribedVideos());
                 if (module.initSubscriptionManager) initPromises.push(module.initSubscriptionManager());
                 if (module.initMiniGuidePlaylistButton) initPromises.push(module.initMiniGuidePlaylistButton());
             } else {
@@ -259,6 +262,7 @@ async function initializeModules() {
                     'playlistMultiSelect',
                     'qualityControlsWrapper',
                     'watchedHistory',
+                    'hideSubscribedVideos',
                     'subscriptionManager',
                     'miniGuidePlaylistButton'
                 ];
@@ -354,6 +358,11 @@ function updateModuleSettings() {
     const openVideoModule = moduleInstances['openVideoTab'];
     if (openVideoModule && openVideoModule.updateSettings) {
         openVideoModule.updateSettings(currentSettings);
+    }
+
+    const hideSubscribedModule = moduleInstances['hideSubscribedVideos'];
+    if (hideSubscribedModule && hideSubscribedModule.updateSettings) {
+        hideSubscribedModule.updateSettings(currentSettings);
     }
     
     // Add other modules here as needed
