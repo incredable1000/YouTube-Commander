@@ -75,19 +75,8 @@ const POPUP_UI_V2_CLASS = 'yt-commander-popup-v2';
 const POPUP_UI_V2_DEFAULT_FEATURE = 'history';
 const POPUP_UI_V2_TONES = ['red', 'cyan', 'green', 'amber'];
 const POPUP_UI_V2_NAV_ITEMS = [
-    { feature: 'history', label: 'Watched history' },
-    { feature: 'subscriptionManager', label: 'Subscription manager' },
-    { feature: 'seek', label: 'Seek controls' },
-    { feature: 'quality', label: 'Quality' },
-    { feature: 'audio', label: 'Audio' },
-    { feature: 'playlist', label: 'Multi select' },
-    { feature: 'windowedFullscreen', label: 'Windowed fullscreen' },
-    { feature: 'shortcuts', label: 'Shortcuts' },
-    { feature: 'rotation', label: 'Rotate video' },
-    { feature: 'shorts', label: 'Shorts counter' },
-    { feature: 'shortsUploadAge', label: 'Shorts upload age' },
-    { feature: 'subscriptions', label: 'Subscriptions label' },
-    { feature: 'scroll', label: 'Scroll to top' }
+    { feature: 'history', label: 'History & subscriptions' },
+    { feature: 'settings', label: 'Settings' }
 ];
 
 // Setup delete videos toggle
@@ -438,6 +427,35 @@ function initializePopupUiV2HistoryTabs() {
 }
 
 /**
+ * Initialize Options/Shortcuts tabs inside Settings card.
+ */
+function initializePopupUiV2SettingsTabs() {
+    const settingsCard = findFeatureCard('settings');
+    const settingsContent = settingsCard?.querySelector('.feature-content');
+    const tabs = settingsContent?.querySelector('.ytc-v2-settings-tabs');
+    if (!settingsContent || !tabs || tabs.dataset.initialized === 'true') {
+        return;
+    }
+
+    tabs.dataset.initialized = 'true';
+
+    tabs.addEventListener('click', (event) => {
+        const tab = event.target.closest('.ytc-v2-settings-tab');
+        if (!tab) {
+            return;
+        }
+
+        const paneName = tab.getAttribute('data-pane');
+        tabs.querySelectorAll('.ytc-v2-settings-tab').forEach((item) => {
+            item.classList.toggle('active', item === tab);
+        });
+        settingsContent.querySelectorAll('.ytc-v2-settings-pane').forEach((pane) => {
+            pane.classList.toggle('active', pane.getAttribute('data-pane') === paneName);
+        });
+    });
+}
+
+/**
  * Build icon SVG for popup v2 navigator.
  * @param {string} feature
  * @returns {string}
@@ -452,6 +470,7 @@ function buildV2NavIcon(feature) {
         playlist: 'M4 6h10v2H4V6zm0 5h10v2H4v-2zm0 5h6v2H4v-2zm13-8h3v3h-3v-3zm0 5h3v3h-3v-3z',
         windowedFullscreen: 'M5 6h14v12H5V6zm2 2v8h10V8H7z',
         shortcuts: 'M4 7h10v2H4V7zm0 4h16v2H4v-2zm0 4h10v2H4v-2zm14-8h2v2h-2V7zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2z',
+        settings: 'M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 00.12-.65l-1.92-3.32a.5.5 0 00-.61-.22l-2.39.96a7.07 7.07 0 00-1.63-.94l-.36-2.54A.5.5 0 0014.39 2h-3.78a.5.5 0 00-.5.43l-.36 2.54c-.58.22-1.12.52-1.63.94l-2.39-.96a.5.5 0 00-.61.22L2.2 8.49a.5.5 0 00.12.65l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.32 14.18a.5.5 0 00-.12.65l1.92 3.32c.13.23.4.32.61.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54c.04.24.25.43.5.43h3.78c.25 0 .46-.19.5-.43l.36-2.54c.58-.22 1.12-.52 1.63-.94l2.39.96c.23.1.48.01.61-.22l1.92-3.32a.5.5 0 00-.12-.65l-2.03-1.58zM12 15.5A3.5 3.5 0 1115.5 12 3.5 3.5 0 0112 15.5z',
         rotation: 'M12 6V3l4 4-4 4V8a4 4 0 104 4h2a6 6 0 11-6-6z',
         shorts: 'M8 4h8v16H8V4zm2 3l5 2.5L10 12V7z',
         shortsUploadAge: 'M6 4h12v3H6V4zm0 5h12v9H6V9zm3 2h2v2H9v-2zm4 0h2v2h-2v-2z',
@@ -2874,6 +2893,7 @@ async function handleFileImport(event) {
 document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.add(POPUP_UI_V2_CLASS);
     initializePopupUiV2Layout();
+    initializePopupUiV2SettingsTabs();
 
     loadSettings();
 
