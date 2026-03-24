@@ -12,6 +12,15 @@ const LABEL_KIND_SUBSCRIBED = 'subscribed';
 const HIDDEN_SUBSCRIBED_CLASS = 'yt-commander-hidden-subscribed-video';
 const HOST_CLASS = 'yt-commander-subscription-host';
 const CARD_SELECTOR = 'ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer';
+const HIDE_TARGET_SELECTOR = [
+    'ytd-rich-item-renderer',
+    'ytd-rich-grid-media',
+    'ytd-video-renderer',
+    'ytd-compact-video-renderer',
+    'ytd-grid-video-renderer',
+    'ytd-reel-item-renderer',
+    'ytm-shorts-lockup-view-model'
+].join(', ');
 const ROW_CLASS = 'yt-content-metadata-view-model__metadata-row';
 const METADATA_ROW_SELECTORS = [
     `.${ROW_CLASS}`,
@@ -136,13 +145,34 @@ function clearHiddenFromCard(card) {
         return;
     }
     card.classList.remove(HIDDEN_SUBSCRIBED_CLASS);
+    const targets = new Set();
+    const primaryTarget = card.closest(HIDE_TARGET_SELECTOR);
+    if (primaryTarget && primaryTarget !== card) {
+        targets.add(primaryTarget);
+    }
+    const gridMedia = card.querySelector('ytd-rich-grid-media');
+    if (gridMedia) {
+        targets.add(gridMedia);
+    }
+    targets.forEach((target) => target.classList.remove(HIDDEN_SUBSCRIBED_CLASS));
 }
 
 function setHiddenOnCard(card, hidden) {
     if (!card) {
         return;
     }
-    card.classList.toggle(HIDDEN_SUBSCRIBED_CLASS, hidden === true);
+    const shouldHide = hidden === true;
+    card.classList.toggle(HIDDEN_SUBSCRIBED_CLASS, shouldHide);
+    const targets = new Set();
+    const primaryTarget = card.closest(HIDE_TARGET_SELECTOR);
+    if (primaryTarget) {
+        targets.add(primaryTarget);
+    }
+    const gridMedia = card.querySelector('ytd-rich-grid-media');
+    if (gridMedia) {
+        targets.add(gridMedia);
+    }
+    targets.forEach((target) => target.classList.toggle(HIDDEN_SUBSCRIBED_CLASS, shouldHide));
 }
 
 function clearHiddenCards() {
