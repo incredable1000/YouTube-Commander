@@ -9,8 +9,21 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const LABEL_CLASS = 'yt-commander-subscription-label';
 const LABEL_KIND_ATTR = 'data-yt-commander-subscription-kind';
 const LABEL_KIND_SUBSCRIBED = 'subscribed';
+const HIDDEN_SUBSCRIBED_CLASS = 'yt-commander-hidden-subscribed-video';
 const HOST_CLASS = 'yt-commander-subscription-host';
 const CARD_SELECTOR = 'ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer';
+const HIDE_TARGET_SELECTOR = [
+    'ytd-rich-item-renderer',
+    'ytd-video-renderer',
+    'ytd-grid-video-renderer',
+    'ytd-rich-grid-media',
+    'ytd-compact-video-renderer',
+    'ytd-playlist-video-renderer',
+    'ytd-playlist-panel-video-renderer',
+    'ytd-reel-item-renderer',
+    'ytm-shorts-lockup-view-model'
+].join(', ');
+const VIDEO_LINK_SELECTOR = 'a[href*="/watch?v="], a[href*="/shorts/"]';
 const ROW_CLASS = 'yt-content-metadata-view-model__metadata-row';
 const METADATA_ROW_SELECTORS = [
     `.${ROW_CLASS}`,
@@ -51,6 +64,9 @@ let shortsLookupFailures = new Map();
 let shortsLookupCards = new Map();
 let homeBootstrapped = false;
 let scanIntervalId = null;
+let hideSubscribedVideosEnabled = false;
+let storageListener = null;
+let runtimeMessageListener = null;
 
 function setDebugState(key, value) {
     try {
@@ -125,6 +141,106 @@ function clearLabelsFromCard(card) {
     }
     card.querySelectorAll(`.${LABEL_CLASS}`).forEach((label) => label.remove());
     card.querySelectorAll(`.${HOST_CLASS}`).forEach((host) => host.classList.remove(HOST_CLASS));
+}
+
+function getHideTarget(card) {
+    if (!card) {
+        return null;
+    }
+    const link = card.querySelector(VIDEO_LINK_SELECTOR);
+    const target = link?.closest?.(HIDE_TARGET_SELECTOR)
+        || card.closest?.(HIDE_TARGET_SELECTOR)
+        || card;
+    return target instanceof Element ? target : null;
+}
+
+function clearSubscribedHidden(card) {
+    if (!card) {
+        return;
+    }
+    const target = getHideTarget(card);
+    card.classList.remove(HIDDEN_SUBSCRIBED_CLASS);
+    if (target && target !== card) {
+        target.classList.remove(HIDDEN_SUBSCRIBED_CLASS);
+    }
+}
+
+function setSubscribedHidden(card, hidden) {
+    if (!card) {
+        return;
+    }
+    const target = getHideTarget(card);
+    const shouldHide = hidden === true;
+    if (target) {
+        target.classList.toggle(HIDDEN_SUBSCRIBED_CLASS, shouldHide);
+    }
+    card.classList.toggle(HIDDEN_SUBSCRIBED_CLASS, shouldHide);
+}
+
+function clearHiddenCards() {
+    document.querySelectorAll(`.${HIDDEN_SUBSCRIBED_CLASS}`).forEach((node) => {
+        node.classList.remove(HIDDEN_SUBSCRIBED_CLASS);
+    });
+}
+
+function applyHideState(card, isSubscribed) {
+    if (!hideSubscribedVideosEnabled) {
+        clearSubscribedHidden(card);
+        return;
+    }
+    if (isSubscribed === true) {
+        setSubscribedHidden(card, true);
+    } else {
+        clearSubscribedHidden(card);
+    }
+}
+
+async function loadHideSubscribedSetting() {
+    try {
+        const result = await chrome.storage.sync.get(['hideSubscribedVideosEnabled']);
+        hideSubscribedVideosEnabled = result.hideSubscribedVideosEnabled === true;
+    } catch (error) {
+        logger.debug('Failed to load hide subscribed setting', error);
+        hideSubscribedVideosEnabled = false;
+    }
+}
+
+function updateHideSubscribedSetting(nextValue) {
+    const enabled = nextValue === true;
+    if (enabled === hideSubscribedVideosEnabled) {
+        return;
+    }
+    hideSubscribedVideosEnabled = enabled;
+    if (!hideSubscribedVideosEnabled) {
+        clearHiddenCards();
+    }
+    scanVisibleCards();
+}
+
+function attachSettingsListeners() {
+    if (!storageListener) {
+        storageListener = (changes, area) => {
+            if (area !== 'sync') {
+                return;
+            }
+            if (changes.hideSubscribedVideosEnabled) {
+                updateHideSubscribedSetting(changes.hideSubscribedVideosEnabled.newValue === true);
+            }
+        };
+        chrome.storage.onChanged.addListener(storageListener);
+    }
+
+    if (!runtimeMessageListener) {
+        runtimeMessageListener = (message) => {
+            if (!message || message.type !== 'SETTINGS_UPDATED' || !message.settings) {
+                return;
+            }
+            if (Object.prototype.hasOwnProperty.call(message.settings, 'hideSubscribedVideosEnabled')) {
+                updateHideSubscribedSetting(message.settings.hideSubscribedVideosEnabled === true);
+            }
+        };
+        chrome.runtime.onMessage.addListener(runtimeMessageListener);
+    }
 }
 
 function loadShortsChannelCache() {
@@ -882,6 +998,10 @@ function injectStyles() {
     const style = document.createElement('style');
     style.id = 'yt-commander-subscription-label-styles';
     style.textContent = `
+        .${HIDDEN_SUBSCRIBED_CLASS} {
+            display: none !important;
+        }
+
         .${HOST_CLASS} {
             align-items: center;
             gap: 6px;
@@ -1186,6 +1306,7 @@ function ensureLabel(anchor, hostOverride = null) {
 function decorateCard(card) {
     if (!isHomeCard(card)) {
         clearLabelsFromCard(card);
+        clearSubscribedHidden(card);
         return;
     }
     if (!dataInitialized) {
@@ -1203,6 +1324,7 @@ function decorateCard(card) {
             const cachedChannelId = shortsChannelCache.get(shortsVideoId);
             if (cachedChannelId) {
                 const subscribed = subscribedChannelIds.has(cachedChannelId);
+                applyHideState(card, subscribed);
                 if (subscribed) {
                     const label = ensureLabel(anchor, host);
                     if (label) {
@@ -1214,11 +1336,13 @@ function decorateCard(card) {
             }
             enqueueShortsLookup(shortsVideoId, card);
         }
+        applyHideState(card, false);
         return;
     }
 
     const isSubscribed = (channelId && subscribedChannelIds.has(channelId))
         || (channelPath && subscribedChannelPaths.has(channelPath));
+    applyHideState(card, isSubscribed);
 
     if (!isSubscribed) {
         const existing = card.querySelector(`.${LABEL_CLASS}`);
@@ -1320,6 +1444,7 @@ function scanVisibleCards() {
 function clearLabels() {
     document.querySelectorAll(`.${LABEL_CLASS}`).forEach((label) => label.remove());
     document.querySelectorAll(`.${HOST_CLASS}`).forEach((host) => host.classList.remove(HOST_CLASS));
+    clearHiddenCards();
     try {
         document.documentElement.removeAttribute('data-yt-commander-subs-cards');
         document.documentElement.removeAttribute('data-yt-commander-subs-rendered');
@@ -1386,6 +1511,8 @@ function startScanLoop() {
 async function init() {
     injectStyles();
     loadShortsChannelCache();
+    await loadHideSubscribedSetting();
+    attachSettingsListeners();
     dataInitialized = true;
     setDebugState('initializedAt', Date.now());
     setDebugAttribute('initialized');
