@@ -5,7 +5,6 @@ import { normalizeQualityId } from '../shared/quality.js';
 const defaultSettings = {
     // Popup-managed settings
     deleteVideosEnabled: false,
-    hideSubscribedVideosEnabled: false,
     autoSwitchToOriginal: true,
     rotationShortcut: 'r',
     windowedFullscreenShortcut: 'Enter',
@@ -107,27 +106,6 @@ function setupDeleteVideosToggle() {
             saveSyncSettings();
         });
     }
-}
-
-// Setup hide subscribed videos toggle
-function setupHideSubscribedToggle() {
-    const hideSubscribedToggle = document.getElementById('hideSubscribedToggle');
-    if (!hideSubscribedToggle) {
-        return;
-    }
-
-    hideSubscribedToggle.addEventListener('click', (event) => {
-        event.stopPropagation();
-
-        const enabled = !hideSubscribedToggle.classList.contains('active');
-        setToggleState(hideSubscribedToggle, enabled);
-        currentSettings.hideSubscribedVideosEnabled = enabled;
-        showStatus(
-            enabled ? 'Hide subscribed videos enabled' : 'Hide subscribed videos disabled',
-            'success'
-        );
-        saveSyncSettings();
-    });
 }
 
 /**
@@ -725,10 +703,6 @@ function loadSettings() {
         );
 
         setToggleState(document.getElementById('deleteVideosToggle'), currentSettings.deleteVideosEnabled === true);
-        setToggleState(
-            document.getElementById('hideSubscribedToggle'),
-            currentSettings.hideSubscribedVideosEnabled === true
-        );
         setToggleState(
             document.getElementById('autoSwitchToOriginalToggle'),
             currentSettings.autoSwitchToOriginal !== false
@@ -2884,7 +2858,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setupAudioSettingToggle();
     setupWindowedAutoToggle();
     setupDeleteVideosToggle();
-    setupHideSubscribedToggle();
     setupCloudflareSyncControls();
     setupSubscriptionSyncControls();
     setupTokenVisibilityToggle('cloudflareSyncToken', 'cloudflareTokenToggle');
