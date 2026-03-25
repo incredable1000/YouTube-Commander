@@ -1372,8 +1372,8 @@ body.yt-commander-windowed-lock #columns {
     height: 34px;
     border: none;
     border-radius: 50%;
-    background: transparent;
-    color: rgba(241, 241, 241, 0.88);
+    background: #ff0000 !important;
+    color: white;
     display: inline-flex;
     align-items: center;
     justify-content: center;
