@@ -112,7 +112,6 @@ let observer = null;
 let pendingContainers = new Set();
 let renderScheduled = false;
 let deferredRescanTimer = null;
-let selectedVideoContainers = new Set();
 
 let lastKnownUrl = location.href;
 let statusTimer = null;
