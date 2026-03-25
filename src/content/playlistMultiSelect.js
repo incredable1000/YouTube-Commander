@@ -119,30 +119,25 @@ let lastPlaylistProbeVideoId = '';
 let createVisibility = 'PRIVATE';
 let selectAllMode = false;
 const WATCH_LATER_PLAYLIST_ID = 'WL';
-const QUICK_PLAYLIST_PREFIX = 'Quicklist';
 const QUICK_PLAYLIST_ADJECTIVES = [
-    'Bright',
-    'Calm',
-    'Golden',
-    'Hidden',
-    'Lucky',
-    'Quiet',
-    'Rapid',
-    'Silver',
-    'Sunny',
-    'Vivid'
+    'Cool',
+    'Epic',
+    'Fire',
+    'Lit',
+    'Neat',
+    'Sick',
+    'Sweet',
+    'Wild'
 ];
 const QUICK_PLAYLIST_NOUNS = [
-    'Harbor',
-    'Horizon',
-    'Meadow',
-    'Nova',
-    'Orbit',
-    'River',
-    'Summit',
-    'Trail',
-    'Voyage',
-    'Zenith'
+    'Binge',
+    'Drops',
+    'Fix',
+    'Hits',
+    'Mix',
+    'Queue',
+    'Stack',
+    'Vibe'
 ];
 
 const selectedVideoIds = new Set();
@@ -186,11 +181,10 @@ function pickRandom(list) {
 }
 
 function generateQuickPlaylistTitle() {
-    const adjective = pickRandom(QUICK_PLAYLIST_ADJECTIVES) || 'Fresh';
-    const noun = pickRandom(QUICK_PLAYLIST_NOUNS) || 'List';
-    const timeToken = Date.now().toString(36).slice(-3).toUpperCase();
-    const randomToken = Math.random().toString(36).slice(2, 5).toUpperCase();
-    return `${QUICK_PLAYLIST_PREFIX} ${adjective} ${noun} ${timeToken}${randomToken}`;
+    const adjective = pickRandom(QUICK_PLAYLIST_ADJECTIVES) || 'Cool';
+    const noun = pickRandom(QUICK_PLAYLIST_NOUNS) || 'Mix';
+    const timestamp = Date.now().toString(36).slice(-4).toUpperCase();
+    return `${adjective} ${noun} ${timestamp}`;
 }
 
 /**
