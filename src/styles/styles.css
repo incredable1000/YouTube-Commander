@@ -1354,6 +1354,12 @@ body.yt-commander-windowed-lock #columns {
     justify-content: space-between;
 }
 
+.yt-commander-playlist-panel__header-buttons {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
 .yt-commander-playlist-panel__title {
     color: #f1f1f1;
     font-family: "YouTube Noto", Roboto, Arial, sans-serif;

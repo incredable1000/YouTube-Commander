@@ -379,6 +379,9 @@ function ensurePlaylistPanel() {
     title.className = 'yt-commander-playlist-panel__title';
     title.textContent = 'Save to...';
 
+    const headerButtons = document.createElement('div');
+    headerButtons.className = 'yt-commander-playlist-panel__header-buttons';
+
     playlistPanelOpenButton = document.createElement('button');
     playlistPanelOpenButton.type = 'button';
     playlistPanelOpenButton.className = 'yt-commander-playlist-panel__open';
@@ -392,9 +395,11 @@ function ensurePlaylistPanel() {
     playlistPanelCloseButton.setAttribute('aria-label', 'Close');
     playlistPanelCloseButton.appendChild(createCloseIcon());
 
+    headerButtons.appendChild(playlistPanelOpenButton);
+    headerButtons.appendChild(playlistPanelCloseButton);
+
     header.appendChild(title);
-    header.appendChild(playlistPanelOpenButton);
-    header.appendChild(playlistPanelCloseButton);
+    header.appendChild(headerButtons);
 
     const subhead = document.createElement('div');
     subhead.className = 'yt-commander-playlist-panel__subhead';
