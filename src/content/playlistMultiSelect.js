@@ -87,6 +87,7 @@ let actionQuickCreateButton = null;
 let actionRemoveButton = null;
 let actionSelectAllButton = null;
 let actionUnselectAllButton = null;
+let actionOpenAllButton = null;
 let actionExitButton = null;
 let actionBarStatus = null;
 
@@ -95,7 +96,6 @@ let playlistPanelCount = null;
 let playlistPanelList = null;
 let playlistPanelStatus = null;
 let playlistPanelCloseButton = null;
-let playlistPanelOpenButton = null;
 let playlistPanelNewButton = null;
 
 let createBackdrop = null;
@@ -317,6 +317,15 @@ function ensureActionBar() {
     actionSelectAllButton = createActionIconButton(createSelectAllIcon(), 'Select all');
     actionUnselectAllButton = createActionIconButton(createUnselectAllIcon(), 'Unselect all');
 
+    actionOpenAllButton = document.createElement('button');
+    actionOpenAllButton.type = 'button';
+    actionOpenAllButton.className = 'yt-commander-playlist-action-button';
+    actionOpenAllButton.setAttribute('aria-label', 'Open all in new tab');
+    actionOpenAllButton.setAttribute('title', 'Open all in new tab');
+    actionOpenAllButton.setAttribute('data-tooltip', 'Open all in new tab');
+    const openIcon = createSvgIcon(ICONS.OPEN_NEW_TAB);
+    actionOpenAllButton.appendChild(openIcon);
+
     actionExitButton = document.createElement('button');
     actionExitButton.type = 'button';
     actionExitButton.className = 'yt-commander-playlist-action-button yt-commander-playlist-action-exit';
@@ -332,6 +341,7 @@ function ensureActionBar() {
     actionBar.appendChild(actionRemoveButton);
     actionBar.appendChild(actionSelectAllButton);
     actionBar.appendChild(actionUnselectAllButton);
+    actionBar.appendChild(actionOpenAllButton);
     actionBar.appendChild(actionExitButton);
 
     actionBarStatus = document.createElement('div');
@@ -347,6 +357,7 @@ function ensureActionBar() {
     actionRemoveButton.addEventListener('click', handleActionRemoveClick);
     actionSelectAllButton.addEventListener('click', handleActionSelectAllClick);
     actionUnselectAllButton.addEventListener('click', handleActionUnselectAllClick);
+    actionOpenAllButton.addEventListener('click', handleOpenInNewTab);
     actionExitButton.addEventListener('click', handleActionExitButtonClick);
 
     cleanupCallbacks.push(() => actionWatchLaterButton?.removeEventListener('click', handleActionWatchLaterClick));
@@ -355,6 +366,7 @@ function ensureActionBar() {
     cleanupCallbacks.push(() => actionRemoveButton?.removeEventListener('click', handleActionRemoveClick));
     cleanupCallbacks.push(() => actionSelectAllButton?.removeEventListener('click', handleActionSelectAllClick));
     cleanupCallbacks.push(() => actionUnselectAllButton?.removeEventListener('click', handleActionUnselectAllClick));
+    cleanupCallbacks.push(() => actionOpenAllButton?.removeEventListener('click', handleOpenInNewTab));
     cleanupCallbacks.push(() => actionExitButton?.removeEventListener('click', handleActionExitButtonClick));
     syncRemoveActionButton();
 }
@@ -379,27 +391,14 @@ function ensurePlaylistPanel() {
     title.className = 'yt-commander-playlist-panel__title';
     title.textContent = 'Save to...';
 
-    const headerButtons = document.createElement('div');
-    headerButtons.className = 'yt-commander-playlist-panel__header-buttons';
-
-    playlistPanelOpenButton = document.createElement('button');
-    playlistPanelOpenButton.type = 'button';
-    playlistPanelOpenButton.className = 'yt-commander-playlist-panel__open';
-    playlistPanelOpenButton.setAttribute('aria-label', 'Open all in new tab');
-    const openIcon = createSvgIcon(ICONS.OPEN_NEW_TAB);
-    playlistPanelOpenButton.appendChild(openIcon);
-
     playlistPanelCloseButton = document.createElement('button');
     playlistPanelCloseButton.type = 'button';
     playlistPanelCloseButton.className = 'yt-commander-playlist-panel__close';
     playlistPanelCloseButton.setAttribute('aria-label', 'Close');
     playlistPanelCloseButton.appendChild(createCloseIcon());
 
-    headerButtons.appendChild(playlistPanelOpenButton);
-    headerButtons.appendChild(playlistPanelCloseButton);
-
     header.appendChild(title);
-    header.appendChild(headerButtons);
+    header.appendChild(playlistPanelCloseButton);
 
     const subhead = document.createElement('div');
     subhead.className = 'yt-commander-playlist-panel__subhead';
@@ -442,12 +441,10 @@ function ensurePlaylistPanel() {
     document.body.appendChild(playlistPanel);
 
     playlistPanelCloseButton.addEventListener('click', closePlaylistPanel);
-    playlistPanelOpenButton.addEventListener('click', handleOpenInNewTab);
     playlistPanelList.addEventListener('click', handlePlaylistListClick);
     playlistPanelNewButton.addEventListener('click', handlePlaylistNewButtonClick);
 
     cleanupCallbacks.push(() => playlistPanelCloseButton?.removeEventListener('click', closePlaylistPanel));
-    cleanupCallbacks.push(() => playlistPanelOpenButton?.removeEventListener('click', handleOpenInNewTab));
     cleanupCallbacks.push(() => playlistPanelList?.removeEventListener('click', handlePlaylistListClick));
     cleanupCallbacks.push(() => playlistPanelNewButton?.removeEventListener('click', handlePlaylistNewButtonClick));
 }
@@ -947,6 +944,10 @@ function updateActionUiState() {
         actionUnselectAllButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
 
+    if (actionOpenAllButton) {
+        actionOpenAllButton.disabled = selectedCount === 0 || submitting;
+    }
+
     syncRemoveActionButton();
     if (actionRemoveButton) {
         actionRemoveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
@@ -954,10 +955,6 @@ function updateActionUiState() {
 
     if (playlistPanelCloseButton) {
         playlistPanelCloseButton.disabled = submitting;
-    }
-
-    if (playlistPanelOpenButton) {
-        playlistPanelOpenButton.disabled = selectedCount === 0 || submitting;
     }
 
     if (playlistPanelNewButton) {
@@ -2716,7 +2713,6 @@ function cleanup() {
     playlistPanelList = null;
     playlistPanelStatus = null;
     playlistPanelCloseButton = null;
-    playlistPanelOpenButton = null;
     playlistPanelNewButton = null;
 
     createBackdrop = null;

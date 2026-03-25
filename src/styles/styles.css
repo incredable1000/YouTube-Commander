@@ -1161,6 +1161,11 @@ body.yt-commander-windowed-lock #columns {
     transition: background-color 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
 }
 
+.yt-commander-playlist-action-button[aria-label="Open all in new tab"] {
+    background: #ff0000 !important;
+    border-color: #ff0000 !important;
+}
+
 .yt-commander-playlist-action-button:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.14);
     border-color: rgba(255, 255, 255, 0.3);
@@ -1354,45 +1359,11 @@ body.yt-commander-windowed-lock #columns {
     justify-content: space-between;
 }
 
-.yt-commander-playlist-panel__header-buttons {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
 .yt-commander-playlist-panel__title {
     color: #f1f1f1;
     font-family: "YouTube Noto", Roboto, Arial, sans-serif;
     font-size: 34px;
     font-weight: 600;
-}
-
-.yt-commander-playlist-panel__open {
-    width: 34px;
-    height: 34px;
-    border: none;
-    border-radius: 50%;
-    background: #ff0000 !important;
-    color: white;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-}
-
-.yt-commander-playlist-panel__open:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.12);
-}
-
-.yt-commander-playlist-panel__open:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.yt-commander-playlist-panel__open svg {
-    width: 18px;
-    height: 18px;
-    fill: currentColor;
 }
 
 .yt-commander-playlist-panel__close {
