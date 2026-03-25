@@ -29,6 +29,7 @@ import {
     STATUS_KIND,
     VISIBILITY_OPTIONS
 } from './playlist-multi-select/constants.js';
+import { ICONS } from '../shared/constants.js';
 import {
     createSvgIcon,
     createMastheadIcon,
@@ -94,6 +95,7 @@ let playlistPanelCount = null;
 let playlistPanelList = null;
 let playlistPanelStatus = null;
 let playlistPanelCloseButton = null;
+let playlistPanelOpenButton = null;
 let playlistPanelNewButton = null;
 
 let createBackdrop = null;
@@ -377,6 +379,13 @@ function ensurePlaylistPanel() {
     title.className = 'yt-commander-playlist-panel__title';
     title.textContent = 'Save to...';
 
+    playlistPanelOpenButton = document.createElement('button');
+    playlistPanelOpenButton.type = 'button';
+    playlistPanelOpenButton.className = 'yt-commander-playlist-panel__open';
+    playlistPanelOpenButton.setAttribute('aria-label', 'Open all in new tab');
+    const openIcon = createSvgIcon(ICONS.OPEN_NEW_TAB);
+    playlistPanelOpenButton.appendChild(openIcon);
+
     playlistPanelCloseButton = document.createElement('button');
     playlistPanelCloseButton.type = 'button';
     playlistPanelCloseButton.className = 'yt-commander-playlist-panel__close';
@@ -384,6 +393,7 @@ function ensurePlaylistPanel() {
     playlistPanelCloseButton.appendChild(createCloseIcon());
 
     header.appendChild(title);
+    header.appendChild(playlistPanelOpenButton);
     header.appendChild(playlistPanelCloseButton);
 
     const subhead = document.createElement('div');
@@ -427,10 +437,12 @@ function ensurePlaylistPanel() {
     document.body.appendChild(playlistPanel);
 
     playlistPanelCloseButton.addEventListener('click', closePlaylistPanel);
+    playlistPanelOpenButton.addEventListener('click', handleOpenInNewTab);
     playlistPanelList.addEventListener('click', handlePlaylistListClick);
     playlistPanelNewButton.addEventListener('click', handlePlaylistNewButtonClick);
 
     cleanupCallbacks.push(() => playlistPanelCloseButton?.removeEventListener('click', closePlaylistPanel));
+    cleanupCallbacks.push(() => playlistPanelOpenButton?.removeEventListener('click', handleOpenInNewTab));
     cleanupCallbacks.push(() => playlistPanelList?.removeEventListener('click', handlePlaylistListClick));
     cleanupCallbacks.push(() => playlistPanelNewButton?.removeEventListener('click', handlePlaylistNewButtonClick));
 }
@@ -937,6 +949,10 @@ function updateActionUiState() {
 
     if (playlistPanelCloseButton) {
         playlistPanelCloseButton.disabled = submitting;
+    }
+
+    if (playlistPanelOpenButton) {
+        playlistPanelOpenButton.disabled = selectedCount === 0 || submitting;
     }
 
     if (playlistPanelNewButton) {
@@ -2199,6 +2215,27 @@ function handleActionRemoveClick(event) {
 }
 
 /**
+ * Handle "open in new tab" click - opens all selected videos in new tabs.
+ * @param {MouseEvent} event
+ */
+function handleOpenInNewTab(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const videoIds = Array.from(selectedVideoIds);
+    if (videoIds.length === 0) {
+        return;
+    }
+
+    videoIds.forEach((videoId) => {
+        const url = `https://www.youtube.com/watch?v=${videoId}`;
+        window.open(url, '_blank', 'noopener,noreferrer');
+    });
+
+    resetSelectionOnly();
+}
+
+/**
  * Select all rendered videos and keep selecting newly loaded cards.
  * @param {MouseEvent} event
  */
@@ -2674,6 +2711,7 @@ function cleanup() {
     playlistPanelList = null;
     playlistPanelStatus = null;
     playlistPanelCloseButton = null;
+    playlistPanelOpenButton = null;
     playlistPanelNewButton = null;
 
     createBackdrop = null;

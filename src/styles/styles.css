@@ -1361,6 +1361,34 @@ body.yt-commander-windowed-lock #columns {
     font-weight: 600;
 }
 
+.yt-commander-playlist-panel__open {
+    width: 34px;
+    height: 34px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: rgba(241, 241, 241, 0.88);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.yt-commander-playlist-panel__open:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.yt-commander-playlist-panel__open:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.yt-commander-playlist-panel__open svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+}
+
 .yt-commander-playlist-panel__close {
     width: 34px;
     height: 34px;
