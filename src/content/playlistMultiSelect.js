@@ -88,6 +88,7 @@ let actionSelectAllButton = null;
 let actionUnselectAllButton = null;
 let actionExitButton = null;
 let actionBarStatus = null;
+let toastElement = null;
 
 let playlistPanel = null;
 let playlistPanelCount = null;
@@ -336,8 +337,14 @@ function ensureActionBar() {
     actionBarStatus.className = 'yt-commander-playlist-action-status';
     actionBarStatus.setAttribute('aria-live', 'polite');
 
+    toastElement = document.createElement('div');
+    toastElement.className = 'yt-commander-toast';
+    toastElement.setAttribute('role', 'status');
+    toastElement.setAttribute('aria-live', 'polite');
+
     document.body.appendChild(actionBar);
     document.body.appendChild(actionBarStatus);
+    document.body.appendChild(toastElement);
 
     actionWatchLaterButton.addEventListener('click', handleActionWatchLaterClick);
     actionSaveButton.addEventListener('click', handleActionSaveClick);
@@ -731,11 +738,107 @@ function syncActionBarVisibility() {
 }
 
 /**
- * Set message shown on action bar and playlist panel.
+ * Get thumbnail URL from a selected video container.
+ * @returns {string}
+ */
+function getSelectedVideoThumbnail() {
+    if (selectedVideoContainers.size === 0) {
+        return '';
+    }
+
+    for (const container of selectedVideoContainers) {
+        const img = container?.querySelector('img');
+        if (img && img.src) {
+            const thumb = img.src.split('?')[0];
+            return thumb.includes('/vi/') ? `${thumb}/mqdefault.jpg` : thumb;
+        }
+
+        const style = container?.querySelector('[style*="background-image"]');
+        if (style) {
+            const match = style.style.backgroundImage.match(/url\(["']?([^"']+)["']?\)/);
+            if (match && match[1]) {
+                const thumb = match[1].split('?')[0];
+                return thumb.includes('/vi/') ? `${thumb}/mqdefault.jpg` : thumb;
+            }
+        }
+    }
+
+    return '';
+}
+
+/**
+ * Show YouTube-style toast notification.
+ * @param {string} message
+ * @param {string} thumbnailUrl
+ */
+function showToast(message, thumbnailUrl = '') {
+    if (!toastElement) {
+        return;
+    }
+
+    toastElement.classList.remove('is-visible', 'is-hiding');
+    toastElement.innerHTML = '';
+
+    if (thumbnailUrl) {
+        const img = document.createElement('img');
+        img.className = 'yt-commander-toast__image';
+        img.src = thumbnailUrl;
+        img.alt = '';
+        img.onerror = () => {
+            img.replaceWith(createPlaceholderIcon());
+        };
+        toastElement.appendChild(img);
+    } else {
+        toastElement.appendChild(createPlaceholderIcon());
+    }
+
+    const textEl = document.createElement('span');
+    textEl.className = 'yt-commander-toast__text';
+    textEl.textContent = message;
+    toastElement.appendChild(textEl);
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            toastElement.classList.add('is-visible');
+        });
+    });
+}
+
+/**
+ * Hide toast notification.
+ */
+function hideToast() {
+    if (!toastElement) {
+        return;
+    }
+
+    toastElement.classList.remove('is-visible');
+    toastElement.classList.add('is-hiding');
+
+    setTimeout(() => {
+        toastElement.classList.remove('is-hiding');
+        toastElement.innerHTML = '';
+    }, 300);
+}
+
+/**
+ * Create placeholder icon for toast.
+ * @returns {HTMLElement}
+ */
+function createPlaceholderIcon() {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'yt-commander-toast__image yt-commander-toast__image--placeholder';
+    placeholder.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v12H4V4zm2 2v8h12V6H6zm2 2h8v4H8V8z"/></svg>`;
+    return placeholder;
+}
+
+/**
+ * Set message shown on action bar, playlist panel, and toast.
  * @param {string} message
  * @param {'info'|'success'|'error'} kind
+ * @param {string} thumbnailUrl
  */
-function setStatusMessage(message, kind = STATUS_KIND.INFO) {
+function setStatusMessage(message, kind = STATUS_KIND.INFO, thumbnailUrl = '') {
     if (statusTimer) {
         clearTimeout(statusTimer);
         statusTimer = null;
@@ -756,8 +859,12 @@ function setStatusMessage(message, kind = STATUS_KIND.INFO) {
     });
 
     if (!text) {
+        hideToast();
         return;
     }
+
+    const thumb = thumbnailUrl || getSelectedVideoThumbnail();
+    showToast(text, thumb);
 
     statusTimer = window.setTimeout(() => {
         clearStatusMessage();
@@ -816,6 +923,8 @@ function clearStatusMessage() {
         node.textContent = '';
         node.classList.remove('is-visible', 'is-info', 'is-success', 'is-error');
     });
+
+    hideToast();
 }
 
 function resolveActivePageRoot() {
@@ -2651,6 +2760,10 @@ function cleanup() {
     }
     if (actionBarStatus) {
         actionBarStatus.remove();
+    }
+    if (toastElement) {
+        toastElement.remove();
+        toastElement = null;
     }
     if (playlistPanel) {
         playlistPanel.remove();
