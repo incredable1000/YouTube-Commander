@@ -1280,7 +1280,7 @@ async function saveSelectionToPlaylist(playlistId) {
             selectedPlaylistIds.add(playlistId);
             syncPlaylistSelectionVisuals();
             setStatusMessage(`Saved to ${playlistTitle}.`, STATUS_KIND.SUCCESS);
-            schedulePostSaveReset();
+            resetSelectionOnly();
             return;
         }
 
@@ -1294,7 +1294,7 @@ async function saveSelectionToPlaylist(playlistId) {
                 selectedPlaylistIds.add(playlistId);
                 syncPlaylistSelectionVisuals();
                 setStatusMessage(`Saved to ${playlistTitle}.`, STATUS_KIND.SUCCESS);
-                schedulePostSaveReset();
+                resetSelectionOnly();
                 return;
             }
             setStatusMessage('Save is still processing. Check the playlist shortly.', STATUS_KIND.INFO);
@@ -1341,9 +1341,6 @@ async function createQuickPlaylistAndSave() {
         lastPlaylistProbeVideoId = '';
         playlistOptions = [];
         selectedPlaylistIds.clear();
-        closePlaylistPanel();
-        closeCreateModal(true);
-        clearSelectedVideos();
 
         if (failureCount > 0) {
             const savedLabel = `${addedCount}/${requestedCount}`;
@@ -1352,7 +1349,7 @@ async function createQuickPlaylistAndSave() {
             setStatusMessage(`Created "${title}" and saved ${addedCount} video(s).`, STATUS_KIND.SUCCESS);
         }
 
-        schedulePostSaveReset();
+        resetSelectionOnly();
     } catch (error) {
         logger.warn('Failed to create quick playlist', error);
         if (isBridgeTimeoutError(error)) {
@@ -1375,6 +1372,22 @@ function schedulePostSaveReset() {
         postSaveResetTimer = null;
         setSelectionMode(false);
     }, 650);
+}
+
+function resetSelectionOnly() {
+    clearPostSaveResetTimer();
+    clearSelectedVideos();
+    resetActionCounters();
+    clearStatusMessage();
+    clearDeferredRescanTimer();
+    pendingContainers.clear();
+    renderScheduled = false;
+    decorateRetryCounts = new WeakMap();
+    playlistOptions = [];
+    playlistMap.clear();
+    selectedPlaylistIds.clear();
+    lastPlaylistProbeVideoId = '';
+    selectAllMode = false;
 }
 
 /**
@@ -1467,13 +1480,13 @@ async function removeSelectionFromCurrentPlaylist() {
 
         const idsForDomRemoval = removedVideoIds.length > 0 ? removedVideoIds : videoIds;
         removeSelectedCardsFromDom(idsForDomRemoval);
-        closePlaylistPanel();
-        closeCreateModal();
 
         setStatusMessage(
             `Removed ${removedCount} video(s) from ${playlistLabel}.`,
             STATUS_KIND.SUCCESS
         );
+
+        resetSelectionOnly();
 
     } catch (error) {
         logger.warn('Failed to remove selected videos from playlist', error);
@@ -1592,8 +1605,6 @@ async function submitCreatePlaylist() {
         selectedPlaylistIds.clear();
 
         closeCreateModal(true);
-        closePlaylistPanel();
-        clearSelectedVideos();
 
         if (failureCount > 0) {
             const savedLabel = `${addedCount}/${requestedCount}`;
@@ -1602,6 +1613,7 @@ async function submitCreatePlaylist() {
         }
 
         setStatusMessage(`Created "${title}" and saved ${addedCount} video(s).`, STATUS_KIND.SUCCESS);
+        resetSelectionOnly();
     } catch (error) {
         logger.warn('Failed to create playlist', error);
         if (isBridgeTimeoutError(error)) {
