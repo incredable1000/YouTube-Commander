@@ -964,7 +964,7 @@ function updateActionUiState() {
     }
 
     if (actionRemoveWatchedButton) {
-        actionRemoveWatchedButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+        actionRemoveWatchedButton.disabled = submitting || loadingPlaylists;
     }
 
     if (playlistPanelCloseButton) {
@@ -2231,45 +2231,44 @@ function handleActionRemoveClick(event) {
 }
 
 /**
- * Handle "remove watched" click - removes watched videos from current playlist.
+ * Handle "remove watched" click - removes all watched videos from current playlist.
  * @param {MouseEvent} event
  */
 async function handleActionRemoveWatchedClick(event) {
     event.preventDefault();
     event.stopPropagation();
 
-    const videoIds = Array.from(selectedVideoIds);
-    if (videoIds.length === 0) {
-        return;
-    }
-
-    const watchedIds = [];
-    const unwatchedIds = [];
-
-    for (const videoId of videoIds) {
-        const watched = await isVideoWatched(videoId);
-        if (watched) {
-            watchedIds.push(videoId);
-        } else {
-            unwatchedIds.push(videoId);
-        }
-    }
-
-    if (watchedIds.length === 0) {
-        setStatusMessage('No watched videos in selection.', STATUS_KIND.INFO);
+    const currentPlaylistId = getCurrentPlaylistId();
+    if (!currentPlaylistId) {
+        setStatusMessage('No playlist detected.', STATUS_KIND.ERROR);
         return;
     }
 
     submitting = true;
     updateActionUiState();
-    setStatusMessage(`Removing ${watchedIds.length} watched video(s)...`, STATUS_KIND.INFO);
+    setStatusMessage('Scanning playlist for watched videos...', STATUS_KIND.INFO);
 
     try {
-        const currentPlaylistId = getCurrentPlaylistId();
-        if (!currentPlaylistId) {
-            setStatusMessage('No playlist detected.', STATUS_KIND.ERROR);
+        const allVideoIds = collectRenderedVideoIds();
+        if (allVideoIds.length === 0) {
+            setStatusMessage('No videos found in playlist.', STATUS_KIND.INFO);
             return;
         }
+
+        const watchedIds = [];
+        for (const videoId of allVideoIds) {
+            const watched = await isVideoWatched(videoId);
+            if (watched) {
+                watchedIds.push(videoId);
+            }
+        }
+
+        if (watchedIds.length === 0) {
+            setStatusMessage('No watched videos in playlist.', STATUS_KIND.INFO);
+            return;
+        }
+
+        setStatusMessage(`Removing ${watchedIds.length} watched video(s)...`, STATUS_KIND.INFO);
 
         const response = await sendBridgeRequest(ACTIONS.REMOVE_FROM_PLAYLIST, {
             playlistId: currentPlaylistId,
@@ -2277,20 +2276,10 @@ async function handleActionRemoveWatchedClick(event) {
         });
 
         const removedCount = Number(response?.removedCount) || 0;
-        if (removedCount > 0) {
-            watchedIds.forEach((id) => {
-                selectedVideoIds.delete(id);
-                syncVideoSelectedState(id);
-            });
-            commitSelectionMutation(watchedIds);
-        }
-
         const msg = removedCount > 0
             ? `Removed ${removedCount} watched video(s).`
             : 'No videos were removed.';
         setStatusMessage(msg, removedCount > 0 ? STATUS_KIND.SUCCESS : STATUS_KIND.INFO);
-
-        resetSelectionOnly();
 
     } catch (error) {
         logger.warn('Failed to remove watched videos', error);
