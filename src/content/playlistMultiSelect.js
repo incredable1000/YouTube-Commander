@@ -952,6 +952,10 @@ function updateActionUiState() {
         actionQuickCreateButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
 
+    if (actionSplitButton) {
+        actionSplitButton.disabled = selectedCount === 0 || submitting;
+    }
+
     if (actionWatchLaterButton) {
         actionWatchLaterButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
@@ -2276,6 +2280,7 @@ function ensureSplitModal() {
     splitCountInput.className = 'yt-commander-split-modal__input';
     splitCountInput.min = '1';
     splitCountInput.placeholder = 'e.g. 20';
+    splitCountInput.addEventListener('input', updateSplitModalState);
     splitCountInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             submitSplit();
