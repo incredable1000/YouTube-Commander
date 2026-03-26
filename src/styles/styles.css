@@ -939,8 +939,8 @@ body.yt-commander-windowed-lock #columns {
 
 .yt-commander-playlist-masthead-button {
     position: relative;
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     border: none;
     border-radius: 50%;
     background: transparent;
@@ -962,8 +962,8 @@ body.yt-commander-windowed-lock #columns {
 }
 
 .yt-commander-playlist-masthead-button svg {
-    width: 22px;
-    height: 22px;
+    width: 26px;
+    height: 26px;
     fill: currentColor;
     opacity: 0.95;
     pointer-events: none;
@@ -2577,8 +2577,8 @@ body.yt-commander-windowed-lock #columns {
 }
 
 .yt-commander-sub-manager-icon {
-    width: 16px;
-    height: 16px;
+    width: 24px;
+    height: 24px;
     fill: currentColor;
     display: block;
 }
