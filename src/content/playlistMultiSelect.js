@@ -42,7 +42,8 @@ import {
     createCheckIcon,
     createRemoveIcon,
     createSelectAllIcon,
-    createUnselectAllIcon
+    createUnselectAllIcon,
+    createSplitIcon
 } from './playlist-multi-select/icons.js';
 import {
     extractVideoId,
@@ -85,6 +86,7 @@ let actionTotalCount = null;
 let actionWatchLaterButton = null;
 let actionSaveButton = null;
 let actionQuickCreateButton = null;
+let actionSplitButton = null;
 let actionRemoveButton = null;
 let actionRemoveWatchedButton = null;
 let actionSelectAllButton = null;
@@ -102,6 +104,11 @@ let playlistPanelNewButton = null;
 
 let createBackdrop = null;
 let createModal = null;
+let splitBackdrop = null;
+let splitModal = null;
+let splitCountInput = null;
+let splitStatus = null;
+let splitSubmitting = false;
 let createTitleInput = null;
 let createVisibilityButton = null;
 let createVisibilityValue = null;
@@ -315,6 +322,7 @@ function ensureActionBar() {
     actionWatchLaterButton = createActionIconButton(createWatchLaterIcon(), 'Save to Watch later');
     actionSaveButton = createActionIconButton(createBookmarkIcon(), 'Save to playlist');
     actionQuickCreateButton = createActionIconButton(createPlaylistAddIcon(), 'Save to new playlist');
+    actionSplitButton = createActionIconButton(createSplitIcon(), 'Split into playlists');
     actionRemoveButton = createActionIconButton(createRemoveIcon(), getRemoveActionLabel());
     actionRemoveWatchedButton = createActionIconButton(createRemoveIcon(), 'Remove watched');
     actionSelectAllButton = createActionIconButton(createSelectAllIcon(), 'Select all');
@@ -341,6 +349,7 @@ function ensureActionBar() {
     actionBar.appendChild(actionWatchLaterButton);
     actionBar.appendChild(actionSaveButton);
     actionBar.appendChild(actionQuickCreateButton);
+    actionBar.appendChild(actionSplitButton);
     actionBar.appendChild(actionRemoveButton);
     actionBar.appendChild(actionRemoveWatchedButton);
     actionBar.appendChild(actionSelectAllButton);
@@ -358,6 +367,7 @@ function ensureActionBar() {
     actionWatchLaterButton.addEventListener('click', handleActionWatchLaterClick);
     actionSaveButton.addEventListener('click', handleActionSaveClick);
     actionQuickCreateButton.addEventListener('click', handleActionQuickCreateClick);
+    actionSplitButton.addEventListener('click', handleSplitClick);
     actionRemoveButton.addEventListener('click', handleActionRemoveClick);
     actionRemoveWatchedButton.addEventListener('click', handleActionRemoveWatchedClick);
     actionSelectAllButton.addEventListener('click', handleActionSelectAllClick);
@@ -368,6 +378,7 @@ function ensureActionBar() {
     cleanupCallbacks.push(() => actionWatchLaterButton?.removeEventListener('click', handleActionWatchLaterClick));
     cleanupCallbacks.push(() => actionSaveButton?.removeEventListener('click', handleActionSaveClick));
     cleanupCallbacks.push(() => actionQuickCreateButton?.removeEventListener('click', handleActionQuickCreateClick));
+    cleanupCallbacks.push(() => actionSplitButton?.removeEventListener('click', handleSplitClick));
     cleanupCallbacks.push(() => actionRemoveButton?.removeEventListener('click', handleActionRemoveClick));
     cleanupCallbacks.push(() => actionRemoveWatchedButton?.removeEventListener('click', handleActionRemoveWatchedClick));
     cleanupCallbacks.push(() => actionSelectAllButton?.removeEventListener('click', handleActionSelectAllClick));
@@ -2216,6 +2227,191 @@ function handleActionQuickCreateClick(event) {
     createQuickPlaylistAndSave().catch((error) => {
         logger.warn('Failed to create quick playlist', error);
     });
+}
+
+/**
+ * Handle "split" click - opens split modal.
+ * @param {MouseEvent} event
+ */
+function handleSplitClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    const videoIds = Array.from(selectedVideoIds);
+    if (videoIds.length === 0) {
+        return;
+    }
+    ensureSplitModal();
+    splitBackdrop.classList.add('is-visible');
+    if (splitCountInput) {
+        splitCountInput.value = '';
+        splitCountInput.focus();
+    }
+    updateSplitModalState();
+}
+
+function ensureSplitModal() {
+    if (splitBackdrop && splitBackdrop.isConnected) {
+        return;
+    }
+
+    splitBackdrop = document.createElement('div');
+    splitBackdrop.className = 'yt-commander-split-backdrop';
+
+    splitModal = document.createElement('div');
+    splitModal.className = 'yt-commander-split-modal';
+    splitModal.setAttribute('role', 'dialog');
+    splitModal.setAttribute('aria-modal', 'true');
+    splitModal.setAttribute('aria-label', 'Split into playlists');
+
+    const modalTitle = document.createElement('h3');
+    modalTitle.className = 'yt-commander-split-modal__title';
+    modalTitle.textContent = 'Split into playlists';
+
+    const infoText = document.createElement('p');
+    infoText.className = 'yt-commander-split-modal__info';
+    infoText.textContent = 'Videos per playlist:';
+
+    splitCountInput = document.createElement('input');
+    splitCountInput.type = 'number';
+    splitCountInput.className = 'yt-commander-split-modal__input';
+    splitCountInput.min = '1';
+    splitCountInput.placeholder = 'e.g. 20';
+    splitCountInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            submitSplit();
+        }
+    });
+
+    splitStatus = document.createElement('div');
+    splitStatus.className = 'yt-commander-split-modal__status';
+    splitStatus.setAttribute('aria-live', 'polite');
+
+    const actions = document.createElement('div');
+    actions.className = 'yt-commander-split-modal__actions';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'yt-commander-split-modal__button';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', closeSplitModal);
+
+    const splitBtn = document.createElement('button');
+    splitBtn.type = 'button';
+    splitBtn.className = 'yt-commander-split-modal__button yt-commander-split-modal__button--primary';
+    splitBtn.textContent = 'Split';
+    splitBtn.addEventListener('click', submitSplit);
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(splitBtn);
+
+    splitModal.appendChild(modalTitle);
+    splitModal.appendChild(infoText);
+    splitModal.appendChild(splitCountInput);
+    splitModal.appendChild(splitStatus);
+    splitModal.appendChild(actions);
+
+    splitBackdrop.appendChild(splitModal);
+    document.body.appendChild(splitBackdrop);
+
+    splitBackdrop.addEventListener('click', (e) => {
+        if (e.target === splitBackdrop) {
+            closeSplitModal();
+        }
+    });
+}
+
+function closeSplitModal() {
+    if (splitBackdrop) {
+        splitBackdrop.classList.remove('is-visible');
+    }
+    if (splitStatus) {
+        splitStatus.textContent = '';
+        splitStatus.className = 'yt-commander-split-modal__status';
+    }
+    splitSubmitting = false;
+    updateSplitModalState();
+}
+
+function updateSplitModalState() {
+    const videoIds = Array.from(selectedVideoIds);
+    const count = parseInt(splitCountInput?.value, 10) || 0;
+    const canSplit = videoIds.length > 0 && count > 0 && !splitSubmitting;
+    const modal = splitModal?.querySelector('.yt-commander-split-modal__button--primary');
+    if (modal) {
+        modal.disabled = !canSplit;
+    }
+}
+
+async function submitSplit() {
+    if (splitSubmitting) {
+        return;
+    }
+
+    const videoIds = Array.from(selectedVideoIds);
+    const perPlaylist = parseInt(splitCountInput?.value, 10) || 0;
+
+    if (videoIds.length === 0) {
+        setSplitStatus('Select videos first.', 'error');
+        return;
+    }
+
+    if (perPlaylist <= 0) {
+        setSplitStatus('Enter videos per playlist.', 'error');
+        return;
+    }
+
+    splitSubmitting = true;
+    updateSplitModalState();
+    setSplitStatus(`Creating ${Math.ceil(videoIds.length / perPlaylist)} playlist(s)...`, 'info');
+
+    try {
+        const numPlaylists = Math.ceil(videoIds.length / perPlaylist);
+        let created = 0;
+        let totalAdded = 0;
+
+        for (let i = 0; i < numPlaylists; i++) {
+            const start = i * perPlaylist;
+            const end = Math.min(start + perPlaylist, videoIds.length);
+            const batch = videoIds.slice(start, end);
+
+            const title = `${generateQuickPlaylistTitle()} ${i + 1}/${numPlaylists}`;
+
+            const response = await sendBridgeRequest(ACTIONS.CREATE_PLAYLIST_AND_ADD, {
+                title,
+                privacyStatus: 'PRIVATE',
+                collaborate: false,
+                videoIds: batch
+            });
+
+            const addedCount = Number(response?.addedCount) || 0;
+            totalAdded += addedCount;
+            created++;
+
+            setSplitStatus(`Created ${created}/${numPlaylists} playlists...`, 'info');
+        }
+
+        setSplitStatus(`Created ${created} playlists with ${totalAdded} videos.`, 'success');
+        resetSelectionOnly();
+
+        setTimeout(() => {
+            closeSplitModal();
+        }, 1500);
+
+    } catch (error) {
+        logger.warn('Failed to split playlists', error);
+        setSplitStatus(error instanceof Error ? error.message : 'Failed to split playlists.', 'error');
+    } finally {
+        splitSubmitting = false;
+        updateSplitModalState();
+    }
+}
+
+function setSplitStatus(message, kind = 'info') {
+    if (!splitStatus) {
+        return;
+    }
+    splitStatus.textContent = message;
+    splitStatus.className = `yt-commander-split-modal__status is-${kind}`;
 }
 
 /**

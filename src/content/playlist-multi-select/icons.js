@@ -105,6 +105,13 @@ function createUnselectAllIcon() {
     return createSvgIcon('M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm11.4 0L16 14.6l1.6-1.6L19 14.4l1.4-1.4 1.6 1.6-1.4 1.4 1.4 1.4-1.6 1.6-1.4-1.4-1.4 1.4-1.6-1.6 1.4-1.4z');
 }
 
+/**
+ * @returns {SVGSVGElement}
+ */
+function createSplitIcon() {
+    return createSvgIcon('M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 2h7v5h-7v-5z');
+}
+
 export {
     createSvgIcon,
     createMastheadIcon,
@@ -118,5 +125,6 @@ export {
     createCheckIcon,
     createRemoveIcon,
     createSelectAllIcon,
-    createUnselectAllIcon
+    createUnselectAllIcon,
+    createSplitIcon
 };

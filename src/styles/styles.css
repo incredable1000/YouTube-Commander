@@ -1921,6 +1921,135 @@ body.yt-commander-windowed-lock #columns {
     cursor: not-allowed;
 }
 
+/* Split Modal */
+.yt-commander-split-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    z-index: 100006;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.yt-commander-split-backdrop.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.yt-commander-split-modal {
+    width: 340px;
+    max-width: 90vw;
+    padding: 24px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: #282828;
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.48);
+}
+
+.yt-commander-split-modal__title {
+    margin: 0 0 16px 0;
+    color: #f1f1f1;
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.yt-commander-split-modal__info {
+    margin: 0 0 8px 0;
+    color: rgba(241, 241, 241, 0.74);
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 14px;
+}
+
+.yt-commander-split-modal__input {
+    width: 100%;
+    height: 48px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.06);
+    color: #f1f1f1;
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 18px;
+    padding: 0 14px;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.16s ease;
+}
+
+.yt-commander-split-modal__input::placeholder {
+    color: rgba(241, 241, 241, 0.42);
+}
+
+.yt-commander-split-modal__input:focus {
+    border-color: rgba(62, 166, 255, 0.8);
+}
+
+.yt-commander-split-modal__status {
+    min-height: 20px;
+    margin-top: 12px;
+    color: rgba(241, 241, 241, 0.74);
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 13px;
+}
+
+.yt-commander-split-modal__status.is-info {
+    color: #a9d9ff;
+}
+
+.yt-commander-split-modal__status.is-success {
+    color: #8dffb6;
+}
+
+.yt-commander-split-modal__status.is-error {
+    color: #ff9d9d;
+}
+
+.yt-commander-split-modal__actions {
+    margin-top: 20px;
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.yt-commander-split-modal__button {
+    min-width: 90px;
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.08);
+    color: #f1f1f1;
+    font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.yt-commander-split-modal__button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.28);
+}
+
+.yt-commander-split-modal__button--primary {
+    border-color: rgba(62, 166, 255, 0.6);
+    background: rgba(62, 166, 255, 0.28);
+    color: #ffffff;
+}
+
+.yt-commander-split-modal__button--primary:hover:not(:disabled) {
+    border-color: rgba(62, 166, 255, 0.85);
+    background: rgba(62, 166, 255, 0.42);
+}
+
+.yt-commander-split-modal__button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 @media (max-width: 900px) {
     .yt-commander-playlist-masthead-slot {
         margin-left: 4px;
