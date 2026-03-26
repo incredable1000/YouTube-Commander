@@ -54,6 +54,7 @@ import {
 } from './playlist-multi-select/pageContext.js';
 import { createBridgeClient } from './playlist-multi-select/bridge.js';
 import { createSelectionRangeController } from './playlist-multi-select/selectionRange.js';
+import { isVideoWatched } from './watchedHistory.js';
 
 const logger = createLogger('PlaylistMultiSelect');
 const bridgeClient = createBridgeClient({
@@ -85,6 +86,7 @@ let actionWatchLaterButton = null;
 let actionSaveButton = null;
 let actionQuickCreateButton = null;
 let actionRemoveButton = null;
+let actionRemoveWatchedButton = null;
 let actionSelectAllButton = null;
 let actionUnselectAllButton = null;
 let actionOpenAllButton = null;
@@ -314,6 +316,7 @@ function ensureActionBar() {
     actionSaveButton = createActionIconButton(createBookmarkIcon(), 'Save to playlist');
     actionQuickCreateButton = createActionIconButton(createPlaylistAddIcon(), 'Save to new playlist');
     actionRemoveButton = createActionIconButton(createRemoveIcon(), getRemoveActionLabel());
+    actionRemoveWatchedButton = createActionIconButton(createRemoveIcon(), 'Remove watched');
     actionSelectAllButton = createActionIconButton(createSelectAllIcon(), 'Select all');
     actionUnselectAllButton = createActionIconButton(createUnselectAllIcon(), 'Unselect all');
 
@@ -339,6 +342,7 @@ function ensureActionBar() {
     actionBar.appendChild(actionSaveButton);
     actionBar.appendChild(actionQuickCreateButton);
     actionBar.appendChild(actionRemoveButton);
+    actionBar.appendChild(actionRemoveWatchedButton);
     actionBar.appendChild(actionSelectAllButton);
     actionBar.appendChild(actionUnselectAllButton);
     actionBar.appendChild(actionOpenAllButton);
@@ -355,6 +359,7 @@ function ensureActionBar() {
     actionSaveButton.addEventListener('click', handleActionSaveClick);
     actionQuickCreateButton.addEventListener('click', handleActionQuickCreateClick);
     actionRemoveButton.addEventListener('click', handleActionRemoveClick);
+    actionRemoveWatchedButton.addEventListener('click', handleActionRemoveWatchedClick);
     actionSelectAllButton.addEventListener('click', handleActionSelectAllClick);
     actionUnselectAllButton.addEventListener('click', handleActionUnselectAllClick);
     actionOpenAllButton.addEventListener('click', handleOpenInNewTab);
@@ -364,6 +369,7 @@ function ensureActionBar() {
     cleanupCallbacks.push(() => actionSaveButton?.removeEventListener('click', handleActionSaveClick));
     cleanupCallbacks.push(() => actionQuickCreateButton?.removeEventListener('click', handleActionQuickCreateClick));
     cleanupCallbacks.push(() => actionRemoveButton?.removeEventListener('click', handleActionRemoveClick));
+    cleanupCallbacks.push(() => actionRemoveWatchedButton?.removeEventListener('click', handleActionRemoveWatchedClick));
     cleanupCallbacks.push(() => actionSelectAllButton?.removeEventListener('click', handleActionSelectAllClick));
     cleanupCallbacks.push(() => actionUnselectAllButton?.removeEventListener('click', handleActionUnselectAllClick));
     cleanupCallbacks.push(() => actionOpenAllButton?.removeEventListener('click', handleOpenInNewTab));
@@ -902,6 +908,10 @@ function syncRemoveActionButton() {
     actionRemoveButton.setAttribute('aria-label', label);
     actionRemoveButton.setAttribute('title', label);
     actionRemoveButton.setAttribute('data-tooltip', label);
+
+    if (actionRemoveWatchedButton) {
+        actionRemoveWatchedButton.hidden = !canRemove;
+    }
 }
 
 /**
@@ -951,6 +961,10 @@ function updateActionUiState() {
     syncRemoveActionButton();
     if (actionRemoveButton) {
         actionRemoveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+    }
+
+    if (actionRemoveWatchedButton) {
+        actionRemoveWatchedButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
 
     if (playlistPanelCloseButton) {
@@ -2214,6 +2228,77 @@ function handleActionRemoveClick(event) {
     removeSelectionFromCurrentPlaylist().catch((error) => {
         logger.warn('Failed to remove selected playlist videos', error);
     });
+}
+
+/**
+ * Handle "remove watched" click - removes watched videos from current playlist.
+ * @param {MouseEvent} event
+ */
+async function handleActionRemoveWatchedClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const videoIds = Array.from(selectedVideoIds);
+    if (videoIds.length === 0) {
+        return;
+    }
+
+    const watchedIds = [];
+    const unwatchedIds = [];
+
+    for (const videoId of videoIds) {
+        const watched = await isVideoWatched(videoId);
+        if (watched) {
+            watchedIds.push(videoId);
+        } else {
+            unwatchedIds.push(videoId);
+        }
+    }
+
+    if (watchedIds.length === 0) {
+        setStatusMessage('No watched videos in selection.', STATUS_KIND.INFO);
+        return;
+    }
+
+    submitting = true;
+    updateActionUiState();
+    setStatusMessage(`Removing ${watchedIds.length} watched video(s)...`, STATUS_KIND.INFO);
+
+    try {
+        const currentPlaylistId = getCurrentPlaylistId();
+        if (!currentPlaylistId) {
+            setStatusMessage('No playlist detected.', STATUS_KIND.ERROR);
+            return;
+        }
+
+        const response = await sendBridgeRequest(ACTIONS.REMOVE_FROM_PLAYLIST, {
+            playlistId: currentPlaylistId,
+            videoIds: watchedIds
+        });
+
+        const removedCount = Number(response?.removedCount) || 0;
+        if (removedCount > 0) {
+            watchedIds.forEach((id) => {
+                selectedVideoIds.delete(id);
+                syncVideoSelectedState(id);
+            });
+            commitSelectionMutation(watchedIds);
+        }
+
+        const msg = removedCount > 0
+            ? `Removed ${removedCount} watched video(s).`
+            : 'No videos were removed.';
+        setStatusMessage(msg, removedCount > 0 ? STATUS_KIND.SUCCESS : STATUS_KIND.INFO);
+
+        resetSelectionOnly();
+
+    } catch (error) {
+        logger.warn('Failed to remove watched videos', error);
+        setStatusMessage(error instanceof Error ? error.message : 'Failed to remove watched videos.', STATUS_KIND.ERROR);
+    } finally {
+        submitting = false;
+        updateActionUiState();
+    }
 }
 
 /**
