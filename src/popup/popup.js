@@ -876,14 +876,15 @@ function formatAccountKey(accountKey) {
  */
 function formatRemainingMinSec(remainingMs) {
     if (!Number.isFinite(remainingMs)) {
-        return '--:--';
+        return '--:--:--';
     }
     
     const absMs = Math.abs(remainingMs);
     const totalSeconds = Math.ceil(absMs / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
-    const formatted = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    const formatted = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     
     if (remainingMs < 0) {
         return formatted + '!';
