@@ -204,6 +204,10 @@ function setPopupUiV2ActiveFeature(featureName) {
  * Build top feature switcher for popup v2.
  */
 function initializePopupUiV2Navigator() {
+    if (!POPUP_UI_V2_NAV_ITEMS.length) {
+        return;
+    }
+
     const container = document.querySelector('.container');
     const firstCard = container?.querySelector('.feature-card');
     if (!container || !firstCard || document.querySelector('.ytc-v2-nav')) {
