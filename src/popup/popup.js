@@ -46,15 +46,17 @@ let currentSettings = {};
 let cloudflareLastSyncAt = 0;
 let cloudflareAutoEnabled = true;
 let cloudflareSyncIntervalMinutes = 30;
+let cloudflareSyncTriggered = false;
+let subscriptionLastSyncAt = 0;
+let subscriptionAutoEnabled = true;
+let subscriptionSyncIntervalMinutes = 30;
+let subscriptionSyncTriggered = false;
 const CLOUDFLARE_STORAGE_KEYS = {
     ENDPOINT: 'cloudflareSyncEndpoint',
     API_TOKEN: 'cloudflareSyncApiToken',
     AUTO_ENABLED: 'cloudflareSyncAutoEnabled',
     INTERVAL_MINUTES: 'cloudflareSyncIntervalMinutes'
 };
-let subscriptionLastSyncAt = 0;
-let subscriptionAutoEnabled = true;
-let subscriptionSyncIntervalMinutes = 30;
 const SUBSCRIPTION_STORAGE_KEYS = {
     ENDPOINT: 'subscriptionSyncEndpoint',
     API_TOKEN: 'subscriptionSyncApiToken',
@@ -903,11 +905,13 @@ function renderCloudflareNextSyncCountdown() {
 
     if (!cloudflareAutoEnabled) {
         nextSyncEl.textContent = 'Off';
+        cloudflareSyncTriggered = false;
         return;
     }
 
     if (!Number.isFinite(cloudflareLastSyncAt) || cloudflareLastSyncAt <= 0) {
-        nextSyncEl.textContent = '--:--';
+        nextSyncEl.textContent = '--:--:--';
+        cloudflareSyncTriggered = false;
         return;
     }
 
@@ -916,6 +920,17 @@ function renderCloudflareNextSyncCountdown() {
     const remainingMs = nextSyncAt - Date.now();
     
     nextSyncEl.textContent = formatRemainingMinSec(remainingMs);
+    
+    if (remainingMs <= 0 && cloudflareAutoEnabled && !cloudflareSyncTriggered) {
+        cloudflareSyncTriggered = true;
+        syncToCloudflare().catch(() => {
+            cloudflareSyncTriggered = false;
+        });
+    }
+    
+    if (remainingMs > 0) {
+        cloudflareSyncTriggered = false;
+    }
 }
 
 /**
@@ -929,11 +944,13 @@ function renderSubscriptionNextSyncCountdown() {
 
     if (!subscriptionAutoEnabled) {
         nextSyncEl.textContent = 'Off';
+        subscriptionSyncTriggered = false;
         return;
     }
 
     if (!Number.isFinite(subscriptionLastSyncAt) || subscriptionLastSyncAt <= 0) {
         nextSyncEl.textContent = '--:--:--';
+        subscriptionSyncTriggered = false;
         return;
     }
 
@@ -942,6 +959,17 @@ function renderSubscriptionNextSyncCountdown() {
     const remainingMs = nextSyncAt - Date.now();
     
     nextSyncEl.textContent = formatRemainingMinSec(remainingMs);
+    
+    if (remainingMs <= 0 && subscriptionAutoEnabled && !subscriptionSyncTriggered) {
+        subscriptionSyncTriggered = true;
+        syncSubscriptionsNow().catch(() => {
+            subscriptionSyncTriggered = false;
+        });
+    }
+    
+    if (remainingMs > 0) {
+        subscriptionSyncTriggered = false;
+    }
 }
 
 /**
@@ -2243,6 +2271,7 @@ async function syncToCloudflare() {
         await refreshCloudflareSyncStatus();
     } catch (error) {
         showStatus(error?.message || 'Failed to sync watched history', 'error');
+        cloudflareSyncTriggered = false;
     } finally {
         syncButton.disabled = false;
         syncButton.textContent = initialLabel;
@@ -2292,6 +2321,7 @@ async function syncSubscriptionsNow() {
         await refreshSubscriptionSyncStatus();
     } catch (error) {
         showStatus(error?.message || 'Failed to sync subscriptions', 'error');
+        subscriptionSyncTriggered = false;
     } finally {
         syncButton.disabled = false;
         syncButton.textContent = initialLabel;
@@ -2842,7 +2872,7 @@ function initializeCustomDropdowns() {
         });
         
         options.forEach(option => {
-            option.addEventListener('click', (e) => {
+            option.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 const value = option.dataset.value;
                 const text = option.textContent;
@@ -2860,11 +2890,30 @@ function initializeCustomDropdowns() {
                 
                 if (hiddenSelect) {
                     hiddenSelect.value = value;
-                    hiddenSelect.dispatchEvent(new Event('change', { bubbles: true }));
                 }
                 
                 closeDropdown();
-                saveSyncSettings(true);
+                
+                try {
+                    await saveCloudflareSyncSettings();
+                    await saveSubscriptionSyncSettings();
+                    
+                    if (dropdown.id === 'cloudflareSyncIntervalDropdown') {
+                        cloudflareSyncTriggered = false;
+                        const intervalMs = cloudflareSyncIntervalMinutes * 60 * 1000;
+                        const nextSyncAt = cloudflareLastSyncAt + intervalMs;
+                        if (nextSyncAt <= Date.now()) {
+                            await refreshCloudflareSyncStatus();
+                            await syncToCloudflare();
+                        } else {
+                            await refreshCloudflareSyncStatus();
+                        }
+                    }
+                    
+                    showStatus('Settings saved', 'success');
+                } catch (error) {
+                    showStatus(error?.message || 'Failed to save settings', 'error');
+                }
             });
         });
     });
