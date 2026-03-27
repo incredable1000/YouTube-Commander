@@ -44,8 +44,8 @@ const LEGACY_FEATURE_KEYS = [
 // Current settings
 let currentSettings = {};
 let cloudflareLastSyncAt = 0;
-let cloudflareNextSyncAt = 0;
 let cloudflareAutoEnabled = true;
+let cloudflareSyncIntervalMinutes = 30;
 const CLOUDFLARE_STORAGE_KEYS = {
     ENDPOINT: 'cloudflareSyncEndpoint',
     API_TOKEN: 'cloudflareSyncApiToken',
@@ -53,8 +53,8 @@ const CLOUDFLARE_STORAGE_KEYS = {
     INTERVAL_MINUTES: 'cloudflareSyncIntervalMinutes'
 };
 let subscriptionLastSyncAt = 0;
-let subscriptionNextSyncAt = 0;
 let subscriptionAutoEnabled = true;
+let subscriptionSyncIntervalMinutes = 30;
 const SUBSCRIPTION_STORAGE_KEYS = {
     ENDPOINT: 'subscriptionSyncEndpoint',
     API_TOKEN: 'subscriptionSyncApiToken',
@@ -875,84 +875,72 @@ function formatAccountKey(accountKey) {
  * @returns {string}
  */
 function formatRemainingMinSec(remainingMs) {
-    const safeMs = Number.isFinite(remainingMs) ? Math.max(0, remainingMs) : 0;
-    const totalSeconds = Math.ceil(safeMs / 1000);
+    if (!Number.isFinite(remainingMs)) {
+        return '--:--';
+    }
+    
+    const absMs = Math.abs(remainingMs);
+    const totalSeconds = Math.ceil(absMs / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
-    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    const formatted = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    
+    if (remainingMs < 0) {
+        return formatted + '!';
+    }
+    return formatted;
 }
 
 /**
- * Format elapsed milliseconds to human readable string.
- * @param {number} elapsedMs
- * @returns {string}
+ * Render countdown to next cloudflare sync.
  */
-function formatElapsedTime(elapsedMs) {
-    const safeMs = Number.isFinite(elapsedMs) ? Math.max(0, elapsedMs) : 0;
-    const totalSeconds = Math.floor(safeMs / 1000);
-    
-    if (totalSeconds < 60) {
-        return `${totalSeconds}s ago`;
-    }
-    
-    const minutes = Math.floor(totalSeconds / 60);
-    if (minutes < 60) {
-        return `${minutes}m ago`;
-    }
-    
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) {
-        return `${hours}h ${minutes % 60}m ago`;
-    }
-    
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
-}
-
-/**
- * Render time since last sync.
- */
-function renderCloudflareLastSyncTime() {
-    const lastSyncEl = document.getElementById('cloudflareNextSyncIn');
-    if (!lastSyncEl) {
+function renderCloudflareNextSyncCountdown() {
+    const nextSyncEl = document.getElementById('cloudflareNextSyncIn');
+    if (!nextSyncEl) {
         return;
     }
 
     if (!cloudflareAutoEnabled) {
-        lastSyncEl.textContent = 'Off';
+        nextSyncEl.textContent = 'Off';
         return;
     }
 
     if (!Number.isFinite(cloudflareLastSyncAt) || cloudflareLastSyncAt <= 0) {
-        lastSyncEl.textContent = 'Never';
+        nextSyncEl.textContent = '--:--';
         return;
     }
 
-    const elapsedMs = Date.now() - cloudflareLastSyncAt;
-    lastSyncEl.textContent = formatElapsedTime(elapsedMs);
+    const intervalMs = cloudflareSyncIntervalMinutes * 60 * 1000;
+    const nextSyncAt = cloudflareLastSyncAt + intervalMs;
+    const remainingMs = nextSyncAt - Date.now();
+    
+    nextSyncEl.textContent = formatRemainingMinSec(remainingMs);
 }
 
 /**
- * Render subscription time since last sync.
+ * Render countdown to next subscription sync.
  */
-function renderSubscriptionLastSyncTime() {
-    const lastSyncEl = document.getElementById('subscriptionNextSyncIn');
-    if (!lastSyncEl) {
+function renderSubscriptionNextSyncCountdown() {
+    const nextSyncEl = document.getElementById('subscriptionNextSyncIn');
+    if (!nextSyncEl) {
         return;
     }
 
     if (!subscriptionAutoEnabled) {
-        lastSyncEl.textContent = 'Off';
+        nextSyncEl.textContent = 'Off';
         return;
     }
 
     if (!Number.isFinite(subscriptionLastSyncAt) || subscriptionLastSyncAt <= 0) {
-        lastSyncEl.textContent = 'Never';
+        nextSyncEl.textContent = '--:--';
         return;
     }
 
-    const elapsedMs = Date.now() - subscriptionLastSyncAt;
-    lastSyncEl.textContent = formatElapsedTime(elapsedMs);
+    const intervalMs = subscriptionSyncIntervalMinutes * 60 * 1000;
+    const nextSyncAt = subscriptionLastSyncAt + intervalMs;
+    const remainingMs = nextSyncAt - Date.now();
+    
+    nextSyncEl.textContent = formatRemainingMinSec(remainingMs);
 }
 
 /**
@@ -1113,6 +1101,7 @@ async function loadCloudflareSyncSettings() {
             ? cloudInterval
             : (Number.isFinite(subscriptionInterval) ? subscriptionInterval : 30);
         intervalSelect.value = String(interval);
+        cloudflareSyncIntervalMinutes = interval;
         updateDropdownSelection('cloudflareSyncIntervalDropdown', intervalSelect.value);
     }
 
@@ -1149,6 +1138,7 @@ async function loadSubscriptionSyncSettings() {
     if (intervalSelect) {
         const interval = normalizeSyncIntervalMinutes(result[SUBSCRIPTION_STORAGE_KEYS.INTERVAL_MINUTES], 60);
         intervalSelect.value = String(interval);
+        subscriptionSyncIntervalMinutes = interval;
     }
 
     setToggleState(autoToggle, result[SUBSCRIPTION_STORAGE_KEYS.AUTO_ENABLED] !== false);
@@ -1273,7 +1263,6 @@ function renderCloudflareSyncStatus(status = {}) {
     const infoEl = document.getElementById('cloudflareLastSyncInfo');
     const primaryAccountEl = document.getElementById('cloudflarePrimaryAccount');
     cloudflareAutoEnabled = status.autoEnabled !== false;
-    cloudflareNextSyncAt = Number(status.nextSyncAt) || 0;
     cloudflareLastSyncAt = Number(status.lastAt) || 0;
 
     if (pendingEl) {
@@ -1305,7 +1294,7 @@ function renderCloudflareSyncStatus(status = {}) {
         infoEl.textContent = status.status || 'Idle';
     }
 
-    renderCloudflareLastSyncTime();
+    renderCloudflareNextSyncCountdown();
 }
 /**
  * Render subscription sync status in popup.
@@ -1317,7 +1306,6 @@ function renderSubscriptionSyncStatus(status = {}) {
     const infoEl = document.getElementById('subscriptionLastSyncInfo');
     const primaryAccountEl = document.getElementById('subscriptionPrimaryAccount');
     subscriptionAutoEnabled = status.autoEnabled !== false;
-    subscriptionNextSyncAt = Number(status.nextSyncAt) || 0;
     subscriptionLastSyncAt = Number(status.lastAt) || 0;
 
     if (pendingEl) {
@@ -1349,7 +1337,7 @@ function renderSubscriptionSyncStatus(status = {}) {
         infoEl.textContent = status.status || 'Idle';
     }
 
-    renderSubscriptionLastSyncTime();
+    renderSubscriptionNextSyncCountdown();
 }
 
 /**
@@ -2860,6 +2848,10 @@ function initializeCustomDropdowns() {
                 label.textContent = text;
                 dropdown.dataset.value = value;
                 
+                if (dropdown.id === 'cloudflareSyncIntervalDropdown') {
+                    cloudflareSyncIntervalMinutes = Number(value) || 30;
+                }
+                
                 if (hiddenSelect) {
                     hiddenSelect.value = value;
                     hiddenSelect.dispatchEvent(new Event('change', { bubbles: true }));
@@ -2969,7 +2961,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(loadWatchedHistoryStats, 5000);
     setInterval(refreshCloudflareSyncStatus, 30000);
     setInterval(refreshSubscriptionSyncStatus, 30000);
-    setInterval(renderCloudflareLastSyncTime, 1000);
-    setInterval(renderSubscriptionLastSyncTime, 1000);
+    setInterval(renderCloudflareNextSyncCountdown, 1000);
+    setInterval(renderSubscriptionNextSyncCountdown, 1000);
 });
 
