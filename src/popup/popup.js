@@ -75,8 +75,7 @@ const POPUP_UI_V2_CLASS = 'yt-commander-popup-v2';
 const POPUP_UI_V2_DEFAULT_FEATURE = 'history';
 const POPUP_UI_V2_TONES = ['red', 'cyan', 'green', 'amber'];
 const POPUP_UI_V2_NAV_ITEMS = [
-    { feature: 'history', label: 'History & subscriptions' },
-    { feature: 'settings', label: 'Settings' }
+    { feature: 'history', label: 'History & subscriptions' }
 ];
 
 // Setup delete videos toggle
@@ -337,51 +336,19 @@ function moveHistoryNodeToPane(scope, selector, pane, extraClass = '') {
 }
 
 /**
- * Initialize Local/Cloud tabs inside history card for compact v2.
+ * Initialize history card content for compact v2 without tabs.
  */
 function initializePopupUiV2HistoryTabs() {
     const historyCard = findFeatureCard('history');
     const historyContent = historyCard?.querySelector('.feature-content');
-    if (!historyContent || historyContent.querySelector('.ytc-v2-history-tabs')) {
+    if (!historyContent || historyContent.dataset.simplified === 'true') {
         return;
     }
 
-    const tabs = document.createElement('div');
-    tabs.className = 'ytc-v2-history-tabs';
-
-    const localTab = document.createElement('button');
-    localTab.type = 'button';
-    localTab.className = 'ytc-v2-history-tab active';
-    localTab.setAttribute('data-pane', 'local');
-    localTab.textContent = 'Local';
-
-    const cloudTab = document.createElement('button');
-    cloudTab.type = 'button';
-    cloudTab.className = 'ytc-v2-history-tab';
-    cloudTab.setAttribute('data-pane', 'cloud');
-    cloudTab.textContent = 'Cloud';
-
-    const settingsTab = document.createElement('button');
-    settingsTab.type = 'button';
-    settingsTab.className = 'ytc-v2-history-tab';
-    settingsTab.setAttribute('data-pane', 'settings');
-    settingsTab.textContent = 'Settings';
-
-    tabs.appendChild(localTab);
-    tabs.appendChild(cloudTab);
-    tabs.appendChild(settingsTab);
+    historyContent.dataset.simplified = 'true';
 
     const localPane = document.createElement('div');
-    localPane.className = 'ytc-v2-history-pane active';
-    localPane.setAttribute('data-pane', 'local');
-
-    const cloudPane = document.createElement('div');
-    cloudPane.className = 'ytc-v2-history-pane';
-    cloudPane.setAttribute('data-pane', 'cloud');
-
-    const settingsPane = document.createElement('div');
-    settingsPane.className = 'ytc-v2-history-pane';
-    settingsPane.setAttribute('data-pane', 'settings');
+    localPane.className = 'ytc-v2-history-content';
 
     moveHistoryNodeToPane(historyContent, '.stats-grid', localPane);
     moveHistoryNodeToPane(historyContent, '#exportHistory', localPane);
@@ -389,41 +356,21 @@ function initializePopupUiV2HistoryTabs() {
     moveHistoryNodeToPane(historyContent, '#importHistory', localPane);
     moveHistoryNodeToPane(historyContent, '#deleteVideosToggle', localPane);
     moveHistoryNodeToPane(historyContent, '#historyStatus', localPane);
-
-    moveHistoryNodeToPane(historyContent, '#syncToCloudflare', cloudPane);
-    moveHistoryNodeToPane(historyContent, '#downloadFromCloudflare', cloudPane);
-    moveHistoryNodeToPane(historyContent, '#cloudflareAutoSyncToggle', cloudPane);
-    moveHistoryNodeToPane(historyContent, '#cloudflareSyncInterval', cloudPane);
-    moveHistoryNodeToPane(historyContent, '#cloudflarePendingCount', cloudPane, 'ytc-v2-cloud-meta');
-
-    moveHistoryNodeToPane(historyContent, '#cloudflareSyncEndpoint', settingsPane);
-    moveHistoryNodeToPane(historyContent, '#cloudflareSyncToken', settingsPane);
-    moveHistoryNodeToPane(historyContent, '#lockPrimarySyncAccount', settingsPane);
+    moveHistoryNodeToPane(historyContent, '#syncToCloudflare', localPane);
+    moveHistoryNodeToPane(historyContent, '#downloadFromCloudflare', localPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflareAutoSyncToggle', localPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflareSyncInterval', localPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflarePendingCount', localPane, 'ytc-v2-cloud-meta');
+    moveHistoryNodeToPane(historyContent, '#cloudflareSyncEndpoint', localPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflareSyncToken', localPane);
+    moveHistoryNodeToPane(historyContent, '#lockPrimarySyncAccount', localPane);
 
     const note = historyContent.querySelector('.note');
 
-    historyContent.insertBefore(tabs, historyContent.firstChild);
-    historyContent.appendChild(localPane);
-    historyContent.appendChild(cloudPane);
-    historyContent.appendChild(settingsPane);
+    historyContent.insertBefore(localPane, historyContent.firstChild);
     if (note) {
         historyContent.appendChild(note);
     }
-
-    tabs.addEventListener('click', (event) => {
-        const tab = event.target.closest('.ytc-v2-history-tab');
-        if (!tab) {
-            return;
-        }
-
-        const paneName = tab.getAttribute('data-pane');
-        tabs.querySelectorAll('.ytc-v2-history-tab').forEach((item) => {
-            item.classList.toggle('active', item === tab);
-        });
-        historyContent.querySelectorAll('.ytc-v2-history-pane').forEach((pane) => {
-            pane.classList.toggle('active', pane.getAttribute('data-pane') === paneName);
-        });
-    });
 }
 
 /**
