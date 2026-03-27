@@ -969,11 +969,79 @@
             </div>
             <div class="feature-content expanded" id="settingsContent">
                 <div class="ytc-v2-settings-tabs">
-                    <button type="button" class="ytc-v2-settings-tab active" data-pane="options">Options</button>
+                    <button type="button" class="ytc-v2-settings-tab active" data-pane="sync">Sync</button>
+                    <button type="button" class="ytc-v2-settings-tab" data-pane="options">Options</button>
                     <button type="button" class="ytc-v2-settings-tab" data-pane="shortcuts">Shortcuts</button>
-                    <button type="button" class="ytc-v2-settings-tab" data-pane="sync">Sync</button>
                 </div>
-                <div class="ytc-v2-settings-pane active" data-pane="options">
+                <div class="ytc-v2-settings-pane active" data-pane="sync">
+                    <div class="ytc-v2-section">
+                        <div class="ytc-v2-section-title">Cloudflare Worker</div>
+                        <div class="setting-row" style="display: block; margin-top: 4px;">
+                            <div class="setting-label" style="margin-bottom: 6px;">Worker URL</div>
+                            <input type="url" id="cloudflareSyncEndpoint" class="setting-input setting-input-wide" placeholder="https://your-worker.workers.dev">
+                        </div>
+                        <div class="setting-row" style="display: block; margin-top: 8px;">
+                            <div class="setting-label" style="margin-bottom: 6px;">API Token (optional)</div>
+                            <div class="yt-commander-input-row">
+                                <input type="password" id="cloudflareSyncToken" class="setting-input setting-input-wide" placeholder="Bearer token" autocomplete="off">
+                                <button type="button" class="yt-commander-token-btn" id="cloudflareTokenToggle" aria-label="Show token" title="Show token" aria-pressed="false">
+                                    <svg class="yt-commander-icon-eye" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+                                        <circle cx="12" cy="12" r="3.5"></circle>
+                                    </svg>
+                                    <svg class="yt-commander-icon-eye-off" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+                                        <path d="M4 4l16 16"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="action-buttons" style="margin-top: 8px;">
+                            <button class="btn btn-secondary" id="lockPrimarySyncAccount">Use Current Account</button>
+                        </div>
+                    </div>
+                    <div class="ytc-v2-section">
+                        <div class="ytc-v2-section-title">History Sync</div>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary" id="syncToCloudflare">Sync</button>
+                            <button class="btn btn-secondary" id="downloadFromCloudflare">Restore</button>
+                        </div>
+                        <div class="setting-row" style="margin-top: 12px;">
+                            <div class="setting-label">Auto Sync</div>
+                            <div class="toggle-switch small-toggle" id="cloudflareAutoSyncToggle">
+                                <div class="toggle-slider"></div>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-label">Sync Interval</div>
+                            <select id="cloudflareSyncInterval" class="quality-select">
+                                <option value="15">Every 15 min</option>
+                                <option value="30">Every 30 min</option>
+                                <option value="60">Every hour</option>
+                                <option value="180">Every 3 hours</option>
+                                <option value="720">Every 12 hours</option>
+                                <option value="1440">Daily</option>
+                            </select>
+                        </div>
+                        <div class="setting-row" style="margin-top: 8px;">
+                            <div class="setting-label" style="font-size: 12px;">Pending: <span id="cloudflarePendingCount">0</span></div>
+                            <div class="setting-label" style="font-size: 12px;">Last Sync: <span id="cloudflareLastSyncAt">Never</span></div>
+                            <div class="setting-label" style="font-size: 12px;">Status: <span id="cloudflareLastSyncInfo">Idle</span></div>
+                        </div>
+                    </div>
+                    <div class="ytc-v2-section">
+                        <div class="ytc-v2-section-title">Subscription Sync</div>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary" id="syncSubscriptionsNow">Sync</button>
+                            <button class="btn btn-secondary" id="restoreSubscriptions">Restore</button>
+                        </div>
+                        <div class="setting-row" style="margin-top: 8px;">
+                            <div class="setting-label" style="font-size: 12px;">Pending: <span id="subscriptionPendingCount">0</span></div>
+                            <div class="setting-label" style="font-size: 12px;">Last Sync: <span id="subscriptionLastSyncAt">Never</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="ytc-v2-settings-pane" data-pane="options">
                     <div class="ytc-v2-section">
                         <div class="ytc-v2-section-title">Playback</div>
                         <div class="setting-row">
@@ -1095,74 +1163,6 @@
                     <div class="ytc-v2-shortcut-group">
                         <div class="ytc-v2-shortcut-group-title">Shorts Volume</div>
                         <div class="ytc-v2-shortcut-note">Ctrl+Up / Ctrl+Down (fixed)</div>
-                    </div>
-                </div>
-                <div class="ytc-v2-settings-pane" data-pane="sync">
-                    <div class="ytc-v2-section">
-                        <div class="ytc-v2-section-title">Cloudflare Worker</div>
-                        <div class="setting-row" style="display: block; margin-top: 4px;">
-                            <div class="setting-label" style="margin-bottom: 6px;">Worker URL</div>
-                            <input type="url" id="cloudflareSyncEndpoint" class="setting-input setting-input-wide" placeholder="https://your-worker.workers.dev">
-                        </div>
-                        <div class="setting-row" style="display: block; margin-top: 8px;">
-                            <div class="setting-label" style="margin-bottom: 6px;">API Token (optional)</div>
-                            <div class="yt-commander-input-row">
-                                <input type="password" id="cloudflareSyncToken" class="setting-input setting-input-wide" placeholder="Bearer token" autocomplete="off">
-                                <button type="button" class="yt-commander-token-btn" id="cloudflareTokenToggle" aria-label="Show token" title="Show token" aria-pressed="false">
-                                    <svg class="yt-commander-icon-eye" viewBox="0 0 24 24" aria-hidden="true">
-                                        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
-                                        <circle cx="12" cy="12" r="3.5"></circle>
-                                    </svg>
-                                    <svg class="yt-commander-icon-eye-off" viewBox="0 0 24 24" aria-hidden="true">
-                                        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
-                                        <path d="M4 4l16 16"></path>
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="action-buttons" style="margin-top: 8px;">
-                            <button class="btn btn-secondary" id="lockPrimarySyncAccount">Use Current Account</button>
-                        </div>
-                    </div>
-                    <div class="ytc-v2-section">
-                        <div class="ytc-v2-section-title">History Sync</div>
-                        <div class="action-buttons">
-                            <button class="btn btn-secondary" id="syncToCloudflare">Sync</button>
-                            <button class="btn btn-secondary" id="downloadFromCloudflare">Restore</button>
-                        </div>
-                        <div class="setting-row" style="margin-top: 12px;">
-                            <div class="setting-label">Auto Sync</div>
-                            <div class="toggle-switch small-toggle" id="cloudflareAutoSyncToggle">
-                                <div class="toggle-slider"></div>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <div class="setting-label">Sync Interval</div>
-                            <select id="cloudflareSyncInterval" class="quality-select">
-                                <option value="15">Every 15 min</option>
-                                <option value="30">Every 30 min</option>
-                                <option value="60">Every hour</option>
-                                <option value="180">Every 3 hours</option>
-                                <option value="720">Every 12 hours</option>
-                                <option value="1440">Daily</option>
-                            </select>
-                        </div>
-                        <div class="setting-row" style="margin-top: 8px;">
-                            <div class="setting-label" style="font-size: 12px;">Pending: <span id="cloudflarePendingCount">0</span></div>
-                            <div class="setting-label" style="font-size: 12px;">Last Sync: <span id="cloudflareLastSyncAt">Never</span></div>
-                            <div class="setting-label" style="font-size: 12px;">Status: <span id="cloudflareLastSyncInfo">Idle</span></div>
-                        </div>
-                    </div>
-                    <div class="ytc-v2-section">
-                        <div class="ytc-v2-section-title">Subscription Sync</div>
-                        <div class="action-buttons">
-                            <button class="btn btn-secondary" id="syncSubscriptionsNow">Sync</button>
-                            <button class="btn btn-secondary" id="restoreSubscriptions">Restore</button>
-                        </div>
-                        <div class="setting-row" style="margin-top: 8px;">
-                            <div class="setting-label" style="font-size: 12px;">Pending: <span id="subscriptionPendingCount">0</span></div>
-                            <div class="setting-label" style="font-size: 12px;">Last Sync: <span id="subscriptionLastSyncAt">Never</span></div>
-                        </div>
                     </div>
                 </div>
             </div>

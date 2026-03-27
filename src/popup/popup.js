@@ -1609,6 +1609,10 @@ function setupPopupSettingsModal() {
         if (settingsCard) {
             setPopupUiV2ActiveFeature('settings');
             settingsCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            const syncTab = settingsCard.querySelector('.ytc-v2-settings-tab[data-pane="sync"]');
+            if (syncTab) {
+                syncTab.click();
+            }
         }
     });
 }
