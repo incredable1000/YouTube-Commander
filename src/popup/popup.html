@@ -56,6 +56,36 @@
             line-height: 1.5;
         }
 
+        /* Glassy border mixin - centered gradient border effect */
+        body.yt-commander-popup-v2 .glassy {
+            position: relative;
+            background: linear-gradient(180deg, rgba(42, 46, 56, 0.9) 0%, rgba(30, 33, 40, 0.95) 100%);
+            border: 1px solid transparent;
+            background-clip: padding-box;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 4px 12px rgba(0,0,0,0.25);
+        }
+
+        body.yt-commander-popup-v2 .glassy::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: inherit;
+            background: linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 30%, rgba(255,255,255,0.02) 70%, rgba(255,255,255,0.05) 100%);
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        body.yt-commander-popup-v2 .glassy::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 10%;
+            right: 10%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
+            pointer-events: none;
+        }
+
         body.yt-commander-popup-v2 .header {
             background: linear-gradient(180deg, #2a2e38 0%, #23272f 100%);
             border-bottom: 1px solid var(--ytc-v2-border);
@@ -92,11 +122,22 @@
 
         body.yt-commander-popup-v2 .ytc-v2-section {
             padding: 16px;
+            background: linear-gradient(180deg, rgba(42, 46, 56, 0.85) 0%, rgba(32, 35, 44, 0.9) 100%);
             border: 1px solid var(--ytc-v2-border);
-            background: var(--ytc-v2-surface);
             border-radius: var(--ytc-v2-radius);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 4px 12px rgba(0,0,0,0.2);
             margin-bottom: 0;
+            position: relative;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 12%;
+            right: 12%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.18) 50%, transparent 100%);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-section-title {
@@ -120,8 +161,19 @@
             border: 1px solid var(--ytc-v2-border);
             padding: 16px;
             border-radius: 10px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 6px rgba(0,0,0,0.2);
             text-align: center;
+            position: relative;
+        }
+
+        body.yt-commander-popup-v2 .stat-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 15%;
+            right: 15%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(56, 217, 245, 0.3) 50%, transparent 100%);
         }
 
         body.yt-commander-popup-v2 .stat-value {
@@ -156,9 +208,20 @@
             border: 1px solid var(--ytc-v2-border);
             background: linear-gradient(180deg, #3a3f4a 0%, #2d323c 100%);
             color: var(--ytc-v2-green);
-            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 6px rgba(0,0,0,0.2);
             border-radius: 10px;
             cursor: pointer;
+            position: relative;
+        }
+
+        body.yt-commander-popup-v2 .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 10%;
+            right: 10%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
         }
 
         body.yt-commander-popup-v2 .btn:hover {
@@ -181,7 +244,18 @@
             background: linear-gradient(180deg, #2a2e38 0%, #22262e 100%);
             border: 1px solid var(--ytc-v2-border);
             color: var(--ytc-v2-text);
-            box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 4px rgba(0,0,0,0.15);
+            position: relative;
+        }
+
+        body.yt-commander-popup-v2 .btn-secondary::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 10%;
+            right: 10%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
         }
 
         body.yt-commander-popup-v2 .btn-secondary:hover {
@@ -232,7 +306,7 @@
             font-size: 15px;
             padding: 8px 12px;
             border-radius: 10px;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 2px 4px rgba(0,0,0,0.15);
             -webkit-appearance: none;
             appearance: none;
             cursor: pointer;
@@ -243,7 +317,7 @@
         body.yt-commander-popup-v2 .quality-select:focus {
             outline: none;
             border-color: var(--ytc-v2-orange);
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15), 0 0 0 3px rgba(251, 146, 60, 0.2);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 2px 4px rgba(0,0,0,0.15), 0 0 0 3px rgba(251, 146, 60, 0.2);
         }
 
         body.yt-commander-popup-v2 .setting-select,
@@ -269,10 +343,21 @@
             font-weight: 500;
             padding: 8px 12px;
             border-radius: 10px;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 2px 4px rgba(0,0,0,0.15);
             cursor: pointer;
             user-select: none;
             transition: border-color 0.15s, box-shadow 0.15s;
+            position: relative;
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-trigger::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 8%;
+            right: 8%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.12) 50%, transparent 100%);
         }
 
         body.yt-commander-popup-v2 .ytc-dropdown-trigger:hover {
@@ -282,7 +367,7 @@
         body.yt-commander-popup-v2 .ytc-dropdown-trigger:focus {
             outline: none;
             border-color: var(--ytc-v2-orange);
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15), 0 0 0 3px rgba(251, 146, 60, 0.2);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 2px 4px rgba(0,0,0,0.15), 0 0 0 3px rgba(251, 146, 60, 0.2);
         }
 
         body.yt-commander-popup-v2 .ytc-dropdown-trigger.open {
@@ -307,11 +392,11 @@
             top: 100%;
             left: 0;
             right: 0;
-            background: linear-gradient(180deg, #1e222a 0%, #181b22 100%);
+            background: linear-gradient(180deg, rgba(30, 34, 42, 0.98) 0%, rgba(24, 27, 34, 0.98) 100%);
             border: 1px solid var(--ytc-v2-border);
             border-top: none;
             border-radius: 0 0 10px 10px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.4);
             z-index: 100;
             max-height: 280px;
             overflow-y: auto;
@@ -397,7 +482,7 @@
             min-height: 42px;
             padding: 8px 12px;
             border-radius: 10px;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 2px 4px rgba(0,0,0,0.15);
             width: 100px;
         }
 
@@ -405,7 +490,7 @@
         body.yt-commander-popup-v2 input[type="number"]:focus {
             outline: none;
             border-color: var(--ytc-v2-amber);
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15), 0 0 0 3px rgba(251, 191, 36, 0.2);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 2px 4px rgba(0,0,0,0.15), 0 0 0 3px rgba(251, 191, 36, 0.2);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-shortcut-group input[type="text"] {
@@ -419,14 +504,14 @@
             min-height: 42px;
             padding: 8px 12px;
             border-radius: 10px;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 2px 4px rgba(0,0,0,0.15);
             width: 140px;
         }
 
         body.yt-commander-popup-v2 .ytc-v2-shortcut-group input[type="text"]:focus {
             outline: none;
             border-color: var(--ytc-v2-amber);
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15), 0 0 0 3px rgba(251, 191, 36, 0.25);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 2px 4px rgba(0,0,0,0.15), 0 0 0 3px rgba(251, 191, 36, 0.25);
         }
 
         body.yt-commander-popup-v2 .yt-commander-input-row {
@@ -453,6 +538,18 @@
             cursor: pointer;
             border-radius: 10px;
             flex-shrink: 0;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+            position: relative;
+        }
+
+        body.yt-commander-popup-v2 .yt-commander-token-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 15%;
+            right: 15%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
         }
 
         body.yt-commander-popup-v2 .yt-commander-token-btn:hover {
@@ -515,15 +612,17 @@
             position: relative;
             width: 48px;
             height: 26px;
-            background: #3a3f4a;
+            background: linear-gradient(180deg, #3a3f4a 0%, #2d323c 100%);
             cursor: pointer;
             transition: background 0.2s;
             border-radius: 13px;
-            border: none;
+            border: 1px solid var(--ytc-v2-border);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
         }
 
         body.yt-commander-popup-v2 .toggle-switch.active {
-            background: var(--ytc-v2-orange);
+            background: linear-gradient(180deg, #fb923c 0%, #ea8c35 100%);
+            border-color: #fb923c;
         }
 
         body.yt-commander-popup-v2 .toggle-slider {
@@ -532,8 +631,8 @@
             left: 3px;
             width: 20px;
             height: 20px;
-            background: #e8eaed;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+            background: linear-gradient(180deg, #f5f5f5 0%, #e0e0e0 100%);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255,255,255,0.5);
             transition: transform 0.2s;
             border-radius: 50%;
         }
@@ -560,18 +659,33 @@
         body.yt-commander-popup-v2 .note {
             margin-top: 12px;
             padding: 10px 12px;
-            background: rgba(0,0,0,0.2);
+            background: linear-gradient(180deg, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.2) 100%);
+            border: 1px solid rgba(74, 80, 96, 0.5);
             border-radius: 8px;
             font-size: 13px;
             color: var(--ytc-v2-muted);
             line-height: 1.5;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-shortcut-group {
             border: 1px solid var(--ytc-v2-border);
-            background: var(--ytc-v2-surface);
+            background: linear-gradient(180deg, rgba(42, 46, 56, 0.85) 0%, rgba(32, 35, 44, 0.9) 100%);
             padding: 16px;
             border-radius: 12px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 4px 12px rgba(0,0,0,0.2);
+            position: relative;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-shortcut-group::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 12%;
+            right: 12%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
+        }
             margin-bottom: 14px;
         }
 
@@ -604,7 +718,7 @@
             right: 12px;
             z-index: 50;
             padding: 12px 14px;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 4px 16px rgba(0, 0, 0, 0.3);
             pointer-events: none;
             display: none;
             border-radius: 10px;
@@ -612,30 +726,30 @@
 
         body.yt-commander-popup-v2 .status.success {
             display: block;
-            background: rgba(74, 222, 128, 0.15);
+            background: linear-gradient(180deg, rgba(74, 222, 128, 0.2) 0%, rgba(74, 222, 128, 0.12) 100%);
             color: var(--ytc-v2-green);
-            border: 1px solid rgba(74, 222, 128, 0.3);
+            border: 1px solid rgba(74, 222, 128, 0.4);
         }
 
         body.yt-commander-popup-v2 .status.error {
             display: block;
-            background: rgba(255, 107, 122, 0.15);
+            background: linear-gradient(180deg, rgba(255, 107, 122, 0.2) 0%, rgba(255, 107, 122, 0.12) 100%);
             color: var(--ytc-v2-red);
-            border: 1px solid rgba(255, 107, 122, 0.3);
+            border: 1px solid rgba(255, 107, 122, 0.4);
         }
 
         body.yt-commander-popup-v2 .status.info {
             display: block;
-            background: rgba(56, 217, 245, 0.15);
+            background: linear-gradient(180deg, rgba(56, 217, 245, 0.2) 0%, rgba(56, 217, 245, 0.12) 100%);
             color: var(--ytc-v2-cyan);
-            border: 1px solid rgba(56, 217, 245, 0.3);
+            border: 1px solid rgba(56, 217, 245, 0.4);
         }
 
         body.yt-commander-popup-v2 .status.warning {
             display: block;
-            background: rgba(251, 191, 36, 0.15);
+            background: linear-gradient(180deg, rgba(251, 191, 36, 0.2) 0%, rgba(251, 191, 36, 0.12) 100%);
             color: var(--ytc-v2-amber);
-            border: 1px solid rgba(251, 191, 36, 0.3);
+            border: 1px solid rgba(251, 191, 36, 0.4);
         }
 
         body.yt-commander-popup-v2 .footer {
@@ -653,7 +767,7 @@
             gap: 12px;
             flex: 0 0 auto;
             z-index: 25;
-            box-shadow: 0 -2px 8px rgba(0,0,0,0.15);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 -2px 8px rgba(0,0,0,0.15);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-footer-actions {
@@ -673,7 +787,18 @@
             justify-content: center;
             cursor: pointer;
             border-radius: 10px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 6px rgba(0,0,0,0.15);
+            position: relative;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-footer-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 15%;
+            right: 15%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-footer-btn:hover {
@@ -723,11 +848,22 @@
             max-height: calc(100% - 32px);
             overflow: auto;
             border: 1px solid var(--ytc-v2-border);
-            background: linear-gradient(180deg, #2a2e38 0%, #1e2128 100%);
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            background: linear-gradient(180deg, rgba(42, 46, 56, 0.95) 0%, rgba(30, 33, 40, 0.98) 100%);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 20px 60px rgba(0, 0, 0, 0.5);
             padding: 16px;
             z-index: 1;
             border-radius: 16px;
+            position: relative;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 8%;
+            right: 8%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-header {
@@ -755,6 +891,18 @@
             cursor: pointer;
             border-radius: 10px;
             font-size: 16px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+            position: relative;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-close::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 20%;
+            right: 20%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-close:hover {
@@ -782,6 +930,18 @@
             align-items: center;
             justify-content: center;
             gap: 8px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+            position: relative;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-tab::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 15%;
+            right: 15%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-tab .tab-icon {
@@ -844,9 +1004,22 @@
 
         body.yt-commander-popup-v2 .ytc-v2-about-section {
             border: 1px solid var(--ytc-v2-border);
-            background: var(--ytc-v2-surface);
+            background: linear-gradient(180deg, rgba(42, 46, 56, 0.85) 0%, rgba(32, 35, 44, 0.9) 100%);
             padding: 14px 16px;
             border-radius: 10px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 8px rgba(0,0,0,0.15);
+            position: relative;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-about-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 12%;
+            right: 12%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
+        }
         }
 
         body.yt-commander-popup-v2 .ytc-v2-about-title {
