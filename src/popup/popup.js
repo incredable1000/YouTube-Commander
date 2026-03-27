@@ -74,7 +74,10 @@ const SQL_EXPORT_DOWNLOAD_DELAY_MS = 250;
 const POPUP_UI_V2_CLASS = 'yt-commander-popup-v2';
 const POPUP_UI_V2_DEFAULT_FEATURE = 'history';
 const POPUP_UI_V2_TONES = ['red', 'cyan', 'green', 'amber'];
-const POPUP_UI_V2_NAV_ITEMS = [];
+const POPUP_UI_V2_NAV_ITEMS = [
+    { feature: 'history', label: 'History & subscriptions' },
+    { feature: 'settings', label: 'Settings' }
+];
 
 // Setup delete videos toggle
 function setupDeleteVideosToggle() {
@@ -207,10 +210,6 @@ function initializePopupUiV2Navigator() {
         return;
     }
 
-    if (!POPUP_UI_V2_NAV_ITEMS.length) {
-        return;
-    }
-
     const navWrap = document.createElement('div');
     navWrap.className = 'ytc-v2-nav-wrap';
 
@@ -338,33 +337,93 @@ function moveHistoryNodeToPane(scope, selector, pane, extraClass = '') {
 }
 
 /**
- * Initialize history card content without tabs for compact v2.
+ * Initialize Local/Cloud tabs inside history card for compact v2.
  */
 function initializePopupUiV2HistoryTabs() {
     const historyCard = findFeatureCard('history');
     const historyContent = historyCard?.querySelector('.feature-content');
-    if (!historyContent || historyContent.dataset.simplified === 'true') {
+    if (!historyContent || historyContent.querySelector('.ytc-v2-history-tabs')) {
         return;
     }
 
-    historyContent.dataset.simplified = 'true';
+    const tabs = document.createElement('div');
+    tabs.className = 'ytc-v2-history-tabs';
 
-    const container = document.createElement('div');
-    container.className = 'ytc-v2-history-content';
+    const localTab = document.createElement('button');
+    localTab.type = 'button';
+    localTab.className = 'ytc-v2-history-tab active';
+    localTab.setAttribute('data-pane', 'local');
+    localTab.textContent = 'Local';
 
-    moveHistoryNodeToPane(historyContent, '.stats-grid', container);
-    moveHistoryNodeToPane(historyContent, '#exportHistory', container);
-    moveHistoryNodeToPane(historyContent, '#exportSqlMigration', container);
-    moveHistoryNodeToPane(historyContent, '#importHistory', container);
-    moveHistoryNodeToPane(historyContent, '#deleteVideosToggle', container);
-    moveHistoryNodeToPane(historyContent, '#historyStatus', container);
+    const cloudTab = document.createElement('button');
+    cloudTab.type = 'button';
+    cloudTab.className = 'ytc-v2-history-tab';
+    cloudTab.setAttribute('data-pane', 'cloud');
+    cloudTab.textContent = 'Cloud';
+
+    const settingsTab = document.createElement('button');
+    settingsTab.type = 'button';
+    settingsTab.className = 'ytc-v2-history-tab';
+    settingsTab.setAttribute('data-pane', 'settings');
+    settingsTab.textContent = 'Settings';
+
+    tabs.appendChild(localTab);
+    tabs.appendChild(cloudTab);
+    tabs.appendChild(settingsTab);
+
+    const localPane = document.createElement('div');
+    localPane.className = 'ytc-v2-history-pane active';
+    localPane.setAttribute('data-pane', 'local');
+
+    const cloudPane = document.createElement('div');
+    cloudPane.className = 'ytc-v2-history-pane';
+    cloudPane.setAttribute('data-pane', 'cloud');
+
+    const settingsPane = document.createElement('div');
+    settingsPane.className = 'ytc-v2-history-pane';
+    settingsPane.setAttribute('data-pane', 'settings');
+
+    moveHistoryNodeToPane(historyContent, '.stats-grid', localPane);
+    moveHistoryNodeToPane(historyContent, '#exportHistory', localPane);
+    moveHistoryNodeToPane(historyContent, '#exportSqlMigration', localPane);
+    moveHistoryNodeToPane(historyContent, '#importHistory', localPane);
+    moveHistoryNodeToPane(historyContent, '#deleteVideosToggle', localPane);
+    moveHistoryNodeToPane(historyContent, '#historyStatus', localPane);
+
+    moveHistoryNodeToPane(historyContent, '#syncToCloudflare', cloudPane);
+    moveHistoryNodeToPane(historyContent, '#downloadFromCloudflare', cloudPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflareAutoSyncToggle', cloudPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflareSyncInterval', cloudPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflarePendingCount', cloudPane, 'ytc-v2-cloud-meta');
+
+    moveHistoryNodeToPane(historyContent, '#cloudflareSyncEndpoint', settingsPane);
+    moveHistoryNodeToPane(historyContent, '#cloudflareSyncToken', settingsPane);
+    moveHistoryNodeToPane(historyContent, '#lockPrimarySyncAccount', settingsPane);
 
     const note = historyContent.querySelector('.note');
 
-    historyContent.insertBefore(container, historyContent.firstChild);
+    historyContent.insertBefore(tabs, historyContent.firstChild);
+    historyContent.appendChild(localPane);
+    historyContent.appendChild(cloudPane);
+    historyContent.appendChild(settingsPane);
     if (note) {
         historyContent.appendChild(note);
     }
+
+    tabs.addEventListener('click', (event) => {
+        const tab = event.target.closest('.ytc-v2-history-tab');
+        if (!tab) {
+            return;
+        }
+
+        const paneName = tab.getAttribute('data-pane');
+        tabs.querySelectorAll('.ytc-v2-history-tab').forEach((item) => {
+            item.classList.toggle('active', item === tab);
+        });
+        historyContent.querySelectorAll('.ytc-v2-history-pane').forEach((pane) => {
+            pane.classList.toggle('active', pane.getAttribute('data-pane') === paneName);
+        });
+    });
 }
 
 /**
