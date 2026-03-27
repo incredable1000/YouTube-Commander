@@ -878,26 +878,44 @@
 
         body.yt-commander-popup-v2 .ytc-v2-settings-tabs {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 10px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
             margin-bottom: 14px;
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-tab {
             border: 1px solid var(--ytc-v2-border);
-            min-height: 38px;
+            min-height: 40px;
             background: rgba(15, 21, 34, 0.96);
             color: var(--ytc-v2-muted);
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.16s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 0 8px;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-tab .tab-icon {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+            flex-shrink: 0;
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-tab.active {
             color: var(--ytc-v2-text);
             border-color: var(--ytc-v2-cyan);
+            background: linear-gradient(135deg, rgba(63, 208, 255, 0.15), rgba(20, 35, 55, 0.98));
             box-shadow: inset 0 0 0 1px rgba(63, 208, 255, 0.24);
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-tab:hover:not(.active) {
+            border-color: rgba(63, 208, 255, 0.5);
+            color: var(--ytc-v2-text);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-pane {
@@ -969,9 +987,18 @@
             </div>
             <div class="feature-content expanded" id="settingsContent">
                 <div class="ytc-v2-settings-tabs">
-                    <button type="button" class="ytc-v2-settings-tab active" data-pane="sync">Sync</button>
-                    <button type="button" class="ytc-v2-settings-tab" data-pane="options">Options</button>
-                    <button type="button" class="ytc-v2-settings-tab" data-pane="shortcuts">Shortcuts</button>
+                    <button type="button" class="ytc-v2-settings-tab active" data-pane="sync">
+                        <svg viewBox="0 0 24 24" class="tab-icon"><path d="M12 4V1L8 5l4 4V6a6 6 0 0 1 5.52 8.5 4 4 0 0 1-4.14 2.14A4 4 0 0 1 12 14a4 4 0 0 1-3.86-3.14A6 6 0 0 1 4 6h2a8 8 0 0 0 15.57 4.13 6 6 0 0 1-2.57 3.37L17.5 15H20v-2h-2.5l1.5-1.5A8 8 0 0 0 12 4z"/></svg>
+                        <span>Sync</span>
+                    </button>
+                    <button type="button" class="ytc-v2-settings-tab" data-pane="options">
+                        <svg viewBox="0 0 24 24" class="tab-icon"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
+                        <span>Options</span>
+                    </button>
+                    <button type="button" class="ytc-v2-settings-tab" data-pane="shortcuts">
+                        <svg viewBox="0 0 24 24" class="tab-icon"><path d="M20.5 12.5h-2.17a4.33 4.33 0 0 0-.76-1.44l1.36-1.36-1.42-1.42-1.36 1.36c-.53-.29-1.1-.52-1.71-.69L15.5 6.5h-2v-2h-2v2h-2V7h-2v2h-2V9h-2v2h-2V8h-2v2h-2v2h2v2h2v2h2v2h2v-2.09c.65-.17 1.28-.33 1.89-.48l1.36 1.36 1.42-1.42-1.36-1.36c.29.53.52 1.1.69 1.71L14.5 14.5v2h2v2h2v-2h2v-2h2v2h2v-2zM8.5 16a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5zm9.5-1.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>
+                        <span>Shortcuts</span>
+                    </button>
                 </div>
                 <div class="ytc-v2-settings-pane active" data-pane="sync">
                     <div class="ytc-v2-section">
