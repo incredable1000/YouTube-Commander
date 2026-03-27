@@ -1599,36 +1599,16 @@ function setupSubscriptionSyncControls() {
  * Setup popup settings modal toggles.
  */
 function setupPopupSettingsModal() {
-    const modal = document.getElementById('popupSettingsModal');
     const openButton = document.getElementById('popupSettingsButton');
-    if (!modal || !openButton) {
+    if (!openButton) {
         return;
     }
 
-    const openModal = () => {
-        modal.classList.add('is-visible');
-        modal.setAttribute('aria-hidden', 'false');
-    };
-
-    const closeModal = () => {
-        modal.classList.remove('is-visible');
-        modal.setAttribute('aria-hidden', 'true');
-    };
-
     openButton.addEventListener('click', () => {
-        openModal();
-    });
-
-    modal.addEventListener('click', (event) => {
-        const action = event.target?.closest('[data-action="close-settings"]');
-        if (action) {
-            closeModal();
-        }
-    });
-
-    document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && modal.classList.contains('is-visible')) {
-            closeModal();
+        const settingsCard = findFeatureCard('settings');
+        if (settingsCard) {
+            setPopupUiV2ActiveFeature('settings');
+            settingsCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     });
 }
