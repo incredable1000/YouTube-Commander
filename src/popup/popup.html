@@ -911,67 +911,100 @@
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-tabs {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
+            display: flex;
             margin-bottom: 16px;
+            background: linear-gradient(180deg, #1a1d24 0%, #141720 100%);
+            border-radius: 10px;
+            padding: 4px;
+            gap: 4px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 2px 4px rgba(0,0,0,0.15);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-tab {
-            border: 1px solid var(--ytc-v2-border);
-            min-height: 46px;
-            background: linear-gradient(180deg, #2a2e38 0%, #22262e 100%);
+            flex: 1;
+            min-height: 38px;
+            background: transparent;
             color: var(--ytc-v2-muted);
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
-            border-radius: 10px;
+            border: none;
+            border-radius: 7px;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+            gap: 6px;
+            transition: all 0.2s ease;
             position: relative;
         }
 
-        body.yt-commander-popup-v2 .ytc-v2-settings-tab::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 15%;
-            right: 15%;
-            height: 1px;
-            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
-        }
-
         body.yt-commander-popup-v2 .ytc-v2-settings-tab .tab-icon {
-            width: 18px;
-            height: 18px;
+            width: 16px;
+            height: 16px;
             fill: currentColor;
             flex-shrink: 0;
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-tab[data-pane="sync"].active {
             color: var(--ytc-v2-cyan);
-            border-color: var(--ytc-v2-cyan);
-            background: linear-gradient(180deg, #1a2a35 0%, #152230 100%);
+            background: linear-gradient(180deg, rgba(26, 42, 53, 0.9) 0%, rgba(21, 34, 48, 0.95) 100%);
+            box-shadow: inset 0 1px 0 rgba(56, 217, 245, 0.3), 0 2px 8px rgba(56, 217, 245, 0.15);
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-tab[data-pane="sync"].active::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 24px;
+            height: 3px;
+            background: var(--ytc-v2-cyan);
+            border-radius: 2px;
+            box-shadow: 0 0 8px var(--ytc-v2-cyan);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-tab[data-pane="options"].active {
             color: var(--ytc-v2-green);
-            border-color: var(--ytc-v2-green);
-            background: linear-gradient(180deg, #1a3025 0%, #152820 100%);
+            background: linear-gradient(180deg, rgba(26, 48, 37, 0.9) 0%, rgba(21, 40, 32, 0.95) 100%);
+            box-shadow: inset 0 1px 0 rgba(74, 222, 128, 0.3), 0 2px 8px rgba(74, 222, 128, 0.15);
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-tab[data-pane="options"].active::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 24px;
+            height: 3px;
+            background: var(--ytc-v2-green);
+            border-radius: 2px;
+            box-shadow: 0 0 8px var(--ytc-v2-green);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-tab[data-pane="shortcuts"].active {
             color: var(--ytc-v2-amber);
-            border-color: var(--ytc-v2-amber);
-            background: linear-gradient(180deg, #2a2515 0%, #252010 100%);
+            background: linear-gradient(180deg, rgba(42, 37, 21, 0.9) 0%, rgba(37, 32, 16, 0.95) 100%);
+            box-shadow: inset 0 1px 0 rgba(251, 191, 36, 0.3), 0 2px 8px rgba(251, 191, 36, 0.15);
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-tab[data-pane="shortcuts"].active::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 24px;
+            height: 3px;
+            background: var(--ytc-v2-amber);
+            border-radius: 2px;
+            box-shadow: 0 0 8px var(--ytc-v2-amber);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-tab:hover:not(.active) {
-            border-color: var(--ytc-v2-text);
             color: var(--ytc-v2-text);
+            background: rgba(255,255,255,0.05);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-pane {
