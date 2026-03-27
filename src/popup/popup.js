@@ -74,10 +74,7 @@ const SQL_EXPORT_DOWNLOAD_DELAY_MS = 250;
 const POPUP_UI_V2_CLASS = 'yt-commander-popup-v2';
 const POPUP_UI_V2_DEFAULT_FEATURE = 'history';
 const POPUP_UI_V2_TONES = ['red', 'cyan', 'green', 'amber'];
-const POPUP_UI_V2_NAV_ITEMS = [
-    { feature: 'history', label: 'History & subscriptions' },
-    { feature: 'settings', label: 'Settings' }
-];
+const POPUP_UI_V2_NAV_ITEMS = [];
 
 // Setup delete videos toggle
 function setupDeleteVideosToggle() {
