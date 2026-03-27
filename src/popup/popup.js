@@ -2208,9 +2208,12 @@ async function exportSqlMigration() {
 async function syncToCloudflare() {
     const syncButton = document.getElementById('syncToCloudflare');
     if (!syncButton) {
+        showStatus('Sync button not found', 'error');
         return;
     }
 
+    showStatus('Sync button clicked!', 'info');
+    
     const initialLabel = syncButton.textContent;
     syncButton.disabled = true;
     syncButton.textContent = 'Syncing...';
@@ -2929,20 +2932,39 @@ document.addEventListener('DOMContentLoaded', () => {
     setupPopupSettingsModal();
     setupPopupAboutModal();
     setupAutoSave();
-    document.getElementById('exportHistory').addEventListener('click', exportHistory);
-    document.getElementById('importHistory').addEventListener('click', importHistory);
-    document.getElementById('exportSqlMigration').addEventListener('click', exportSqlMigration);
-    document.getElementById('syncToCloudflare').addEventListener('click', syncToCloudflare);
-    document.getElementById('downloadFromCloudflare').addEventListener('click', downloadFromCloudflare);
-    document.getElementById('lockPrimarySyncAccount').addEventListener('click', lockPrimarySyncAccount);
-    document.getElementById('historyFileInput').addEventListener('change', handleFileImport);
-    document.getElementById('exportSubscriptionCsv').addEventListener('click', exportSubscriptionCsvFromPopup);
-    document.getElementById('importSubscriptionCsv').addEventListener('click', () => {
+    
+    // History buttons
+    const exportBtn = document.getElementById('exportHistory');
+    if (exportBtn) exportBtn.addEventListener('click', exportHistory);
+    const importBtn = document.getElementById('importHistory');
+    if (importBtn) importBtn.addEventListener('click', importHistory);
+    const sqlBtn = document.getElementById('exportSqlMigration');
+    if (sqlBtn) sqlBtn.addEventListener('click', exportSqlMigration);
+    
+    // Cloudflare sync buttons
+    const syncBtn = document.getElementById('syncToCloudflare');
+    if (syncBtn) syncBtn.addEventListener('click', syncToCloudflare);
+    const downloadBtn = document.getElementById('downloadFromCloudflare');
+    if (downloadBtn) downloadBtn.addEventListener('click', downloadFromCloudflare);
+    const lockBtn = document.getElementById('lockPrimarySyncAccount');
+    if (lockBtn) lockBtn.addEventListener('click', lockPrimarySyncAccount);
+    
+    const historyFileInput = document.getElementById('historyFileInput');
+    if (historyFileInput) historyFileInput.addEventListener('change', handleFileImport);
+    
+    // Subscription buttons
+    const exportCsvBtn = document.getElementById('exportSubscriptionCsv');
+    if (exportCsvBtn) exportCsvBtn.addEventListener('click', exportSubscriptionCsvFromPopup);
+    const importCsvBtn = document.getElementById('importSubscriptionCsv');
+    if (importCsvBtn) importCsvBtn.addEventListener('click', () => {
         document.getElementById('subscriptionCsvInput')?.click();
     });
-    document.getElementById('subscriptionCsvInput').addEventListener('change', handleSubscriptionCsvImport);
-    document.getElementById('syncSubscriptionsNow').addEventListener('click', syncSubscriptionsNow);
-    document.getElementById('restoreSubscriptions').addEventListener('click', restoreSubscriptionsFromCloudflare);
+    const subscriptionCsvInput = document.getElementById('subscriptionCsvInput');
+    if (subscriptionCsvInput) subscriptionCsvInput.addEventListener('change', handleSubscriptionCsvImport);
+    const syncSubBtn = document.getElementById('syncSubscriptionsNow');
+    if (syncSubBtn) syncSubBtn.addEventListener('click', syncSubscriptionsNow);
+    const restoreSubBtn = document.getElementById('restoreSubscriptions');
+    if (restoreSubBtn) restoreSubBtn.addEventListener('click', restoreSubscriptionsFromCloudflare);
 
     setInterval(loadWatchedHistoryStats, 5000);
     setInterval(refreshCloudflareSyncStatus, 30000);
