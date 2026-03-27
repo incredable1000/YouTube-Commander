@@ -881,48 +881,76 @@ function formatRemainingMinSec(remainingMs) {
 }
 
 /**
- * Render live "Next Sync In" countdown.
+ * Format elapsed milliseconds to human readable string.
+ * @param {number} elapsedMs
+ * @returns {string}
  */
-function renderNextSyncCountdown() {
-    const nextSyncEl = document.getElementById('cloudflareNextSyncIn');
-    if (!nextSyncEl) {
+function formatElapsedTime(elapsedMs) {
+    const safeMs = Number.isFinite(elapsedMs) ? Math.max(0, elapsedMs) : 0;
+    const totalSeconds = Math.floor(safeMs / 1000);
+    
+    if (totalSeconds < 60) {
+        return `${totalSeconds}s ago`;
+    }
+    
+    const minutes = Math.floor(totalSeconds / 60);
+    if (minutes < 60) {
+        return `${minutes}m ago`;
+    }
+    
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+        return `${hours}h ${minutes % 60}m ago`;
+    }
+    
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+}
+
+/**
+ * Render time since last sync.
+ */
+function renderCloudflareLastSyncTime() {
+    const lastSyncEl = document.getElementById('cloudflareNextSyncIn');
+    if (!lastSyncEl) {
         return;
     }
 
     if (!cloudflareAutoEnabled) {
-        nextSyncEl.textContent = 'Off';
+        lastSyncEl.textContent = 'Off';
         return;
     }
 
     if (!Number.isFinite(cloudflareNextSyncAt) || cloudflareNextSyncAt <= 0) {
-        nextSyncEl.textContent = '--:--';
+        lastSyncEl.textContent = 'Never';
         return;
     }
 
-    const remainingMs = cloudflareNextSyncAt - Date.now();
-    nextSyncEl.textContent = formatRemainingMinSec(remainingMs);
+    const elapsedMs = Date.now() - cloudflareNextSyncAt;
+    lastSyncEl.textContent = formatElapsedTime(elapsedMs);
 }
+
 /**
- * Render live subscription "Next Sync In" countdown.
+ * Render subscription time since last sync.
  */
-function renderSubscriptionNextSyncCountdown() {
-    const nextSyncEl = document.getElementById('subscriptionNextSyncIn');
-    if (!nextSyncEl) {
+function renderSubscriptionLastSyncTime() {
+    const lastSyncEl = document.getElementById('subscriptionNextSyncIn');
+    if (!lastSyncEl) {
         return;
     }
 
     if (!subscriptionAutoEnabled) {
-        nextSyncEl.textContent = 'Off';
+        lastSyncEl.textContent = 'Off';
         return;
     }
 
     if (!Number.isFinite(subscriptionNextSyncAt) || subscriptionNextSyncAt <= 0) {
-        nextSyncEl.textContent = '--:--';
+        lastSyncEl.textContent = 'Never';
         return;
     }
 
-    const remainingMs = subscriptionNextSyncAt - Date.now();
-    nextSyncEl.textContent = formatRemainingMinSec(remainingMs);
+    const elapsedMs = Date.now() - subscriptionNextSyncAt;
+    lastSyncEl.textContent = formatElapsedTime(elapsedMs);
 }
 
 /**
@@ -1274,7 +1302,7 @@ function renderCloudflareSyncStatus(status = {}) {
         infoEl.textContent = status.status || 'Idle';
     }
 
-    renderNextSyncCountdown();
+    renderCloudflareLastSyncTime();
 }
 /**
  * Render subscription sync status in popup.
@@ -1317,7 +1345,7 @@ function renderSubscriptionSyncStatus(status = {}) {
         infoEl.textContent = status.status || 'Idle';
     }
 
-    renderSubscriptionNextSyncCountdown();
+    renderSubscriptionLastSyncTime();
 }
 
 /**
@@ -2915,7 +2943,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(loadWatchedHistoryStats, 5000);
     setInterval(refreshCloudflareSyncStatus, 30000);
     setInterval(refreshSubscriptionSyncStatus, 30000);
-    setInterval(renderNextSyncCountdown, 1000);
-    setInterval(renderSubscriptionNextSyncCountdown, 1000);
+    setInterval(renderCloudflareLastSyncTime, 1000);
+    setInterval(renderSubscriptionLastSyncTime, 1000);
 });
 
