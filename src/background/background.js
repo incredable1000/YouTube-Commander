@@ -822,7 +822,22 @@ function normalizeSyncInterval(raw) {
     if (parsed <= 60) {
         return 60;
     }
-    return 120;
+    if (parsed <= 120) {
+        return 120;
+    }
+    if (parsed <= 180) {
+        return 180;
+    }
+    if (parsed <= 240) {
+        return 240;
+    }
+    if (parsed <= 720) {
+        return 720;
+    }
+    if (parsed <= 1440) {
+        return 1440;
+    }
+    return 1440;
 }
 /**
  * Normalize subscription sync interval.
@@ -847,7 +862,22 @@ function normalizeSubscriptionInterval(raw) {
     if (parsed <= 60) {
         return 60;
     }
-    return 120;
+    if (parsed <= 120) {
+        return 120;
+    }
+    if (parsed <= 180) {
+        return 180;
+    }
+    if (parsed <= 240) {
+        return 240;
+    }
+    if (parsed <= 720) {
+        return 720;
+    }
+    if (parsed <= 1440) {
+        return 1440;
+    }
+    return 1440;
 }
 
 /**

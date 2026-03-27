@@ -933,7 +933,7 @@ function renderSubscriptionNextSyncCountdown() {
     }
 
     if (!Number.isFinite(subscriptionLastSyncAt) || subscriptionLastSyncAt <= 0) {
-        nextSyncEl.textContent = '--:--';
+        nextSyncEl.textContent = '--:--:--';
         return;
     }
 
@@ -1103,6 +1103,7 @@ async function loadCloudflareSyncSettings() {
             : (Number.isFinite(subscriptionInterval) ? subscriptionInterval : 30);
         intervalSelect.value = String(interval);
         cloudflareSyncIntervalMinutes = interval;
+        subscriptionSyncIntervalMinutes = interval;
         updateDropdownSelection('cloudflareSyncIntervalDropdown', intervalSelect.value);
     }
 
@@ -2851,6 +2852,7 @@ function initializeCustomDropdowns() {
                 
                 if (dropdown.id === 'cloudflareSyncIntervalDropdown') {
                     cloudflareSyncIntervalMinutes = Number(value) || 30;
+                    subscriptionSyncIntervalMinutes = Number(value) || 30;
                 }
                 
                 if (hiddenSelect) {
