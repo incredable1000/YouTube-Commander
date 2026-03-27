@@ -941,43 +941,30 @@
     </div>
     
     <div class="container">
-        <!-- History & Subscriptions Feature -->
-        <div class="feature-card">
-            <div class="feature-header expanded" data-feature="history">
-                <div class="feature-title">
-                    <div class="feature-name">History & Subscriptions</div>
-                    <div class="feature-description">Watched stats, exports, and subscription tools</div>
-                </div>
+        <div class="stats-grid">
+            <div class="stat-item">
+                <div class="stat-value" id="watchedCount">0</div>
+                <div class="stat-label">Videos Watched</div>
             </div>
-            <div class="feature-content expanded" id="historyContent">
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <div class="stat-value" id="watchedCount">0</div>
-                        <div class="stat-label">Videos Watched</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-value" id="todayCount">0</div>
-                        <div class="stat-label">Today</div>
-                    </div>
-                </div>
-                <div class="ytc-v2-section">
-                    <div class="ytc-v2-section-title">Watched history</div>
-                    <div class="action-buttons">
-                        <button class="btn btn-secondary" id="exportHistory">Export</button>
-                        <button class="btn btn-secondary" id="importHistory">Import</button>
-                    </div>
-                </div>
-                <div class="ytc-v2-section">
-                    <div class="ytc-v2-section-title">Subscriptions</div>
-                    <div class="action-buttons">
-                        <button class="btn btn-secondary" id="exportSubscriptionCsv">Export CSV</button>
-                        <button class="btn btn-secondary" id="importSubscriptionCsv">Import CSV</button>
-                    </div>
-                </div>
+            <div class="stat-item">
+                <div class="stat-value" id="todayCount">0</div>
+                <div class="stat-label">Today</div>
             </div>
         </div>
-
-        <!-- Status Display -->
+        <div class="ytc-v2-section">
+            <div class="ytc-v2-section-title">Watched history</div>
+            <div class="action-buttons">
+                <button class="btn btn-secondary" id="exportHistory">Export</button>
+                <button class="btn btn-secondary" id="importHistory">Import</button>
+            </div>
+        </div>
+        <div class="ytc-v2-section">
+            <div class="ytc-v2-section-title">Subscriptions</div>
+            <div class="action-buttons">
+                <button class="btn btn-secondary" id="exportSubscriptionCsv">Export CSV</button>
+                <button class="btn btn-secondary" id="importSubscriptionCsv">Import CSV</button>
+            </div>
+        </div>
         <div id="status" class="status"></div>
     </div>
 
