@@ -68,7 +68,7 @@ const SUBSCRIPTION_MANAGER_STORAGE_KEYS = {
     PENDING_KEYS: 'subscriptionSyncPendingKeys',
     PENDING_COUNT: 'subscriptionSyncPendingCount'
 };
-const SYNC_INTERVAL_OPTIONS = [5, 10, 30, 60, 120, 240];
+const SYNC_INTERVAL_OPTIONS = [15, 30, 60, 180, 720, 1440];
 const SQL_EXPORT_TABLE_NAME = 'watched_videos';
 const SQL_EXPORT_IDS_PER_FILE = 200000;
 const SQL_EXPORT_VALUES_PER_STATEMENT = 300;
@@ -1252,7 +1252,10 @@ function normalizeSyncIntervalMinutes(raw, fallback) {
     if (!Number.isFinite(parsed)) {
         return fallback;
     }
-    return SYNC_INTERVAL_OPTIONS.includes(parsed) ? parsed : fallback;
+    if (SYNC_INTERVAL_OPTIONS.includes(parsed)) {
+        return parsed;
+    }
+    return parsed;
 }
 
 /**
