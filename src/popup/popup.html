@@ -36,6 +36,8 @@
             --ytc-v2-cyan: #38d9f5;
             --ytc-v2-green: #4ade80;
             --ytc-v2-amber: #fbbf24;
+            --ytc-v2-purple: #a78bfa;
+            --ytc-v2-orange: #fb923c;
             --ytc-v2-radius: 12px;
 
             width: 420px;
@@ -56,24 +58,13 @@
         body.yt-commander-popup-v2 .header {
             background: linear-gradient(180deg, #2a2e38 0%, #23272f 100%);
             border-bottom: 1px solid var(--ytc-v2-border);
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.2);
-            padding: 16px 18px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 8px rgba(0,0,0,0.15);
+            padding: 14px 18px;
             text-align: left;
             flex: 0 0 auto;
             position: sticky;
             top: 0;
             z-index: 30;
-            position: relative;
-        }
-
-        body.yt-commander-popup-v2 .header::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: linear-gradient(90deg, var(--ytc-v2-red), var(--ytc-v2-amber), var(--ytc-v2-green), var(--ytc-v2-cyan));
         }
 
         body.yt-commander-popup-v2 .header h1 {
@@ -81,10 +72,10 @@
         }
 
         body.yt-commander-popup-v2 .header .subtitle {
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
-            color: var(--ytc-v2-cyan);
-            letter-spacing: 0.5px;
+            color: var(--ytc-v2-muted);
+            letter-spacing: 0.3px;
         }
 
         body.yt-commander-popup-v2 .container {
@@ -340,20 +331,30 @@
         }
 
         body.yt-commander-popup-v2 .setting-label {
-            font-size: 15px;
-            color: var(--ytc-v2-muted);
+            font-size: 13px;
+            color: var(--ytc-v2-text);
             line-height: 1.4;
         }
 
         body.yt-commander-popup-v2 .setting-input,
         body.yt-commander-popup-v2 .setting-select,
         body.yt-commander-popup-v2 .quality-select {
-            background: rgba(16, 21, 33, 0.94);
+            background: linear-gradient(180deg, #1a1d24 0%, #141720 100%);
             border: 1px solid var(--ytc-v2-border);
             color: var(--ytc-v2-text);
-            min-height: 42px;
-            font-size: 15px;
-            padding: 7px 10px;
+            min-height: 38px;
+            font-size: 13px;
+            padding: 6px 10px;
+            border-radius: 8px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        body.yt-commander-popup-v2 .setting-input:focus,
+        body.yt-commander-popup-v2 .setting-select:focus,
+        body.yt-commander-popup-v2 .quality-select:focus {
+            outline: none;
+            border-color: var(--ytc-v2-orange);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2), 0 0 0 2px rgba(251, 146, 60, 0.2);
         }
 
         body.yt-commander-popup-v2 .setting-input {
@@ -472,13 +473,14 @@
             position: relative;
             width: 44px;
             height: 24px;
-            background: #323d59;
+            background: #3a3f4a;
             cursor: pointer;
             transition: background 0.2s;
+            border-radius: 12px;
         }
 
         body.yt-commander-popup-v2 .toggle-switch.active {
-            background: var(--card-accent, var(--ytc-v2-cyan));
+            background: var(--ytc-v2-orange);
         }
 
         body.yt-commander-popup-v2 .toggle-slider {
@@ -487,9 +489,10 @@
             left: 2px;
             width: 20px;
             height: 20px;
-            background: #f7fbff;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+            background: #e8eaed;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
             transition: transform 0.2s;
+            border-radius: 50%;
         }
 
         body.yt-commander-popup-v2 .toggle-switch.active .toggle-slider {
@@ -522,26 +525,14 @@
             border: 1px solid var(--ytc-v2-border);
             padding: 12px 10px;
             border-radius: 10px;
-            box-shadow: inset 0 2px 6px rgba(0,0,0,0.25), inset 0 -1px 0 rgba(255,255,255,0.04);
-            position: relative;
-            overflow: hidden;
-        }
-
-        body.yt-commander-popup-v2 .stat-item::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: linear-gradient(90deg, var(--ytc-v2-cyan), var(--ytc-v2-green));
+            box-shadow: inset 0 2px 6px rgba(0,0,0,0.2), inset 0 -1px 0 rgba(255,255,255,0.03);
+            border-left: 3px solid var(--ytc-v2-cyan);
         }
 
         body.yt-commander-popup-v2 .stat-value {
-            font-size: 24px;
-            font-weight: 800;
+            font-size: 22px;
+            font-weight: 700;
             color: var(--ytc-v2-cyan);
-            text-shadow: 0 0 20px rgba(56, 217, 245, 0.4);
         }
 
         body.yt-commander-popup-v2 .stat-label {
@@ -550,6 +541,19 @@
             font-size: 11px;
             letter-spacing: 0.3px;
             text-transform: uppercase;
+        }
+
+        body.yt-commander-popup-v2 .sync-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px dashed var(--ytc-v2-border);
+        }
+
+        body.yt-commander-popup-v2 .sync-meta .setting-label {
+            color: var(--ytc-v2-muted);
         }
 
         body.yt-commander-popup-v2 .action-buttons {
@@ -569,20 +573,20 @@
             font-weight: 600;
             border: 1px solid var(--ytc-v2-border);
             background: linear-gradient(180deg, #3a3f4a 0%, #2d323c 100%);
-            color: #fff;
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.25), 0 2px 4px rgba(0,0,0,0.3);
+            color: var(--ytc-v2-green);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.2), 0 2px 4px rgba(0,0,0,0.25);
             border-radius: 8px;
         }
 
         body.yt-commander-popup-v2 .btn:hover {
             background: linear-gradient(180deg, #454c5a 0%, #363b48 100%);
-            border-color: var(--ytc-v2-cyan);
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.25), 0 0 12px rgba(56, 217, 245, 0.25);
+            border-color: var(--ytc-v2-green);
+            color: #fff;
         }
 
         body.yt-commander-popup-v2 .btn:active {
             background: linear-gradient(180deg, #2a2f3a 0%, #353a45 100%);
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.25);
         }
 
         body.yt-commander-popup-v2 .btn:disabled {
@@ -593,13 +597,14 @@
         body.yt-commander-popup-v2 .btn-secondary {
             background: linear-gradient(180deg, #2a2e38 0%, #22262e 100%);
             border: 1px solid var(--ytc-v2-border);
-            color: var(--ytc-v2-text);
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -1px 0 rgba(0,0,0,0.2), 0 1px 3px rgba(0,0,0,0.2);
+            color: var(--ytc-v2-muted);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.03), inset 0 -1px 0 rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.15);
         }
 
         body.yt-commander-popup-v2 .btn-secondary:hover {
             background: linear-gradient(180deg, #32363f 0%, #282c34 100%);
-            border-color: var(--ytc-v2-cyan);
+            border-color: var(--ytc-v2-purple);
+            color: var(--ytc-v2-text);
         }
 
         body.yt-commander-popup-v2 .note {
@@ -629,21 +634,8 @@
             border: 1px solid var(--ytc-v2-border);
             background: var(--ytc-v2-surface);
             border-radius: var(--ytc-v2-radius);
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05), 0 0 0 1px rgba(56, 217, 245, 0.1);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.04);
             margin-bottom: 12px;
-            position: relative;
-        }
-
-        body.yt-commander-popup-v2 .ytc-v2-section::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 12px;
-            right: 12px;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, var(--ytc-v2-cyan), transparent);
-            border-radius: 0 0 2px 2px;
-            opacity: 0.6;
         }
 
         body.yt-commander-popup-v2 .ytc-v2-section:last-child {
@@ -651,12 +643,12 @@
         }
 
         body.yt-commander-popup-v2 .ytc-v2-section-title {
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 1px;
-            color: var(--ytc-v2-green);
-            margin-bottom: 8px;
+            color: var(--ytc-v2-amber);
+            margin-bottom: 10px;
         }
 
         body.yt-commander-popup-v2 .status {
@@ -947,9 +939,9 @@
         body.yt-commander-popup-v2 .ytc-v2-settings-tab {
             border: 1px solid var(--ytc-v2-border);
             min-height: 40px;
-            background: rgba(15, 21, 34, 0.96);
+            background: linear-gradient(180deg, #2a2e38 0%, #22262e 100%);
             color: var(--ytc-v2-muted);
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.16s ease;
@@ -958,24 +950,25 @@
             justify-content: center;
             gap: 6px;
             padding: 0 8px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -1px 0 rgba(0,0,0,0.15);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-tab .tab-icon {
-            width: 16px;
-            height: 16px;
+            width: 14px;
+            height: 14px;
             fill: currentColor;
             flex-shrink: 0;
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-tab.active {
             color: var(--ytc-v2-text);
-            border-color: var(--ytc-v2-cyan);
-            background: linear-gradient(135deg, rgba(63, 208, 255, 0.15), rgba(20, 35, 55, 0.98));
-            box-shadow: inset 0 0 0 1px rgba(63, 208, 255, 0.24);
+            border-color: var(--ytc-v2-purple);
+            background: linear-gradient(180deg, #363a48 0%, #2d3140 100%);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
         }
 
         body.yt-commander-popup-v2 .ytc-v2-settings-tab:hover:not(.active) {
-            border-color: rgba(63, 208, 255, 0.5);
+            border-color: var(--ytc-v2-purple);
             color: var(--ytc-v2-text);
         }
 
@@ -1175,10 +1168,10 @@
                             <option value="1440">Daily</option>
                         </select>
                     </div>
-                    <div class="setting-row" style="margin-top: 8px;">
-                        <div class="setting-label" style="font-size: 12px;">Pending: <span id="cloudflarePendingCount">0</span></div>
-                        <div class="setting-label" style="font-size: 12px;">Last Sync: <span id="cloudflareLastSyncAt">Never</span></div>
-                        <div class="setting-label" style="font-size: 12px;">Status: <span id="cloudflareLastSyncInfo">Idle</span></div>
+                    <div class="sync-meta">
+                        <div class="setting-label" style="font-size: 11px;">Pending: <span id="cloudflarePendingCount" style="color: var(--ytc-v2-amber);">0</span></div>
+                        <div class="setting-label" style="font-size: 11px;">Last Sync: <span id="cloudflareLastSyncAt" style="color: var(--ytc-v2-green);">Never</span></div>
+                        <div class="setting-label" style="font-size: 11px;">Status: <span id="cloudflareLastSyncInfo" style="color: var(--ytc-v2-cyan);">Idle</span></div>
                     </div>
                 </div>
                 <div class="ytc-v2-section">
@@ -1187,9 +1180,9 @@
                         <button class="btn btn-secondary" id="syncSubscriptionsNow">Sync</button>
                         <button class="btn btn-secondary" id="restoreSubscriptions">Restore</button>
                     </div>
-                    <div class="setting-row" style="margin-top: 8px;">
-                        <div class="setting-label" style="font-size: 12px;">Pending: <span id="subscriptionPendingCount">0</span></div>
-                        <div class="setting-label" style="font-size: 12px;">Last Sync: <span id="subscriptionLastSyncAt">Never</span></div>
+                    <div class="sync-meta">
+                        <div class="setting-label" style="font-size: 11px;">Pending: <span id="subscriptionPendingCount" style="color: var(--ytc-v2-amber);">0</span></div>
+                        <div class="setting-label" style="font-size: 11px;">Last Sync: <span id="subscriptionLastSyncAt" style="color: var(--ytc-v2-green);">Never</span></div>
                     </div>
                 </div>
             </div>
