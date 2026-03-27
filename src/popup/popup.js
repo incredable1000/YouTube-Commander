@@ -1596,23 +1596,65 @@ function setupSubscriptionSyncControls() {
 }
 
 /**
+ * Initialize tab switching for Settings modal.
+ */
+function initializeSettingsModalTabs() {
+    const modal = document.getElementById('popupSettingsModal');
+    if (!modal || modal.dataset.tabsInitialized === 'true') {
+        return;
+    }
+    modal.dataset.tabsInitialized = 'true';
+
+    modal.addEventListener('click', (event) => {
+        const tab = event.target.closest('.ytc-v2-settings-tab');
+        if (!tab) {
+            return;
+        }
+
+        const paneName = tab.getAttribute('data-pane');
+        modal.querySelectorAll('.ytc-v2-settings-tab').forEach((item) => {
+            item.classList.toggle('active', item === tab);
+        });
+        modal.querySelectorAll('.ytc-v2-settings-pane').forEach((pane) => {
+            pane.classList.toggle('active', pane.getAttribute('data-pane') === paneName);
+        });
+    });
+}
+
+/**
  * Setup popup settings modal toggles.
  */
 function setupPopupSettingsModal() {
+    const modal = document.getElementById('popupSettingsModal');
     const openButton = document.getElementById('popupSettingsButton');
-    if (!openButton) {
+    if (!modal || !openButton) {
         return;
     }
 
+    const openModal = () => {
+        modal.classList.add('is-visible');
+        modal.setAttribute('aria-hidden', 'false');
+    };
+
+    const closeModal = () => {
+        modal.classList.remove('is-visible');
+        modal.setAttribute('aria-hidden', 'true');
+    };
+
     openButton.addEventListener('click', () => {
-        const settingsCard = findFeatureCard('settings');
-        if (settingsCard) {
-            setPopupUiV2ActiveFeature('settings');
-            settingsCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            const syncTab = settingsCard.querySelector('.ytc-v2-settings-tab[data-pane="sync"]');
-            if (syncTab) {
-                syncTab.click();
-            }
+        openModal();
+    });
+
+    modal.addEventListener('click', (event) => {
+        const action = event.target?.closest('[data-action="close-settings"]');
+        if (action) {
+            closeModal();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && modal.classList.contains('is-visible')) {
+            closeModal();
         }
     });
 }
@@ -2878,6 +2920,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.add(POPUP_UI_V2_CLASS);
     initializePopupUiV2Layout();
     initializePopupUiV2SettingsTabs();
+    initializeSettingsModalTabs();
 
     loadSettings();
 
