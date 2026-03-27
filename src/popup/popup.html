@@ -203,6 +203,11 @@
             font-size: 14px;
         }
 
+        body.yt-commander-popup-v2 .sync-meta-item {
+            font-size: 14px;
+            color: var(--ytc-v2-muted);
+        }
+
         body.yt-commander-popup-v2 .setting-row {
             display: flex;
             align-items: center;
@@ -243,10 +248,10 @@
 
         body.yt-commander-popup-v2 .setting-select,
         body.yt-commander-popup-v2 .quality-select {
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23e8edf5' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
             background-repeat: no-repeat;
-            background-position: right 12px center;
-            padding-right: 40px;
+            background-position: right 10px center;
+            padding-right: 36px;
         }
 
         body.yt-commander-popup-v2 .setting-input {
@@ -255,6 +260,60 @@
 
         body.yt-commander-popup-v2 .setting-input.setting-input-wide {
             width: 100%;
+        }
+
+        body.yt-commander-popup-v2 input[type="number"] {
+            -moz-appearance: textfield;
+        }
+
+        body.yt-commander-popup-v2 input[type="number"]::-webkit-outer-spin-button,
+        body.yt-commander-popup-v2 input[type="number"]::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        body.yt-commander-popup-v2 input[type="text"],
+        body.yt-commander-popup-v2 input[type="number"] {
+            background: linear-gradient(180deg, #1a1d24 0%, #141720 100%);
+            border: 1px solid var(--ytc-v2-border);
+            color: var(--ytc-v2-cyan);
+            font-size: 15px;
+            font-weight: 600;
+            text-align: center;
+            letter-spacing: 0.5px;
+            min-height: 42px;
+            padding: 8px 12px;
+            border-radius: 10px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15);
+            width: 100px;
+        }
+
+        body.yt-commander-popup-v2 input[type="text"]:focus,
+        body.yt-commander-popup-v2 input[type="number"]:focus {
+            outline: none;
+            border-color: var(--ytc-v2-amber);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15), 0 0 0 3px rgba(251, 191, 36, 0.2);
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-shortcut-group input[type="text"] {
+            background: linear-gradient(180deg, #1a1d24 0%, #141720 100%);
+            border: 1px solid var(--ytc-v2-border);
+            color: var(--ytc-v2-amber);
+            font-size: 14px;
+            font-weight: 600;
+            text-align: center;
+            letter-spacing: 0.5px;
+            min-height: 42px;
+            padding: 8px 12px;
+            border-radius: 10px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15);
+            width: 140px;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-shortcut-group input[type="text"]:focus {
+            outline: none;
+            border-color: var(--ytc-v2-amber);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15), 0 0 0 3px rgba(251, 191, 36, 0.25);
         }
 
         body.yt-commander-popup-v2 .yt-commander-input-row {
@@ -714,32 +773,43 @@
             border-radius: 8px;
         }
 
-        body.yt-commander-popup-v2 .ytc-v2-content {
-            display: flex;
-            flex: 1 1 auto;
-            min-height: 0;
-            overflow-y: auto;
-            overflow-x: hidden;
-            overscroll-behavior: contain;
+        body.yt-commander-popup-v2 .container {
             scrollbar-width: thin;
-            scrollbar-color: rgba(56, 217, 245, 0.5) rgba(9, 13, 20, 0.6);
+            scrollbar-color: rgba(56, 217, 245, 0.4) transparent;
         }
 
-        body.yt-commander-popup-v2 .ytc-v2-content::-webkit-scrollbar {
-            width: 6px;
+        body.yt-commander-popup-v2 .container::-webkit-scrollbar {
+            width: 4px;
         }
 
-        body.yt-commander-popup-v2 .ytc-v2-content::-webkit-scrollbar-track {
-            background: rgba(9, 13, 20, 0.6);
+        body.yt-commander-popup-v2 .container::-webkit-scrollbar-track {
+            background: transparent;
         }
 
-        body.yt-commander-popup-v2 .ytc-v2-content::-webkit-scrollbar-thumb {
-            background: rgba(56, 217, 245, 0.5);
-            border-radius: 3px;
+        body.yt-commander-popup-v2 .container::-webkit-scrollbar-thumb {
+            background: rgba(56, 217, 245, 0.4);
+            border-radius: 2px;
         }
 
-        body.yt-commander-popup-v2 .ytc-v2-content::-webkit-scrollbar-thumb:hover {
-            background: rgba(56, 217, 245, 0.7);
+        body.yt-commander-popup-v2 .container::-webkit-scrollbar-thumb:hover {
+            background: rgba(56, 217, 245, 0.6);
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-panel::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-panel::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-panel::-webkit-scrollbar-thumb {
+            background: rgba(251, 191, 36, 0.4);
+            border-radius: 2px;
+        }
+
+        body.yt-commander-popup-v2 .ytc-v2-settings-panel::-webkit-scrollbar-thumb:hover {
+            background: rgba(251, 191, 36, 0.6);
         }
 
         body.yt-commander-popup-v2 .feature-card,
@@ -941,9 +1011,9 @@
                         </select>
                     </div>
                     <div class="sync-meta">
-                        <div class="setting-label" style="font-size: 11px;">Pending: <span id="cloudflarePendingCount" style="color: var(--ytc-v2-amber);">0</span></div>
-                        <div class="setting-label" style="font-size: 11px;">Last Sync: <span id="cloudflareLastSyncAt" style="color: var(--ytc-v2-green);">Never</span></div>
-                        <div class="setting-label" style="font-size: 11px;">Status: <span id="cloudflareLastSyncInfo" style="color: var(--ytc-v2-cyan);">Idle</span></div>
+                        <div class="setting-label sync-meta-item">Pending: <span id="cloudflarePendingCount" style="color: var(--ytc-v2-amber); font-weight: 700;">0</span></div>
+                        <div class="setting-label sync-meta-item">Last Sync: <span id="cloudflareLastSyncAt" style="color: var(--ytc-v2-green); font-weight: 700;">Never</span></div>
+                        <div class="setting-label sync-meta-item">Status: <span id="cloudflareLastSyncInfo" style="color: var(--ytc-v2-cyan); font-weight: 700;">Idle</span></div>
                     </div>
                 </div>
                 <div class="ytc-v2-section">
@@ -953,8 +1023,8 @@
                         <button class="btn btn-secondary" id="restoreSubscriptions">Restore</button>
                     </div>
                     <div class="sync-meta">
-                        <div class="setting-label" style="font-size: 11px;">Pending: <span id="subscriptionPendingCount" style="color: var(--ytc-v2-amber);">0</span></div>
-                        <div class="setting-label" style="font-size: 11px;">Last Sync: <span id="subscriptionLastSyncAt" style="color: var(--ytc-v2-green);">Never</span></div>
+                        <div class="setting-label sync-meta-item">Pending: <span id="subscriptionPendingCount" style="color: var(--ytc-v2-amber); font-weight: 700;">0</span></div>
+                        <div class="setting-label sync-meta-item">Last Sync: <span id="subscriptionLastSyncAt" style="color: var(--ytc-v2-green); font-weight: 700;">Never</span></div>
                     </div>
                 </div>
             </div>
