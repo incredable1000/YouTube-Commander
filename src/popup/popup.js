@@ -590,6 +590,7 @@ function loadSettings() {
             currentSettings.maxQuality,
             defaultSettings.maxQuality
         );
+        updateDropdownSelection('maxQualityDropdown', document.getElementById('maxQuality').value);
         document.getElementById('rotationShortcut').value = currentSettings.rotationShortcut || defaultSettings.rotationShortcut;
         document.getElementById('windowedFullscreenShortcut').value = currentSettings.windowedFullscreenShortcut || defaultSettings.windowedFullscreenShortcut;
         document.getElementById('openVideoNewTabShortcut').value = formatShortcutCombo(
@@ -1082,6 +1083,7 @@ async function loadCloudflareSyncSettings() {
             ? cloudInterval
             : (Number.isFinite(subscriptionInterval) ? subscriptionInterval : 30);
         intervalSelect.value = String(interval);
+        updateDropdownSelection('cloudflareSyncIntervalDropdown', intervalSelect.value);
     }
 
     const cloudAutoEnabled = result[CLOUDFLARE_STORAGE_KEYS.AUTO_ENABLED];
@@ -2777,11 +2779,111 @@ async function handleFileImport(event) {
 }
 
 
+/**
+ * Initialize custom dropdown components.
+ */
+function initializeCustomDropdowns() {
+    document.querySelectorAll('.ytc-dropdown').forEach(dropdown => {
+        const trigger = dropdown.querySelector('.ytc-dropdown-trigger');
+        const menu = dropdown.querySelector('.ytc-dropdown-menu');
+        const label = dropdown.querySelector('.ytc-dropdown-label');
+        const hiddenSelect = dropdown.querySelector('select');
+        const options = menu.querySelectorAll('.ytc-dropdown-option');
+        
+        if (!trigger || !menu || !label) return;
+        
+        const openDropdown = () => {
+            trigger.classList.add('open');
+            trigger.setAttribute('aria-expanded', 'true');
+            menu.classList.add('open');
+        };
+        
+        const closeDropdown = () => {
+            trigger.classList.remove('open');
+            trigger.setAttribute('aria-expanded', 'false');
+            menu.classList.remove('open');
+        };
+        
+        trigger.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = trigger.classList.contains('open');
+            closeAllDropdowns();
+            if (!isOpen) {
+                openDropdown();
+            }
+        });
+        
+        options.forEach(option => {
+            option.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const value = option.dataset.value;
+                const text = option.textContent;
+                
+                options.forEach(opt => opt.classList.remove('selected'));
+                option.classList.add('selected');
+                
+                label.textContent = text;
+                dropdown.dataset.value = value;
+                
+                if (hiddenSelect) {
+                    hiddenSelect.value = value;
+                    hiddenSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                
+                closeDropdown();
+                saveSyncSettings(true);
+            });
+        });
+    });
+}
+
+/**
+ * Close all open dropdowns.
+ */
+function closeAllDropdowns() {
+    document.querySelectorAll('.ytc-dropdown-trigger.open').forEach(trigger => {
+        trigger.classList.remove('open');
+        trigger.setAttribute('aria-expanded', 'false');
+    });
+    document.querySelectorAll('.ytc-dropdown-menu.open').forEach(menu => {
+        menu.classList.remove('open');
+    });
+}
+
+/**
+ * Update dropdown selected state from hidden select value.
+ * @param {string} dropdownId
+ * @param {string} value
+ */
+function updateDropdownSelection(dropdownId, value) {
+    const dropdown = document.getElementById(dropdownId);
+    if (!dropdown) return;
+    
+    const option = dropdown.querySelector(`.ytc-dropdown-option[data-value="${value}"]`);
+    const label = dropdown.querySelector('.ytc-dropdown-label');
+    const hiddenSelect = dropdown.querySelector('select');
+    
+    if (option && label) {
+        dropdown.querySelectorAll('.ytc-dropdown-option').forEach(opt => opt.classList.remove('selected'));
+        option.classList.add('selected');
+        label.textContent = option.textContent;
+        dropdown.dataset.value = value;
+    }
+    
+    if (hiddenSelect) {
+        hiddenSelect.value = value;
+    }
+}
+
+// Close dropdowns when clicking outside
+document.addEventListener('click', closeAllDropdowns);
+
 // Initialize popup
 document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.add(POPUP_UI_V2_CLASS);
     initializePopupUiV2Layout();
     initializeSettingsModalTabs();
+    initializeCustomDropdowns();
 
     loadSettings();
 

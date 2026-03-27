@@ -248,10 +248,123 @@
 
         body.yt-commander-popup-v2 .setting-select,
         body.yt-commander-popup-v2 .quality-select {
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23e8edf5' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 10px center;
-            padding-right: 36px;
+            display: none;
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown {
+            position: relative;
+            min-width: 180px;
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-trigger {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            background: linear-gradient(180deg, #1a1d24 0%, #141720 100%);
+            border: 1px solid var(--ytc-v2-border);
+            color: var(--ytc-v2-text);
+            min-height: 42px;
+            font-size: 15px;
+            font-weight: 500;
+            padding: 8px 12px;
+            border-radius: 10px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15);
+            cursor: pointer;
+            user-select: none;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-trigger:hover {
+            border-color: var(--ytc-v2-purple);
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-trigger:focus {
+            outline: none;
+            border-color: var(--ytc-v2-orange);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15), 0 0 0 3px rgba(251, 146, 60, 0.2);
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-trigger.open {
+            border-color: var(--ytc-v2-orange);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.15), 0 0 0 3px rgba(251, 146, 60, 0.2);
+            border-radius: 10px 10px 0 0;
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-arrow {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+            transition: transform 0.2s;
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-trigger.open .ytc-dropdown-arrow {
+            transform: rotate(180deg);
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-menu {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: linear-gradient(180deg, #1e222a 0%, #181b22 100%);
+            border: 1px solid var(--ytc-v2-border);
+            border-top: none;
+            border-radius: 0 0 10px 10px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            z-index: 100;
+            max-height: 280px;
+            overflow-y: auto;
+            display: none;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(251, 191, 36, 0.4) transparent;
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-menu::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-menu::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-menu::-webkit-scrollbar-thumb {
+            background: rgba(251, 191, 36, 0.4);
+            border-radius: 2px;
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-menu.open {
+            display: block;
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-option {
+            padding: 10px 14px;
+            font-size: 15px;
+            color: var(--ytc-v2-muted);
+            cursor: pointer;
+            transition: background 0.1s, color 0.1s;
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-option:hover {
+            background: rgba(255,255,255,0.05);
+            color: var(--ytc-v2-text);
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-option.selected {
+            background: rgba(74, 222, 128, 0.15);
+            color: var(--ytc-v2-green);
+            font-weight: 600;
+        }
+
+        body.yt-commander-popup-v2 .ytc-dropdown-option.selected::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background: var(--ytc-v2-green);
+            border-radius: 50%;
+            margin-right: 10px;
+            vertical-align: middle;
         }
 
         body.yt-commander-popup-v2 .setting-input {
@@ -1001,7 +1114,23 @@
                     </div>
                     <div class="setting-row">
                         <div class="setting-label">Sync Interval</div>
-                        <select id="cloudflareSyncInterval" class="quality-select">
+                        <div class="ytc-dropdown" id="cloudflareSyncIntervalDropdown" data-value="30">
+                            <button type="button" class="ytc-dropdown-trigger" aria-haspopup="listbox" aria-expanded="false">
+                                <span class="ytc-dropdown-label">Every 30 min</span>
+                                <svg class="ytc-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                            </button>
+                            <div class="ytc-dropdown-menu" role="listbox">
+                                <div class="ytc-dropdown-option" data-value="15">Every 15 min</div>
+                                <div class="ytc-dropdown-option selected" data-value="30">Every 30 min</div>
+                                <div class="ytc-dropdown-option" data-value="60">Every hour</div>
+                                <div class="ytc-dropdown-option" data-value="180">Every 3 hours</div>
+                                <div class="ytc-dropdown-option" data-value="720">Every 12 hours</div>
+                                <div class="ytc-dropdown-option" data-value="1440">Daily</div>
+                            </div>
+                        </div>
+                        <select id="cloudflareSyncInterval" class="quality-select" style="display:none;">
                             <option value="15">Every 15 min</option>
                             <option value="30">Every 30 min</option>
                             <option value="60">Every hour</option>
@@ -1033,9 +1162,29 @@
                     <div class="ytc-v2-section-title">Playback</div>
                     <div class="setting-row">
                         <div class="setting-label">Maximum quality</div>
-                        <select id="maxQuality" class="quality-select">
+                        <div class="ytc-dropdown" id="maxQualityDropdown" data-value="hd1080">
+                            <button type="button" class="ytc-dropdown-trigger" aria-haspopup="listbox" aria-expanded="false">
+                                <span class="ytc-dropdown-label">1080p</span>
+                                <svg class="ytc-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                            </button>
+                            <div class="ytc-dropdown-menu" role="listbox">
+                                <div class="ytc-dropdown-option" data-value="highres">8K / Highest</div>
+                                <div class="ytc-dropdown-option" data-value="hd2160">4K (2160p)</div>
+                                <div class="ytc-dropdown-option" data-value="hd1440">1440p</div>
+                                <div class="ytc-dropdown-option selected" data-value="hd1080">1080p</div>
+                                <div class="ytc-dropdown-option" data-value="hd720">720p</div>
+                                <div class="ytc-dropdown-option" data-value="large">480p</div>
+                                <div class="ytc-dropdown-option" data-value="medium">360p</div>
+                                <div class="ytc-dropdown-option" data-value="small">240p</div>
+                                <div class="ytc-dropdown-option" data-value="tiny">144p</div>
+                            </div>
+                        </div>
+                        <select id="maxQuality" class="quality-select" style="display:none;">
                             <option value="highres">8K / Highest</option>
                             <option value="hd2160">4K (2160p)</option>
+                            <option value="hd1440">1440p</option>
                             <option value="hd1440">1440p</option>
                             <option value="hd1080" selected>1080p</option>
                             <option value="hd720">720p</option>
