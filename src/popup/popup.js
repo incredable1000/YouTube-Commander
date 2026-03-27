@@ -43,6 +43,7 @@ const LEGACY_FEATURE_KEYS = [
 
 // Current settings
 let currentSettings = {};
+let cloudflareLastSyncAt = 0;
 let cloudflareNextSyncAt = 0;
 let cloudflareAutoEnabled = true;
 const CLOUDFLARE_STORAGE_KEYS = {
@@ -51,6 +52,7 @@ const CLOUDFLARE_STORAGE_KEYS = {
     AUTO_ENABLED: 'cloudflareSyncAutoEnabled',
     INTERVAL_MINUTES: 'cloudflareSyncIntervalMinutes'
 };
+let subscriptionLastSyncAt = 0;
 let subscriptionNextSyncAt = 0;
 let subscriptionAutoEnabled = true;
 const SUBSCRIPTION_STORAGE_KEYS = {
@@ -921,12 +923,12 @@ function renderCloudflareLastSyncTime() {
         return;
     }
 
-    if (!Number.isFinite(cloudflareNextSyncAt) || cloudflareNextSyncAt <= 0) {
+    if (!Number.isFinite(cloudflareLastSyncAt) || cloudflareLastSyncAt <= 0) {
         lastSyncEl.textContent = 'Never';
         return;
     }
 
-    const elapsedMs = Date.now() - cloudflareNextSyncAt;
+    const elapsedMs = Date.now() - cloudflareLastSyncAt;
     lastSyncEl.textContent = formatElapsedTime(elapsedMs);
 }
 
@@ -944,12 +946,12 @@ function renderSubscriptionLastSyncTime() {
         return;
     }
 
-    if (!Number.isFinite(subscriptionNextSyncAt) || subscriptionNextSyncAt <= 0) {
+    if (!Number.isFinite(subscriptionLastSyncAt) || subscriptionLastSyncAt <= 0) {
         lastSyncEl.textContent = 'Never';
         return;
     }
 
-    const elapsedMs = Date.now() - subscriptionNextSyncAt;
+    const elapsedMs = Date.now() - subscriptionLastSyncAt;
     lastSyncEl.textContent = formatElapsedTime(elapsedMs);
 }
 
@@ -1272,6 +1274,7 @@ function renderCloudflareSyncStatus(status = {}) {
     const primaryAccountEl = document.getElementById('cloudflarePrimaryAccount');
     cloudflareAutoEnabled = status.autoEnabled !== false;
     cloudflareNextSyncAt = Number(status.nextSyncAt) || 0;
+    cloudflareLastSyncAt = Number(status.lastAt) || 0;
 
     if (pendingEl) {
         pendingEl.textContent = String(Number(status.pendingCount) || 0);
@@ -1282,7 +1285,7 @@ function renderCloudflareSyncStatus(status = {}) {
     }
 
     if (lastSyncEl) {
-        const timestamp = Number(status.lastAt) || 0;
+        const timestamp = cloudflareLastSyncAt;
         lastSyncEl.textContent = timestamp > 0
             ? new Date(timestamp).toLocaleString()
             : 'Never';
@@ -1315,6 +1318,7 @@ function renderSubscriptionSyncStatus(status = {}) {
     const primaryAccountEl = document.getElementById('subscriptionPrimaryAccount');
     subscriptionAutoEnabled = status.autoEnabled !== false;
     subscriptionNextSyncAt = Number(status.nextSyncAt) || 0;
+    subscriptionLastSyncAt = Number(status.lastAt) || 0;
 
     if (pendingEl) {
         pendingEl.textContent = String(Number(status.pendingCount) || 0);
@@ -1325,7 +1329,7 @@ function renderSubscriptionSyncStatus(status = {}) {
     }
 
     if (lastSyncEl) {
-        const timestamp = Number(status.lastAt) || 0;
+        const timestamp = subscriptionLastSyncAt;
         lastSyncEl.textContent = timestamp > 0
             ? new Date(timestamp).toLocaleString()
             : 'Never';
