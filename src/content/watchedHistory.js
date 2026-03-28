@@ -969,6 +969,12 @@ function bindPlayHandler(video, currentVideoId = null) {
             return;
         }
 
+        // Skip hover preview videos - they are not the main player
+        const mainPlayer = document.querySelector('video.html5-main-video');
+        if (video !== mainPlayer) {
+            return;
+        }
+
         const resolvedVideoId = resolvePlaybackVideoId(video, seedVideoId);
         if (!isValidVideoId(resolvedVideoId)) {
             return;
