@@ -449,7 +449,6 @@ function injectStyles() {
         [${WATCHED_ATTR}='true'] {
             position: relative !important;
             display: block !important;
-            overflow: hidden !important;
         }
 
         .${MARKER_CLASS} {
