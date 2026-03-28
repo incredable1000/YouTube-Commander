@@ -969,9 +969,9 @@ function bindPlayHandler(video, currentVideoId = null) {
             return;
         }
 
-        // Skip hover preview videos - they are not the main player
-        const mainPlayer = document.querySelector('video.html5-main-video');
-        if (video !== mainPlayer) {
+        // Only mark videos on watch/shorts pages - skip feed page hover previews
+        const currentPageId = getCurrentPageVideoId();
+        if (!currentPageId) {
             return;
         }
 
