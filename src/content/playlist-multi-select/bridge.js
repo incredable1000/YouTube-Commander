@@ -106,17 +106,12 @@ function createBridgeClient(options) {
             return;
         }
 
-        console.log('[Bridge] Looking up request:', message.requestId);
-        console.log('[Bridge] Pending requests:', Array.from(pendingRequests.keys()));
-        
         const pending = pendingRequests.get(message.requestId);
-        console.log('[Bridge] Found pending:', !!pending, 'onProgress type:', typeof pending?.onProgress);
         
         if (!pending || typeof pending.onProgress !== 'function') {
             return;
         }
 
-        console.log('[Bridge] Calling onProgress with:', message.data);
         pending.onProgress(message.data || {});
     }
 

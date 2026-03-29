@@ -884,14 +884,11 @@ function clearStatusMessage() {
  * @param {string} label Current operation label
  */
 function showSaveProgress(processed, total, label) {
-    console.log('[Progress] showSaveProgress called:', { processed, total, label });
     if (!progressBar || !progressBarFill || !progressBarLabel || !progressBarCount) {
-        console.log('[Progress] Missing elements:', { progressBar, progressBarFill, progressBarLabel, progressBarCount });
         return;
     }
 
     const percentage = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
-    console.log('[Progress] Showing:', { processed, total, percentage, label });
 
     progressBar.hidden = false;
     progressBarLabel.textContent = label || 'Saving...';
@@ -1712,6 +1709,10 @@ async function submitCreatePlaylist() {
             privacyStatus: createVisibility,
             collaborate: createCollaborateInput?.checked === true,
             videoIds
+        }, (progress) => {
+            if (progress) {
+                showSaveProgress(progress.processed, progress.total, title);
+            }
         });
 
         const addedCount = Number(response?.addedCount) || 0;
@@ -1980,6 +1981,16 @@ function cleanupDecorations() {
 }
 
 /**
+ * @param {string} action
+ * @param {object} payload
+ * @param {function} [onProgress]
+ * @returns {Promise<any>}
+ */
+function sendBridgeRequest(action, payload, onProgress) {
+    return bridgeClient.sendRequest(action, payload, onProgress);
+}
+
+/**
  * Decorate one renderer container with click overlay.
  * @param {Element} container
  * @returns {boolean}
@@ -2171,16 +2182,6 @@ function processPendingContainers() {
 }
 
 /**
- * Post bridge request and await response.
- * @param {string} action
- * @param {object} payload
- * @returns {Promise<any>}
- */
-function sendBridgeRequest(action, payload) {
-    return bridgeClient.sendRequest(action, payload);
-}
-
-/**
  * Handle bridge responses.
  * @param {MessageEvent} event
  */
@@ -2193,7 +2194,6 @@ function handleBridgeResponse(event) {
  * @param {MessageEvent} event
  */
 function handleBridgeProgress(event) {
-    console.log('[Bridge] Progress event received:', event.data);
     bridgeClient.handleProgress(event);
 }
 
