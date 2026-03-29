@@ -3469,19 +3469,20 @@ body.yt-commander-windowed-lock #columns {
 /* Playlist Multi-Select Progress Bar */
 .yt-commander-playlist-progress {
     position: fixed;
-    bottom: 80px;
+    bottom: 100px;
     left: 50%;
     transform: translateX(-50%);
     width: 280px;
     max-width: 90vw;
     height: 6px;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.7);
     border-radius: 3px;
     overflow: hidden;
-    z-index: 10000;
+    z-index: 100004;
     opacity: 0;
     transition: opacity 0.2s ease;
     backdrop-filter: blur(4px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .yt-commander-playlist-progress:not([hidden]) {
