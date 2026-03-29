@@ -884,6 +884,7 @@ function clearStatusMessage() {
  * @param {string} label Current operation label
  */
 function showSaveProgress(processed, total, label) {
+    console.log('[Progress] showSaveProgress called:', { processed, total, label });
     if (!progressBar || !progressBarFill || !progressBarLabel || !progressBarCount) {
         console.log('[Progress] Missing elements:', { progressBar, progressBarFill, progressBarLabel, progressBarCount });
         return;
@@ -2192,6 +2193,7 @@ function handleBridgeResponse(event) {
  * @param {MessageEvent} event
  */
 function handleBridgeProgress(event) {
+    console.log('[Bridge] Progress event received:', event.data);
     bridgeClient.handleProgress(event);
 }
 

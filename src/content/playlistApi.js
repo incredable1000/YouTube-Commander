@@ -1592,6 +1592,7 @@ async function addVideosToSinglePlaylist(playlistId, videoIds, config, options =
 
         if (success) {
             addedCount += batch.length;
+            console.log('[PlaylistApi] Batch succeeded, calling onProgress:', { addedCount, total: videoIds.length, hasOnProgress: typeof options.onProgress === 'function' });
             if (typeof options.onProgress === 'function') {
                 options.onProgress(addedCount, videoIds.length);
             }
@@ -2368,6 +2369,7 @@ function postBridgeResponse(requestId, success, data = null, error = null) {
  * @param {object} data
  */
 function postBridgeProgress(requestId, data) {
+    console.log('[PlaylistApi] postBridgeProgress:', { requestId, data });
     window.postMessage({
         source: BRIDGE_SOURCE,
         type: 'YT_COMMANDER_BRIDGE_PROGRESS',
