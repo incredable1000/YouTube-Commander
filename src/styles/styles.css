@@ -3465,3 +3465,33 @@ body.yt-commander-windowed-lock #columns {
         justify-content: flex-end;
     }
 }
+
+/* Playlist Multi-Select Progress Bar */
+.yt-commander-playlist-progress {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 280px;
+    max-width: 90vw;
+    height: 6px;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 3px;
+    overflow: hidden;
+    z-index: 10000;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    backdrop-filter: blur(4px);
+}
+
+.yt-commander-playlist-progress:not([hidden]) {
+    opacity: 1;
+}
+
+.yt-commander-playlist-progress__fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #ff4444, #ff6b6b);
+    border-radius: 3px;
+    transition: width 0.15s ease-out;
+}

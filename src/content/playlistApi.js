@@ -1551,7 +1551,7 @@ async function getPlaylistThumbnails(payload) {
  * @param {string} playlistId
  * @param {string[]} videoIds
  * @param {{apiKey: string, context: object, headers: Record<string, string>}} config
- * @param {{throwOnFailure?: boolean, retryAttempts?: number}} [options]
+ * @param {{throwOnFailure?: boolean, retryAttempts?: number, onProgress?: (processed: number, total: number) => void}} [options]
  * @returns {Promise<{requestedCount: number, addedCount: number, failures: Array<{batchIndex: number, videoIds: string[], error: string}>}>}
  */
 async function addVideosToSinglePlaylist(playlistId, videoIds, config, options = {}) {
@@ -1592,6 +1592,9 @@ async function addVideosToSinglePlaylist(playlistId, videoIds, config, options =
 
         if (success) {
             addedCount += batch.length;
+            if (typeof options.onProgress === 'function') {
+                options.onProgress(addedCount, videoIds.length);
+            }
             continue;
         }
 
@@ -1615,7 +1618,8 @@ async function addVideosToSinglePlaylist(playlistId, videoIds, config, options =
 
 /**
  * Add videos to selected playlists.
- * @param {{videoIds?: string[], playlistIds?: string[]}} payload
+ * @param {{videoIds?: string[], playlistIds?: string[], playlistTitles?: string[]}} payload
+ * @param {{onProgress?: (progress: {processed: number, total: number, label: string}) => void}} [options]
  * @returns {Promise<{
  *   requestedVideoCount: number,
  *   requestedPlaylistCount: number,
@@ -1623,7 +1627,7 @@ async function addVideosToSinglePlaylist(playlistId, videoIds, config, options =
  *   failures: Array<{playlistId: string, error: string}>
  * }>}
  */
-async function addToPlaylists(payload) {
+async function addToPlaylists(payload, options = {}) {
     const videoIds = sanitizeVideoIds(payload?.videoIds || []);
     if (videoIds.length === 0) {
         throw new Error('No valid selected videos found.');
@@ -1634,13 +1638,26 @@ async function addToPlaylists(payload) {
         throw new Error('No valid playlists selected.');
     }
 
+    const playlistTitles = Array.isArray(payload?.playlistTitles) ? payload.playlistTitles : [];
     const config = await getInnertubeConfig();
     const failures = [];
     let successCount = 0;
 
-    for (const playlistId of playlistIds) {
+    for (let i = 0; i < playlistIds.length; i += 1) {
+        const playlistId = playlistIds[i];
+        const playlistTitle = playlistTitles[i] || playlistId;
         try {
-            await addVideosToSinglePlaylist(playlistId, videoIds, config);
+            await addVideosToSinglePlaylist(playlistId, videoIds, config, {
+                onProgress: (processed, total) => {
+                    if (typeof options?.onProgress === 'function') {
+                        options.onProgress({
+                            processed,
+                            total,
+                            label: playlistTitle
+                        });
+                    }
+                }
+            });
             successCount += 1;
         } catch (error) {
             failures.push({
@@ -1899,6 +1916,7 @@ async function removeFromPlaylist(payload) {
 /**
  * Create a playlist and add selected videos into it.
  * @param {{title?: string, privacyStatus?: string, collaborate?: boolean, videoIds?: string[]}} payload
+ * @param {{onProgress?: (progress: {processed: number, total: number, label: string}) => void}} [options]
  * @returns {Promise<{
  *   playlistId: string,
  *   requestedVideoCount: number,
@@ -1906,7 +1924,7 @@ async function removeFromPlaylist(payload) {
  *   failures: Array<{batchIndex: number, videoIds: string[], error: string}>
  * }>}
  */
-async function createPlaylistAndAdd(payload) {
+async function createPlaylistAndAdd(payload, options = {}) {
     const title = typeof payload?.title === 'string' ? payload.title.trim() : '';
     if (!title) {
         throw new Error('Playlist title is required.');
@@ -1944,7 +1962,16 @@ async function createPlaylistAndAdd(payload) {
 
     const addResult = await addVideosToSinglePlaylist(playlistId, videoIds, config, {
         throwOnFailure: false,
-        retryAttempts: EDIT_PLAYLIST_RETRY_ATTEMPTS
+        retryAttempts: EDIT_PLAYLIST_RETRY_ATTEMPTS,
+        onProgress: (processed, total) => {
+            if (typeof options?.onProgress === 'function') {
+                options.onProgress({
+                    processed,
+                    total,
+                    label: title
+                });
+            }
+        }
     });
 
     return {
@@ -2336,6 +2363,20 @@ function postBridgeResponse(requestId, success, data = null, error = null) {
 }
 
 /**
+ * Post bridge progress update.
+ * @param {string} requestId
+ * @param {object} data
+ */
+function postBridgeProgress(requestId, data) {
+    window.postMessage({
+        source: BRIDGE_SOURCE,
+        type: 'YT_COMMANDER_BRIDGE_PROGRESS',
+        requestId,
+        data
+    }, '*');
+}
+
+/**
  * Handle validated bridge request.
  * @param {{requestId: string, action: string, payload: any}} message
  */
@@ -2352,11 +2393,19 @@ async function handleBridgeRequest(message) {
         } else if (action === ACTIONS.GET_PLAYLIST_THUMBNAILS) {
             result = await getPlaylistThumbnails(payload);
         } else if (action === ACTIONS.ADD_TO_PLAYLISTS) {
-            result = await addToPlaylists(payload);
+            result = await addToPlaylists(payload, {
+                onProgress: (progress) => {
+                    postBridgeProgress(requestId, progress);
+                }
+            });
         } else if (action === ACTIONS.REMOVE_FROM_PLAYLIST) {
             result = await removeFromPlaylist(payload);
         } else if (action === ACTIONS.CREATE_PLAYLIST_AND_ADD) {
-            result = await createPlaylistAndAdd(payload);
+            result = await createPlaylistAndAdd(payload, {
+                onProgress: (progress) => {
+                    postBridgeProgress(requestId, progress);
+                }
+            });
         } else if (action === ACTIONS.GET_SHORTS_UPLOAD_TIMESTAMPS) {
             result = await getShortsUploadTimestamps(payload);
         } else if (action === ACTIONS.GET_SUBSCRIPTIONS) {

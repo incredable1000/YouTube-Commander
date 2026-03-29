@@ -2,6 +2,8 @@
  * Request/response bridge helper for isolated<->main world messaging.
  */
 
+const PROGRESS_TYPE = 'YT_COMMANDER_BRIDGE_PROGRESS';
+
 /**
  * Create a bridge client with timeout and pending-request tracking.
  * @param {{
@@ -12,8 +14,9 @@
  *   requestPrefix?: string
  * }} options
  * @returns {{
- *   sendRequest: (action: string, payload: object) => Promise<any>,
+ *   sendRequest: (action: string, payload: object, onProgress?: (progress: object) => void) => Promise<any>,
  *   handleResponse: (event: MessageEvent) => void,
+ *   handleProgress: (event: MessageEvent) => void,
  *   rejectAll: (message: string) => void
  * }}
  */
@@ -31,9 +34,10 @@ function createBridgeClient(options) {
      * Send bridge request and wait for response.
      * @param {string} action
      * @param {object} payload
+     * @param {((progress: object) => void)=} onProgress
      * @returns {Promise<any>}
      */
-    function sendRequest(action, payload) {
+    function sendRequest(action, payload, onProgress) {
         const requestId = `${requestPrefix}-${Date.now()}-${++requestCounter}`;
 
         return new Promise((resolve, reject) => {
@@ -45,7 +49,8 @@ function createBridgeClient(options) {
             pendingRequests.set(requestId, {
                 resolve,
                 reject,
-                timeoutId
+                timeoutId,
+                onProgress
             });
 
             window.postMessage({
@@ -88,6 +93,28 @@ function createBridgeClient(options) {
     }
 
     /**
+     * Handle bridge progress messages.
+     * @param {MessageEvent} event
+     */
+    function handleProgress(event) {
+        if (event.source !== window || !event.data || typeof event.data !== 'object') {
+            return;
+        }
+
+        const message = event.data;
+        if (message.type !== PROGRESS_TYPE || !message.requestId) {
+            return;
+        }
+
+        const pending = pendingRequests.get(message.requestId);
+        if (!pending || typeof pending.onProgress !== 'function') {
+            return;
+        }
+
+        pending.onProgress(message.data || {});
+    }
+
+    /**
      * Reject all pending requests.
      * @param {string} message
      */
@@ -102,9 +129,12 @@ function createBridgeClient(options) {
     return {
         sendRequest,
         handleResponse,
+        handleProgress,
         rejectAll
     };
 }
+
+export { PROGRESS_TYPE };
 
 export {
     createBridgeClient

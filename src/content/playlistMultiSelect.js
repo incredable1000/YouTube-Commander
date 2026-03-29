@@ -94,6 +94,8 @@ let actionUnselectAllButton = null;
 let actionOpenAllButton = null;
 let actionExitButton = null;
 let actionBarStatus = null;
+let progressBar = null;
+let progressFill = null;
 
 let playlistPanel = null;
 let playlistPanelCount = null;
@@ -357,11 +359,24 @@ function ensureActionBar() {
     actionBar.appendChild(actionOpenAllButton);
     actionBar.appendChild(actionExitButton);
 
+    progressBar = document.createElement('div');
+    progressBar.className = 'yt-commander-playlist-progress';
+    progressBar.setAttribute('role', 'progressbar');
+    progressBar.setAttribute('aria-label', 'Save progress');
+    progressBar.setAttribute('aria-valuemin', '0');
+    progressBar.hidden = true;
+
+    progressFill = document.createElement('div');
+    progressFill.className = 'yt-commander-playlist-progress__fill';
+
+    progressBar.appendChild(progressFill);
+
     actionBarStatus = document.createElement('div');
     actionBarStatus.className = 'yt-commander-playlist-action-status';
     actionBarStatus.setAttribute('aria-live', 'polite');
 
     document.body.appendChild(actionBar);
+    document.body.appendChild(progressBar);
     document.body.appendChild(actionBarStatus);
 
     actionWatchLaterButton.addEventListener('click', handleActionWatchLaterClick);
@@ -849,6 +864,37 @@ function clearStatusMessage() {
     });
 }
 
+/**
+ * Show progress bar with current save progress.
+ * @param {number} processed Number of videos processed
+ * @param {number} total Total number of videos
+ * @param {string} label Current operation label
+ */
+function showSaveProgress(processed, total, label) {
+    if (!progressBar || !progressFill) {
+        return;
+    }
+
+    const percentage = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+    progressBar.hidden = false;
+    progressBar.setAttribute('aria-valuenow', String(processed));
+    progressBar.setAttribute('aria-valuemax', String(total));
+    progressBar.title = `${label}: ${processed}/${total}`;
+    progressFill.style.width = `${percentage}%`;
+}
+
+/**
+ * Hide progress bar.
+ */
+function hideSaveProgress() {
+    if (!progressBar || !progressFill) {
+        return;
+    }
+
+    progressBar.hidden = true;
+    progressFill.style.width = '0%';
+}
+
 function resolveActivePageRoot() {
     const pageManager = document.querySelector('ytd-page-manager');
     if (!pageManager) {
@@ -1309,13 +1355,20 @@ async function saveSelectionToPlaylist(playlistId) {
         ? 'Watch later'
         : (playlistMap.get(playlistId)?.title || 'playlist');
     setStatusMessage(`Saving ${videoIds.length} video(s) to ${playlistTitle}...`, STATUS_KIND.INFO);
+    hideSaveProgress();
 
     try {
         const response = await sendBridgeRequest(ACTIONS.ADD_TO_PLAYLISTS, {
             videoIds,
-            playlistIds: [playlistId]
+            playlistIds: [playlistId],
+            playlistTitles: [playlistTitle]
+        }, (progress) => {
+            if (progress) {
+                showSaveProgress(progress.processed, progress.total, progress.label || playlistTitle);
+            }
         });
 
+        hideSaveProgress();
         const successCount = Number(response?.successCount) || 0;
         if (successCount > 0) {
             selectedPlaylistIds.add(playlistId);
@@ -1328,6 +1381,7 @@ async function saveSelectionToPlaylist(playlistId) {
         setStatusMessage('No playlist was updated.', STATUS_KIND.ERROR);
     } catch (error) {
         logger.warn('Failed to save selected videos', error);
+        hideSaveProgress();
         if (isBridgeTimeoutError(error)) {
             setStatusMessage('Save is taking longer than expected. Checking playlist...', STATUS_KIND.INFO);
             const confirmed = await confirmPlaylistSelection(playlistId, videoIds);
@@ -1366,6 +1420,7 @@ async function createQuickPlaylistAndSave() {
     createSubmitting = true;
     updateActionUiState();
     setStatusMessage(`Creating "${title}"...`, STATUS_KIND.INFO);
+    hideSaveProgress();
 
     try {
         const response = await sendBridgeRequest(ACTIONS.CREATE_PLAYLIST_AND_ADD, {
@@ -1373,8 +1428,13 @@ async function createQuickPlaylistAndSave() {
             privacyStatus: createVisibility || 'PRIVATE',
             collaborate: false,
             videoIds
+        }, (progress) => {
+            if (progress) {
+                showSaveProgress(progress.processed, progress.total, progress.label || title);
+            }
         });
 
+        hideSaveProgress();
         const addedCount = Number(response?.addedCount) || 0;
         const requestedCount = Number(response?.requestedVideoCount) || videoIds.length;
         const failureCount = Array.isArray(response?.failures) ? response.failures.length : 0;
@@ -1393,6 +1453,7 @@ async function createQuickPlaylistAndSave() {
         resetSelectionOnly();
     } catch (error) {
         logger.warn('Failed to create quick playlist', error);
+        hideSaveProgress();
         if (isBridgeTimeoutError(error)) {
             setStatusMessage('Playlist creation is taking longer than expected. Check playlists shortly.', STATUS_KIND.INFO);
             return;
@@ -2109,6 +2170,14 @@ function sendBridgeRequest(action, payload) {
  */
 function handleBridgeResponse(event) {
     bridgeClient.handleResponse(event);
+}
+
+/**
+ * Handle bridge progress updates.
+ * @param {MessageEvent} event
+ */
+function handleBridgeProgress(event) {
+    bridgeClient.handleProgress(event);
 }
 
 /**
@@ -2869,6 +2938,7 @@ function setupListeners() {
     };
 
     window.addEventListener('message', handleBridgeResponse);
+    window.addEventListener('message', handleBridgeProgress);
     document.addEventListener('yt-navigate-finish', onNavigate);
     document.addEventListener('yt-page-data-updated', onNavigate);
     window.addEventListener('popstate', onNavigate);
@@ -2878,6 +2948,7 @@ function setupListeners() {
     document.addEventListener('keydown', handleDocumentKeydown, true);
 
     cleanupCallbacks.push(() => window.removeEventListener('message', handleBridgeResponse));
+    cleanupCallbacks.push(() => window.removeEventListener('message', handleBridgeProgress));
     cleanupCallbacks.push(() => document.removeEventListener('yt-navigate-finish', onNavigate));
     cleanupCallbacks.push(() => document.removeEventListener('yt-page-data-updated', onNavigate));
     cleanupCallbacks.push(() => window.removeEventListener('popstate', onNavigate));
