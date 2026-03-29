@@ -49,7 +49,7 @@ const CREATE_MODAL_CLASS = 'yt-commander-playlist-create-modal';
 
 const ROOT_SELECTION_CLASS = 'yt-commander-playlist-selection-mode';
 
-const REQUEST_TIMEOUT_MS = 30000;
+const REQUEST_TIMEOUT_MS = 0;
 const PROCESS_CHUNK_SIZE = 120;
 
 const STATUS_KIND = {

@@ -93,7 +93,6 @@ let actionSelectAllButton = null;
 let actionUnselectAllButton = null;
 let actionOpenAllButton = null;
 let actionExitButton = null;
-let actionBarStatus = null;
 let progressBar = null;
 let progressBarLabel = null;
 let progressBarFill = null;
@@ -384,13 +383,8 @@ function ensureActionBar() {
     progressBar.appendChild(progressBarElement);
     progressBar.appendChild(progressBarCount);
 
-    actionBarStatus = document.createElement('div');
-    actionBarStatus.className = 'yt-commander-playlist-action-status';
-    actionBarStatus.setAttribute('aria-live', 'polite');
-
     document.body.appendChild(actionBar);
     document.body.appendChild(progressBar);
-    document.body.appendChild(actionBarStatus);
 
     actionWatchLaterButton.addEventListener('click', handleActionWatchLaterClick);
     actionSaveButton.addEventListener('click', handleActionSaveClick);
@@ -783,14 +777,13 @@ function syncActionBarVisibility() {
     actionBar?.classList.toggle('is-visible', visible);
 
     if (!visible) {
-        actionBarStatus?.classList.remove('is-visible', 'is-info', 'is-success', 'is-error');
         closePlaylistPanel();
         closeCreateModal(true);
     }
 }
 
 /**
- * Set message shown on action bar and playlist panel.
+ * Set message shown in playlist panel.
  * @param {string} message
  * @param {'info'|'success'|'error'} kind
  */
@@ -801,18 +794,15 @@ function setStatusMessage(message, kind = STATUS_KIND.INFO) {
     }
 
     const text = typeof message === 'string' ? message : '';
-    const targets = [actionBarStatus, playlistPanelStatus];
-    targets.forEach((node) => {
-        if (!node) {
-            return;
-        }
+    if (!playlistPanelStatus) {
+        return;
+    }
 
-        node.textContent = text;
-        node.classList.remove('is-visible', 'is-info', 'is-success', 'is-error');
-        if (text) {
-            node.classList.add('is-visible', `is-${kind}`);
-        }
-    });
+    playlistPanelStatus.textContent = text;
+    playlistPanelStatus.classList.remove('is-visible', 'is-info', 'is-success', 'is-error');
+    if (text) {
+        playlistPanelStatus.classList.add('is-visible', `is-${kind}`);
+    }
 
     if (!text) {
         return;
@@ -821,13 +811,6 @@ function setStatusMessage(message, kind = STATUS_KIND.INFO) {
     statusTimer = window.setTimeout(() => {
         clearStatusMessage();
     }, 4500);
-}
-
-function isBridgeTimeoutError(error) {
-    if (!(error instanceof Error)) {
-        return false;
-    }
-    return error.message.toLowerCase().includes('timed out');
 }
 
 async function confirmPlaylistSelection(playlistId, videoIds, attempts = 3) {
@@ -868,7 +851,7 @@ function clearStatusMessage() {
         statusTimer = null;
     }
 
-    [actionBarStatus, playlistPanelStatus, createStatus].forEach((node) => {
+    [playlistPanelStatus, createStatus].forEach((node) => {
         if (!node) {
             return;
         }
@@ -1395,19 +1378,6 @@ async function saveSelectionToPlaylist(playlistId) {
     } catch (error) {
         logger.warn('Failed to save selected videos', error);
         hideSaveProgress();
-        if (isBridgeTimeoutError(error)) {
-            setStatusMessage('Save is taking longer than expected. Checking playlist...', STATUS_KIND.INFO);
-            const confirmed = await confirmPlaylistSelection(playlistId, videoIds);
-            if (confirmed) {
-                selectedPlaylistIds.add(playlistId);
-                syncPlaylistSelectionVisuals();
-                setStatusMessage(`Saved to ${playlistTitle}.`, STATUS_KIND.SUCCESS);
-                resetSelectionOnly();
-                return;
-            }
-            setStatusMessage('Save is still processing. Check the playlist shortly.', STATUS_KIND.INFO);
-            return;
-        }
         setStatusMessage(error instanceof Error ? error.message : 'Failed to save videos.', STATUS_KIND.ERROR);
     } finally {
         submitting = false;
@@ -1467,10 +1437,6 @@ async function createQuickPlaylistAndSave() {
     } catch (error) {
         logger.warn('Failed to create quick playlist', error);
         hideSaveProgress();
-        if (isBridgeTimeoutError(error)) {
-            setStatusMessage('Playlist creation is taking longer than expected. Check playlists shortly.', STATUS_KIND.INFO);
-            return;
-        }
         setStatusMessage(error instanceof Error ? error.message : 'Failed to create playlist.', STATUS_KIND.ERROR);
     } finally {
         createSubmitting = false;
@@ -1736,10 +1702,6 @@ async function submitCreatePlaylist() {
         resetSelectionOnly();
     } catch (error) {
         logger.warn('Failed to create playlist', error);
-        if (isBridgeTimeoutError(error)) {
-            setCreateStatus('Playlist creation is taking longer than expected. Check playlists shortly.', STATUS_KIND.INFO);
-            return;
-        }
         setCreateStatus(error instanceof Error ? error.message : 'Failed to create playlist.', STATUS_KIND.ERROR);
     } finally {
         createSubmitting = false;
@@ -3052,9 +3014,6 @@ function cleanup() {
     if (actionBar) {
         actionBar.remove();
     }
-    if (actionBarStatus) {
-        actionBarStatus.remove();
-    }
     if (playlistPanel) {
         playlistPanel.remove();
     }
@@ -3070,7 +3029,6 @@ function cleanup() {
     actionSelectAllButton = null;
     actionUnselectAllButton = null;
     actionExitButton = null;
-    actionBarStatus = null;
 
     playlistPanel = null;
     playlistPanelCount = null;
