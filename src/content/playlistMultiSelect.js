@@ -1368,7 +1368,7 @@ async function saveSelectionToPlaylist(playlistId) {
         ? 'Watch later'
         : (playlistMap.get(playlistId)?.title || 'playlist');
     setStatusMessage(`Saving ${videoIds.length} video(s) to ${playlistTitle}...`, STATUS_KIND.INFO);
-    hideSaveProgress();
+    showSaveProgress(0, videoIds.length, playlistTitle);
 
     try {
         const response = await sendBridgeRequest(ACTIONS.ADD_TO_PLAYLISTS, {
@@ -1702,6 +1702,7 @@ async function submitCreatePlaylist() {
     updateActionUiState();
     updateCreateModalState();
     setCreateStatus('Creating playlist...', STATUS_KIND.INFO);
+    showSaveProgress(0, videoIds.length, title);
 
     try {
         const response = await sendBridgeRequest(ACTIONS.CREATE_PLAYLIST_AND_ADD, {
