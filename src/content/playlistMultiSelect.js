@@ -95,7 +95,9 @@ let actionOpenAllButton = null;
 let actionExitButton = null;
 let actionBarStatus = null;
 let progressBar = null;
-let progressFill = null;
+let progressBarLabel = null;
+let progressBarFill = null;
+let progressBarCount = null;
 
 let playlistPanel = null;
 let playlistPanelCount = null;
@@ -361,15 +363,26 @@ function ensureActionBar() {
 
     progressBar = document.createElement('div');
     progressBar.className = 'yt-commander-playlist-progress';
-    progressBar.setAttribute('role', 'progressbar');
-    progressBar.setAttribute('aria-label', 'Save progress');
-    progressBar.setAttribute('aria-valuemin', '0');
     progressBar.hidden = true;
 
-    progressFill = document.createElement('div');
-    progressFill.className = 'yt-commander-playlist-progress__fill';
+    progressBarLabel = document.createElement('div');
+    progressBarLabel.className = 'yt-commander-playlist-progress__label';
+    progressBarLabel.textContent = 'Saving...';
 
-    progressBar.appendChild(progressFill);
+    const progressBarElement = document.createElement('div');
+    progressBarElement.className = 'yt-commander-playlist-progress__bar';
+
+    progressBarFill = document.createElement('div');
+    progressBarFill.className = 'yt-commander-playlist-progress__fill';
+
+    progressBarCount = document.createElement('div');
+    progressBarCount.className = 'yt-commander-playlist-progress__count';
+    progressBarCount.textContent = '0 / 0';
+
+    progressBarElement.appendChild(progressBarFill);
+    progressBar.appendChild(progressBarLabel);
+    progressBar.appendChild(progressBarElement);
+    progressBar.appendChild(progressBarCount);
 
     actionBarStatus = document.createElement('div');
     actionBarStatus.className = 'yt-commander-playlist-action-status';
@@ -871,28 +884,30 @@ function clearStatusMessage() {
  * @param {string} label Current operation label
  */
 function showSaveProgress(processed, total, label) {
-    if (!progressBar || !progressFill) {
+    if (!progressBar || !progressBarFill || !progressBarLabel || !progressBarCount) {
+        console.log('[Progress] Missing elements:', { progressBar, progressBarFill, progressBarLabel, progressBarCount });
         return;
     }
 
     const percentage = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+    console.log('[Progress] Showing:', { processed, total, percentage, label });
+
     progressBar.hidden = false;
-    progressBar.setAttribute('aria-valuenow', String(processed));
-    progressBar.setAttribute('aria-valuemax', String(total));
-    progressBar.title = `${label}: ${processed}/${total}`;
-    progressFill.style.width = `${percentage}%`;
+    progressBarLabel.textContent = label || 'Saving...';
+    progressBarFill.style.width = `${percentage}%`;
+    progressBarCount.textContent = `${processed} / ${total}`;
 }
 
 /**
  * Hide progress bar.
  */
 function hideSaveProgress() {
-    if (!progressBar || !progressFill) {
+    if (!progressBar) {
         return;
     }
 
+    console.log('[Progress] Hiding');
     progressBar.hidden = true;
-    progressFill.style.width = '0%';
 }
 
 function resolveActivePageRoot() {
