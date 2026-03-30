@@ -1346,11 +1346,11 @@ async function saveSelectionToPlaylist(playlistId) {
 
     submitting = true;
     updateActionUiState();
+    closePlaylistPanel();
 
     const playlistTitle = playlistId === WATCH_LATER_PLAYLIST_ID
         ? 'Watch later'
         : (playlistMap.get(playlistId)?.title || 'playlist');
-    setStatusMessage(`Saving ${videoIds.length} video(s) to ${playlistTitle}...`, STATUS_KIND.INFO);
     showSaveProgress(0, videoIds.length, playlistTitle);
 
     try {
