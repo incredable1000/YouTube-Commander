@@ -1516,10 +1516,32 @@ function removeSelectedCardsFromDom(videoIds) {
  * Trigger YouTube to refresh playlist data via soft navigation.
  */
 function softRefreshPlaylist() {
-    const currentPath = location.pathname + location.search;
-    history.pushState(null, '', '/');
+    const currentUrl = location.href;
+    
+    if (window.yt && typeof window.yt.navigate === 'function') {
+        window.yt.navigate(currentUrl);
+        return;
+    }
+    
+    if (window.yt && typeof window.yt.navigateTo === 'function') {
+        window.yt.navigateTo(currentUrl);
+        return;
+    }
+    
+    const app = document.getElementById('app');
+    if (app && typeof app.navigateTo_ === 'function') {
+        app.navigateTo_(currentUrl);
+        return;
+    }
+    
+    if (window.ytNavigation && typeof window.ytNavigation.push === 'function') {
+        window.ytNavigation.push(currentUrl);
+        return;
+    }
+    
+    window.scrollTo(0, 0);
     setTimeout(() => {
-        history.pushState(null, '', currentPath);
+        window.dispatchEvent(new Event('resize'));
     }, 50);
 }
 
