@@ -3521,3 +3521,8 @@ body.yt-commander-windowed-lock #columns {
     margin-top: 12px;
     font-weight: 500;
 }
+
+/* Hidden playlist videos - client-side hide after removal */
+.yt-commander-hidden-video {
+    display: none !important;
+}

@@ -1560,6 +1560,35 @@ function softRefreshPlaylist() {
 }
 
 /**
+ * Hide playlist videos client-side by adding a CSS class.
+ * This is more reliable than DOM removal or page refresh.
+ * @param {string[]} videoIds
+ */
+function hidePlaylistVideos(videoIds) {
+    if (!Array.isArray(videoIds) || videoIds.length === 0) {
+        return;
+    }
+
+    videoIds.forEach((videoId) => {
+        if (!VIDEO_ID_PATTERN.test(videoId)) {
+            return;
+        }
+
+        document.querySelectorAll(
+            `ytd-playlist-video-renderer[data-video-id="${videoId}"], ` +
+            `ytd-grid-video-renderer[data-video-id="${videoId}"], ` +
+            `ytd-playlist-panel-video-renderer[data-video-id="${videoId}"]`
+        ).forEach((el) => {
+            el.classList.add('yt-commander-hidden-video');
+        });
+
+        selectedVideoIds.delete(videoId);
+    });
+
+    updateActionUiState();
+}
+
+/**
  * Remove selected videos from the currently opened playlist page.
  */
 async function removeSelectionFromCurrentPlaylist() {
@@ -1611,13 +1640,15 @@ async function removeSelectionFromCurrentPlaylist() {
             return;
         }
 
+        const idsToHide = removedVideoIds.length > 0 ? removedVideoIds : videoIds;
+        hidePlaylistVideos(idsToHide);
+
         setStatusMessage(
             `Removed ${removedCount} video(s) from ${playlistLabel}.`,
             STATUS_KIND.SUCCESS
         );
 
         resetSelectionOnly();
-        softRefreshPlaylist();
 
     } catch (error) {
         logger.warn('Failed to remove selected videos from playlist', error);
@@ -2582,13 +2613,12 @@ async function handleActionRemoveWatchedClick(event) {
 
         hideSaveProgress();
         const removedCount = Number(response?.removedCount) || 0;
-        const msg = removedCount > 0
-            ? `Removed ${removedCount} watched video(s).`
-            : 'No videos were removed.';
-        setStatusMessage(msg, removedCount > 0 ? STATUS_KIND.SUCCESS : STATUS_KIND.INFO);
-
+        
         if (removedCount > 0) {
-            softRefreshPlaylist();
+            hidePlaylistVideos(watchedIds);
+            setStatusMessage(`Removed ${removedCount} watched video(s).`, STATUS_KIND.SUCCESS);
+        } else {
+            setStatusMessage('No videos were removed.', STATUS_KIND.INFO);
         }
 
     } catch (error) {
