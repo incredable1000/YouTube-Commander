@@ -1178,10 +1178,6 @@ body.yt-commander-windowed-lock #columns {
     color: #8bcfff;
 }
 
-.yt-commander-playlist-action-button:not(.is-visible) {
-    display: none;
-}
-
 .yt-commander-playlist-action-button:disabled {
     opacity: 0.45;
     cursor: not-allowed;
