@@ -1513,82 +1513,6 @@ function removeSelectedCardsFromDom(videoIds) {
 }
 
 /**
- * Trigger YouTube to refresh playlist data via soft navigation.
- */
-function softRefreshPlaylist() {
-    const playlistContainer = document.querySelector('ytd-playlist-panel-renderer #container') 
-        || document.querySelector('ytd-playlist-video-list-renderer')
-        || document.querySelector('#playlist-items');
-    
-    if (playlistContainer) {
-        const tempStyle = playlistContainer.style.cssText;
-        playlistContainer.style.cssText = tempStyle + '; opacity: 0.99;';
-        void playlistContainer.offsetHeight;
-        playlistContainer.style.cssText = tempStyle;
-    }
-    
-    document.querySelectorAll('ytd-playlist-video-renderer, ytd-grid-video-renderer').forEach((el) => {
-        const s = el.style.cssText;
-        el.style.cssText = s + '; transform: translateX(0);';
-        void el.offsetHeight;
-        el.style.cssText = s;
-    });
-    
-    const ytApp = document.querySelector('ytd-app');
-    if (ytApp) {
-        try {
-            const methodKeys = Object.keys(ytApp).filter(k => typeof ytApp[k] === 'function');
-            for (const key of methodKeys) {
-                if (key.toLowerCase().includes('refresh') || key.toLowerCase().includes('reload') || key.toLowerCase().includes('update')) {
-                    try { ytApp[key](); } catch (e) {}
-                }
-            }
-        } catch (e) {}
-    }
-    
-    const continuation = document.querySelector('ytd-continuation-item-renderer');
-    if (continuation && continuation.update) {
-        try { continuation.update({}); } catch (e) {}
-    }
-    
-    const scrollContainer = document.querySelector('#playlist-items, ytd-playlist-video-list-renderer');
-    if (scrollContainer) {
-        const scrollTop = scrollContainer.scrollTop;
-        scrollContainer.scrollTop = scrollTop + 1;
-        scrollContainer.scrollTop = scrollTop;
-    }
-}
-
-/**
- * Hide playlist videos client-side by adding a CSS class.
- * This is more reliable than DOM removal or page refresh.
- * @param {string[]} videoIds
- */
-function hidePlaylistVideos(videoIds) {
-    if (!Array.isArray(videoIds) || videoIds.length === 0) {
-        return;
-    }
-
-    videoIds.forEach((videoId) => {
-        if (!VIDEO_ID_PATTERN.test(videoId)) {
-            return;
-        }
-
-        document.querySelectorAll(
-            `ytd-playlist-video-renderer[data-video-id="${videoId}"], ` +
-            `ytd-grid-video-renderer[data-video-id="${videoId}"], ` +
-            `ytd-playlist-panel-video-renderer[data-video-id="${videoId}"]`
-        ).forEach((el) => {
-            el.classList.add('yt-commander-hidden-video');
-        });
-
-        selectedVideoIds.delete(videoId);
-    });
-
-    updateActionUiState();
-}
-
-/**
  * Remove selected videos from the currently opened playlist page.
  */
 async function removeSelectionFromCurrentPlaylist() {
@@ -1640,15 +1564,13 @@ async function removeSelectionFromCurrentPlaylist() {
             return;
         }
 
-        const idsToHide = removedVideoIds.length > 0 ? removedVideoIds : videoIds;
-        hidePlaylistVideos(idsToHide);
-
         setStatusMessage(
-            `Removed ${removedCount} video(s) from ${playlistLabel}.`,
+            `Removed ${removedCount} video(s) from ${playlistLabel}. Refreshing page...`,
             STATUS_KIND.SUCCESS
         );
 
         resetSelectionOnly();
+        window.location.reload();
 
     } catch (error) {
         logger.warn('Failed to remove selected videos from playlist', error);
@@ -2615,8 +2537,8 @@ async function handleActionRemoveWatchedClick(event) {
         const removedCount = Number(response?.removedCount) || 0;
         
         if (removedCount > 0) {
-            hidePlaylistVideos(watchedIds);
-            setStatusMessage(`Removed ${removedCount} watched video(s).`, STATUS_KIND.SUCCESS);
+            setStatusMessage(`Removed ${removedCount} watched video(s). Refreshing page...`, STATUS_KIND.SUCCESS);
+            window.location.reload();
         } else {
             setStatusMessage('No videos were removed.', STATUS_KIND.INFO);
         }
