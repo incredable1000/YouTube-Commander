@@ -1516,45 +1516,21 @@ function removeSelectedCardsFromDom(videoIds) {
  * Trigger YouTube to refresh playlist data via soft navigation.
  */
 function softRefreshPlaylist() {
-    const currentUrl = location.href;
+    window.dispatchEvent(new PopStateEvent('popstate', { state: { action: 'navigate' } }));
     
-    const ytNavigate = window.yt?.navigation?.push 
-        || window.yt?.navigate?.bind(window.yt)
-        || window.yt?.navigateTo?.bind(window.yt);
+    requestAnimationFrame(() => {
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
     
-    if (typeof ytNavigate === 'function') {
-        try {
-            ytNavigate(currentUrl);
-            return;
-        } catch (e) {
-            logger.debug('yt.navigate failed', e);
+    setTimeout(() => {
+        const player = document.getElementById('movie_player');
+        if (player) {
+            player.dispatchEvent(new Event('onStateChange'));
         }
-    }
-    
-    const app = document.getElementById('app');
-    if (app && typeof app.navigateTo_ === 'function') {
-        try {
-            app.navigateTo_(currentUrl);
-            return;
-        } catch (e) {
-            logger.debug('app.navigateTo_ failed', e);
-        }
-    }
-    
-    if (window.ytNavigation && typeof window.ytNavigation.push === 'function') {
-        window.ytNavigation.push(currentUrl);
-        return;
-    }
-    
-    if (window.yt && typeof window.yt.navigate === 'function') {
-        window.yt.navigate(currentUrl);
-        return;
-    }
-    
-    if (window.yt && typeof window.yt.navigateTo === 'function') {
-        window.yt.navigateTo(currentUrl);
-        return;
-    }
+        
+        window.dispatchEvent(new Event('yt-navigate-start'));
+        window.dispatchEvent(new Event('yt-navigate-finish'));
+    }, 100);
 }
 
 /**
