@@ -89,6 +89,7 @@ let actionQuickCreateButton = null;
 let actionSplitButton = null;
 let actionRemoveButton = null;
 let actionRemoveWatchedButton = null;
+let actionRemoveAllButton = null;
 let actionSelectAllButton = null;
 let actionUnselectAllButton = null;
 let actionOpenAllButton = null;
@@ -328,6 +329,7 @@ function ensureActionBar() {
     actionSplitButton = createActionIconButton(createSplitIcon(), 'Split into playlists');
     actionRemoveButton = createActionIconButton(createRemoveIcon(), getRemoveActionLabel());
     actionRemoveWatchedButton = createActionIconButton(createRemoveIcon(), 'Remove watched');
+    actionRemoveAllButton = createActionIconButton(createRemoveIcon(), 'Remove all from Watch later');
     actionSelectAllButton = createActionIconButton(createSelectAllIcon(), 'Select all');
     actionUnselectAllButton = createActionIconButton(createUnselectAllIcon(), 'Unselect all');
 
@@ -355,6 +357,7 @@ function ensureActionBar() {
     actionBar.appendChild(actionSplitButton);
     actionBar.appendChild(actionRemoveButton);
     actionBar.appendChild(actionRemoveWatchedButton);
+    actionBar.appendChild(actionRemoveAllButton);
     actionBar.appendChild(actionSelectAllButton);
     actionBar.appendChild(actionUnselectAllButton);
     actionBar.appendChild(actionOpenAllButton);
@@ -392,6 +395,7 @@ function ensureActionBar() {
     actionSplitButton.addEventListener('click', handleSplitClick);
     actionRemoveButton.addEventListener('click', handleActionRemoveClick);
     actionRemoveWatchedButton.addEventListener('click', handleActionRemoveWatchedClick);
+    actionRemoveAllButton.addEventListener('click', handleActionRemoveAllClick);
     actionSelectAllButton.addEventListener('click', handleActionSelectAllClick);
     actionUnselectAllButton.addEventListener('click', handleActionUnselectAllClick);
     actionOpenAllButton.addEventListener('click', handleOpenInNewTab);
@@ -403,6 +407,7 @@ function ensureActionBar() {
     cleanupCallbacks.push(() => actionSplitButton?.removeEventListener('click', handleSplitClick));
     cleanupCallbacks.push(() => actionRemoveButton?.removeEventListener('click', handleActionRemoveClick));
     cleanupCallbacks.push(() => actionRemoveWatchedButton?.removeEventListener('click', handleActionRemoveWatchedClick));
+    cleanupCallbacks.push(() => actionRemoveAllButton?.removeEventListener('click', handleActionRemoveAllClick));
     cleanupCallbacks.push(() => actionSelectAllButton?.removeEventListener('click', handleActionSelectAllClick));
     cleanupCallbacks.push(() => actionUnselectAllButton?.removeEventListener('click', handleActionUnselectAllClick));
     cleanupCallbacks.push(() => actionOpenAllButton?.removeEventListener('click', handleOpenInNewTab));
@@ -1022,6 +1027,12 @@ function updateActionUiState() {
 
     if (actionRemoveWatchedButton) {
         actionRemoveWatchedButton.disabled = submitting || loadingPlaylists;
+    }
+
+    const isWatchLater = getCurrentPlaylistId() === WATCH_LATER_PLAYLIST_ID;
+    if (actionRemoveAllButton) {
+        actionRemoveAllButton.classList.toggle('is-visible', isWatchLater);
+        actionRemoveAllButton.disabled = submitting || loadingPlaylists;
     }
 
     if (playlistPanelCloseButton) {
@@ -2548,6 +2559,58 @@ async function handleActionRemoveWatchedClick(event) {
         hideSaveProgress();
         setStatusMessage(error instanceof Error ? error.message : 'Failed to remove watched videos.', STATUS_KIND.ERROR);
     } finally {
+        submitting = false;
+        updateActionUiState();
+    }
+}
+
+/**
+ * Handle "remove all" click - removes all videos from Watch later playlist.
+ * @param {MouseEvent} event
+ */
+async function handleActionRemoveAllClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const playlistId = getCurrentPlaylistId();
+    if (playlistId !== WATCH_LATER_PLAYLIST_ID) {
+        setStatusMessage('This action is only for Watch later playlist.', STATUS_KIND.ERROR);
+        return;
+    }
+
+    submitting = true;
+    updateActionUiState();
+
+    try {
+        const allVideoIds = collectRenderedVideoIds();
+        if (allVideoIds.length === 0) {
+            setStatusMessage('No videos found in playlist.', STATUS_KIND.INFO);
+            submitting = false;
+            updateActionUiState();
+            return;
+        }
+
+        showSaveProgress(0, allVideoIds.length, 'Removing all from Watch later');
+
+        const response = await sendBridgeRequest(ACTIONS.REMOVE_FROM_PLAYLIST, {
+            playlistId,
+            videoIds: allVideoIds
+        }, (progress) => {
+            if (progress) {
+                showSaveProgress(progress.processed, progress.total, 'Removing all from Watch later');
+            }
+        });
+
+        hideSaveProgress();
+        const removedCount = Number(response?.removedCount) || 0;
+        
+        setStatusMessage(`Removed ${removedCount} video(s). Refreshing page...`, STATUS_KIND.SUCCESS);
+        window.location.reload();
+
+    } catch (error) {
+        logger.warn('Failed to remove all videos from Watch later', error);
+        hideSaveProgress();
+        setStatusMessage(error instanceof Error ? error.message : 'Failed to remove all videos.', STATUS_KIND.ERROR);
         submitting = false;
         updateActionUiState();
     }
