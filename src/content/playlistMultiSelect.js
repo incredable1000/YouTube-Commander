@@ -1518,6 +1518,34 @@ function removeSelectedCardsFromDom(videoIds) {
 function softRefreshPlaylist() {
     const currentUrl = location.href;
     
+    const ytNavigate = window.yt?.navigation?.push 
+        || window.yt?.navigate?.bind(window.yt)
+        || window.yt?.navigateTo?.bind(window.yt);
+    
+    if (typeof ytNavigate === 'function') {
+        try {
+            ytNavigate(currentUrl);
+            return;
+        } catch (e) {
+            logger.debug('yt.navigate failed', e);
+        }
+    }
+    
+    const app = document.getElementById('app');
+    if (app && typeof app.navigateTo_ === 'function') {
+        try {
+            app.navigateTo_(currentUrl);
+            return;
+        } catch (e) {
+            logger.debug('app.navigateTo_ failed', e);
+        }
+    }
+    
+    if (window.ytNavigation && typeof window.ytNavigation.push === 'function') {
+        window.ytNavigation.push(currentUrl);
+        return;
+    }
+    
     if (window.yt && typeof window.yt.navigate === 'function') {
         window.yt.navigate(currentUrl);
         return;
@@ -1527,19 +1555,6 @@ function softRefreshPlaylist() {
         window.yt.navigateTo(currentUrl);
         return;
     }
-    
-    const app = document.getElementById('app');
-    if (app && typeof app.navigateTo_ === 'function') {
-        app.navigateTo_(currentUrl);
-        return;
-    }
-    
-    if (window.ytNavigation && typeof window.ytNavigation.push === 'function') {
-        window.ytNavigation.push(currentUrl);
-        return;
-    }
-    
-    location.assign(currentUrl);
 }
 
 /**
