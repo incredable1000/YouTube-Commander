@@ -24,7 +24,7 @@ function createBridgeClient(options) {
     const source = String(options?.source || '');
     const requestType = String(options?.requestType || '');
     const responseType = String(options?.responseType || '');
-    const timeoutMs = Number(options?.timeoutMs) > 0 ? Number(options.timeoutMs) : 30000;
+    const timeoutMs = options?.timeoutMs !== undefined ? Number(options.timeoutMs) : 30000;
     const requestPrefix = String(options?.requestPrefix || 'ytc-bridge');
 
     let requestCounter = 0;
@@ -41,10 +41,14 @@ function createBridgeClient(options) {
         const requestId = `${requestPrefix}-${Date.now()}-${++requestCounter}`;
 
         return new Promise((resolve, reject) => {
-            const timeoutId = window.setTimeout(() => {
-                pendingRequests.delete(requestId);
-                reject(new Error('Playlist request timed out.'));
-            }, timeoutMs);
+            let timeoutId = null;
+            
+            if (timeoutMs > 0) {
+                timeoutId = window.setTimeout(() => {
+                    pendingRequests.delete(requestId);
+                    reject(new Error('Playlist request timed out.'));
+                }, timeoutMs);
+            }
 
             pendingRequests.set(requestId, {
                 resolve,
