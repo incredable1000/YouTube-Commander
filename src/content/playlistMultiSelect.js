@@ -1539,10 +1539,7 @@ function softRefreshPlaylist() {
         return;
     }
     
-    window.scrollTo(0, 0);
-    setTimeout(() => {
-        window.dispatchEvent(new Event('resize'));
-    }, 50);
+    location.assign(currentUrl);
 }
 
 /**
