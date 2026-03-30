@@ -1049,6 +1049,85 @@ function normalizeThumbnailUrl(url) {
 }
 
 /**
+ * @typedef {{
+ *   playlistId: string,
+ *   appliedVideoIds: Set<string>,
+ *   failedEntries: Array<{videoId: string, key: string, action: {action: string, setVideoId?: string, removedVideoId?: string}, error: string}>
+ * }}
+ */
+async function executeRemoveEntriesBatched(playlistId, entries, config, options = {}) {
+    if (!Array.isArray(entries) || entries.length === 0) {
+        return {
+            appliedVideoIds: new Set(),
+            failedEntries: []
+        };
+    }
+
+    const safeBatchSize = Number.isFinite(options.batchSize)
+        ? Math.max(1, Math.floor(options.batchSize))
+        : MAX_BATCH_SIZE;
+    const retryAttempts = Number.isFinite(options.retryAttempts)
+        ? Math.max(1, Math.floor(options.retryAttempts))
+        : EDIT_PLAYLIST_RETRY_ATTEMPTS;
+    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+
+    const batches = chunk(entries, safeBatchSize);
+    const appliedVideoIds = new Set();
+    const failedEntries = [];
+
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+        const batch = batches[batchIndex];
+        let success = false;
+        let lastError = null;
+
+        const payload = {
+            context: config.context,
+            playlistId,
+            actions: batch.map((entry) => entry.action)
+        };
+
+        for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
+            try {
+                await postInnertube(['playlist/edit_playlist', 'browse/edit_playlist'], payload, config);
+                success = true;
+                break;
+            } catch (error) {
+                lastError = error;
+                if (attempt < retryAttempts) {
+                    await delay(EDIT_PLAYLIST_RETRY_DELAY_MS * attempt);
+                }
+            }
+        }
+
+        if (success) {
+            batch.forEach((entry) => {
+                appliedVideoIds.add(entry.videoId);
+            });
+            if (onProgress) {
+                onProgress({
+                    processed: appliedVideoIds.size,
+                    total: entries.length
+                });
+            }
+            continue;
+        }
+
+        const errorText = lastError instanceof Error ? lastError.message : 'Failed to remove videos batch.';
+        batch.forEach((entry) => {
+            failedEntries.push({
+                ...entry,
+                error: errorText
+            });
+        });
+    }
+
+    return {
+        appliedVideoIds,
+        failedEntries
+    };
+}
+
+/**
  * Recursively find a thumbnail URL inside an object.
  * @param {any} node
  * @param {WeakSet<object>} visited
@@ -1059,6 +1138,7 @@ function findThumbnailUrlDeep(node, visited, depth) {
     if (!node || typeof node !== 'object' || depth > 6) {
         return '';
     }
+
     if (visited.has(node)) {
         return '';
     }
@@ -1286,82 +1366,6 @@ function buildDirectRemoveEntries(videoIds, actionType = 'ACTION_REMOVE_VIDEO_BY
     });
 
     return entries;
-}
-
-/**
- * Execute remove entries in batched playlist/edit requests.
- * @param {string} playlistId
- * @param {Array<{videoId: string, key: string, action: {action: string, setVideoId?: string, removedVideoId?: string}}>} entries
- * @param {{apiKey: string, context: object, headers: Record<string, string>}} config
- * @param {{batchSize?: number, retryAttempts?: number}} [options]
- * @returns {Promise<{
- *   appliedVideoIds: Set<string>,
- *   failedEntries: Array<{videoId: string, key: string, action: {action: string, setVideoId?: string, removedVideoId?: string}, error: string}>
- * }>}
- */
-async function executeRemoveEntriesBatched(playlistId, entries, config, options = {}) {
-    if (!Array.isArray(entries) || entries.length === 0) {
-        return {
-            appliedVideoIds: new Set(),
-            failedEntries: []
-        };
-    }
-
-    const safeBatchSize = Number.isFinite(options.batchSize)
-        ? Math.max(1, Math.floor(options.batchSize))
-        : MAX_BATCH_SIZE;
-    const retryAttempts = Number.isFinite(options.retryAttempts)
-        ? Math.max(1, Math.floor(options.retryAttempts))
-        : EDIT_PLAYLIST_RETRY_ATTEMPTS;
-
-    const batches = chunk(entries, safeBatchSize);
-    const appliedVideoIds = new Set();
-    const failedEntries = [];
-
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
-        const batch = batches[batchIndex];
-        let success = false;
-        let lastError = null;
-
-        const payload = {
-            context: config.context,
-            playlistId,
-            actions: batch.map((entry) => entry.action)
-        };
-
-        for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
-            try {
-                await postInnertube(['playlist/edit_playlist', 'browse/edit_playlist'], payload, config);
-                success = true;
-                break;
-            } catch (error) {
-                lastError = error;
-                if (attempt < retryAttempts) {
-                    await delay(EDIT_PLAYLIST_RETRY_DELAY_MS * attempt);
-                }
-            }
-        }
-
-        if (success) {
-            batch.forEach((entry) => {
-                appliedVideoIds.add(entry.videoId);
-            });
-            continue;
-        }
-
-        const errorText = lastError instanceof Error ? lastError.message : 'Failed to remove videos batch.';
-        batch.forEach((entry) => {
-            failedEntries.push({
-                ...entry,
-                error: errorText
-            });
-        });
-    }
-
-    return {
-        appliedVideoIds,
-        failedEntries
-    };
 }
 
 /**
@@ -1849,6 +1853,7 @@ async function removeWithResolvedActions(playlistId, videoIds, config) {
 /**
  * Remove selected videos from one playlist/watch-later list.
  * @param {{playlistId?: string, videoIds?: string[]}} payload
+ * @param {{onProgress?: (progress: {processed: number, total: number}) => void}} [options]
  * @returns {Promise<{
  *   playlistId: string,
  *   requestedVideoCount: number,
@@ -1857,7 +1862,7 @@ async function removeWithResolvedActions(playlistId, videoIds, config) {
  *   failures: Array<{videoId: string, error: string}>
  * }>}
  */
-async function removeFromPlaylist(payload) {
+async function removeFromPlaylist(payload, options = {}) {
     const playlistId = sanitizePlaylistId(payload?.playlistId || '');
     if (!playlistId) {
         throw new Error('No valid playlist selected.');
@@ -1875,7 +1880,8 @@ async function removeFromPlaylist(payload) {
         config,
         {
             batchSize: MAX_BATCH_SIZE,
-            retryAttempts: EDIT_PLAYLIST_RETRY_ATTEMPTS
+            retryAttempts: EDIT_PLAYLIST_RETRY_ATTEMPTS,
+            onProgress: options.onProgress
         }
     );
     const removedVideoIds = new Set(primaryResult.appliedVideoIds);
@@ -2401,7 +2407,11 @@ async function handleBridgeRequest(message) {
                 }
             });
         } else if (action === ACTIONS.REMOVE_FROM_PLAYLIST) {
-            result = await removeFromPlaylist(payload);
+            result = await removeFromPlaylist(payload, {
+                onProgress: (progress) => {
+                    postBridgeProgress(requestId, progress);
+                }
+            });
         } else if (action === ACTIONS.CREATE_PLAYLIST_AND_ADD) {
             result = await createPlaylistAndAdd(payload, {
                 onProgress: (progress) => {

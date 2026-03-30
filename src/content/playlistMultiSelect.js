@@ -1541,14 +1541,19 @@ async function removeSelectionFromCurrentPlaylist() {
     updateActionUiState();
 
     const playlistLabel = playlistId === 'WL' ? 'Watch later' : 'playlist';
-    setStatusMessage(`Removing ${videoIds.length} video(s) from ${playlistLabel}...`, STATUS_KIND.INFO);
+    showSaveProgress(0, videoIds.length, `Removing from ${playlistLabel}`);
 
     try {
         const response = await sendBridgeRequest(ACTIONS.REMOVE_FROM_PLAYLIST, {
             playlistId,
             videoIds
+        }, (progress) => {
+            if (progress) {
+                showSaveProgress(progress.processed, progress.total, `Removing from ${playlistLabel}`);
+            }
         });
 
+        hideSaveProgress();
         const removedVideoIds = Array.isArray(response?.removedVideoIds)
             ? response.removedVideoIds.filter((videoId) => VIDEO_ID_PATTERN.test(videoId))
             : [];
@@ -1571,6 +1576,7 @@ async function removeSelectionFromCurrentPlaylist() {
 
     } catch (error) {
         logger.warn('Failed to remove selected videos from playlist', error);
+        hideSaveProgress();
         setStatusMessage(error instanceof Error ? error.message : 'Failed to remove videos.', STATUS_KIND.ERROR);
     } finally {
         submitting = false;
@@ -2518,13 +2524,18 @@ async function handleActionRemoveWatchedClick(event) {
             return;
         }
 
-        setStatusMessage(`Removing ${watchedIds.length} watched video(s)...`, STATUS_KIND.INFO);
+        showSaveProgress(0, watchedIds.length, 'Removing watched videos');
 
         const response = await sendBridgeRequest(ACTIONS.REMOVE_FROM_PLAYLIST, {
             playlistId: currentPlaylistId,
             videoIds: watchedIds
+        }, (progress) => {
+            if (progress) {
+                showSaveProgress(progress.processed, progress.total, 'Removing watched videos');
+            }
         });
 
+        hideSaveProgress();
         const removedCount = Number(response?.removedCount) || 0;
         const msg = removedCount > 0
             ? `Removed ${removedCount} watched video(s).`
@@ -2533,6 +2544,7 @@ async function handleActionRemoveWatchedClick(event) {
 
     } catch (error) {
         logger.warn('Failed to remove watched videos', error);
+        hideSaveProgress();
         setStatusMessage(error instanceof Error ? error.message : 'Failed to remove watched videos.', STATUS_KIND.ERROR);
     } finally {
         submitting = false;
