@@ -133,26 +133,6 @@ let lastPlaylistProbeVideoId = '';
 let createVisibility = 'PRIVATE';
 let selectAllMode = false;
 const WATCH_LATER_PLAYLIST_ID = 'WL';
-const QUICK_PLAYLIST_ADJECTIVES = [
-    'Cool',
-    'Epic',
-    'Fire',
-    'Lit',
-    'Neat',
-    'Sick',
-    'Sweet',
-    'Wild'
-];
-const QUICK_PLAYLIST_NOUNS = [
-    'Binge',
-    'Drops',
-    'Fix',
-    'Hits',
-    'Mix',
-    'Queue',
-    'Stack',
-    'Vibe'
-];
 
 const selectedVideoIds = new Set();
 const selectedPlaylistIds = new Set();
@@ -194,11 +174,33 @@ function pickRandom(list) {
     return list[Math.floor(Math.random() * list.length)];
 }
 
-function generateQuickPlaylistTitle() {
-    const adjective = pickRandom(QUICK_PLAYLIST_ADJECTIVES) || 'Cool';
-    const noun = pickRandom(QUICK_PLAYLIST_NOUNS) || 'Mix';
-    const timestamp = Date.now().toString(36).slice(-4).toUpperCase();
-    return `${adjective} ${noun} ${timestamp}`;
+/**
+ * Generate a unique playlist title by finding the highest "Playlist N" number
+ * among existing playlists and incrementing by 1.
+ * @returns {Promise<string>}
+ */
+async function generateQuickPlaylistTitle() {
+    try {
+        const response = await sendBridgeRequest(ACTIONS.GET_PLAYLISTS, {});
+        const playlists = Array.isArray(response?.playlists) ? response.playlists : [];
+        
+        let maxNum = 0;
+        playlists.forEach((playlist) => {
+            const title = playlist?.title || '';
+            const match = title.match(/^Playlist\s+(\d+)$/i);
+            if (match) {
+                const num = parseInt(match[1], 10);
+                if (num > maxNum) {
+                    maxNum = num;
+                }
+            }
+        });
+        
+        return `Playlist ${maxNum + 1}`;
+    } catch (error) {
+        logger.warn('Failed to get existing playlists for title generation', error);
+        return `Playlist ${Date.now() % 10000}`;
+    }
 }
 
 /**
@@ -1399,13 +1401,14 @@ async function createQuickPlaylistAndSave() {
         return;
     }
 
-    const title = generateQuickPlaylistTitle();
     createSubmitting = true;
     updateActionUiState();
-    setStatusMessage(`Creating "${title}"...`, STATUS_KIND.INFO);
     hideSaveProgress();
 
     try {
+        const title = await generateQuickPlaylistTitle();
+        setStatusMessage(`Creating "${title}"...`, STATUS_KIND.INFO);
+
         const response = await sendBridgeRequest(ACTIONS.CREATE_PLAYLIST_AND_ADD, {
             title,
             privacyStatus: createVisibility || 'PRIVATE',
@@ -2424,6 +2427,22 @@ async function submitSplit() {
 
     try {
         const numPlaylists = Math.ceil(videoIds.length / perPlaylist);
+        
+        const response = await sendBridgeRequest(ACTIONS.GET_PLAYLISTS, {});
+        const playlists = Array.isArray(response?.playlists) ? response.playlists : [];
+        
+        let maxNum = 0;
+        playlists.forEach((playlist) => {
+            const title = playlist?.title || '';
+            const match = title.match(/^Playlist\s+(\d+)$/i);
+            if (match) {
+                const num = parseInt(match[1], 10);
+                if (num > maxNum) {
+                    maxNum = num;
+                }
+            }
+        });
+        
         let created = 0;
         let totalAdded = 0;
 
@@ -2432,16 +2451,16 @@ async function submitSplit() {
             const end = Math.min(start + perPlaylist, videoIds.length);
             const batch = videoIds.slice(start, end);
 
-            const title = `${generateQuickPlaylistTitle()} ${i + 1}/${numPlaylists}`;
+            const title = `Playlist ${maxNum + 1 + i}`;
 
-            const response = await sendBridgeRequest(ACTIONS.CREATE_PLAYLIST_AND_ADD, {
+            const playlistResponse = await sendBridgeRequest(ACTIONS.CREATE_PLAYLIST_AND_ADD, {
                 title,
                 privacyStatus: 'PRIVATE',
                 collaborate: false,
                 videoIds: batch
             });
 
-            const addedCount = Number(response?.addedCount) || 0;
+            const addedCount = Number(playlistResponse?.addedCount) || 0;
             totalAdded += addedCount;
             created++;
 
