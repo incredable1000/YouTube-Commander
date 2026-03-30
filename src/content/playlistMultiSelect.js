@@ -1513,6 +1513,17 @@ function removeSelectedCardsFromDom(videoIds) {
 }
 
 /**
+ * Trigger YouTube to refresh playlist data via soft navigation.
+ */
+function softRefreshPlaylist() {
+    const currentPath = location.pathname + location.search;
+    history.pushState(null, '', '/');
+    setTimeout(() => {
+        history.pushState(null, '', currentPath);
+    }, 50);
+}
+
+/**
  * Remove selected videos from the currently opened playlist page.
  */
 async function removeSelectionFromCurrentPlaylist() {
@@ -1564,15 +1575,13 @@ async function removeSelectionFromCurrentPlaylist() {
             return;
         }
 
-        const idsForDomRemoval = removedVideoIds.length > 0 ? removedVideoIds : videoIds;
-        removeSelectedCardsFromDom(idsForDomRemoval);
-
         setStatusMessage(
             `Removed ${removedCount} video(s) from ${playlistLabel}.`,
             STATUS_KIND.SUCCESS
         );
 
         resetSelectionOnly();
+        softRefreshPlaylist();
 
     } catch (error) {
         logger.warn('Failed to remove selected videos from playlist', error);
@@ -2541,6 +2550,10 @@ async function handleActionRemoveWatchedClick(event) {
             ? `Removed ${removedCount} watched video(s).`
             : 'No videos were removed.';
         setStatusMessage(msg, removedCount > 0 ? STATUS_KIND.SUCCESS : STATUS_KIND.INFO);
+
+        if (removedCount > 0) {
+            softRefreshPlaylist();
+        }
 
     } catch (error) {
         logger.warn('Failed to remove watched videos', error);
