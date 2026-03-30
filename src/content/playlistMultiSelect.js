@@ -1516,46 +1516,46 @@ function removeSelectedCardsFromDom(videoIds) {
  * Trigger YouTube to refresh playlist data via soft navigation.
  */
 function softRefreshPlaylist() {
-    const store = window.yt?.extracted?.initialData?.subscribe
-        ? window.yt?.extracted?.initialData
-        : null;
+    const playlistContainer = document.querySelector('ytd-playlist-panel-renderer #container') 
+        || document.querySelector('ytd-playlist-video-list-renderer')
+        || document.querySelector('#playlist-items');
     
-    if (store) {
+    if (playlistContainer) {
+        const tempStyle = playlistContainer.style.cssText;
+        playlistContainer.style.cssText = tempStyle + '; opacity: 0.99;';
+        void playlistContainer.offsetHeight;
+        playlistContainer.style.cssText = tempStyle;
+    }
+    
+    document.querySelectorAll('ytd-playlist-video-renderer, ytd-grid-video-renderer').forEach((el) => {
+        const s = el.style.cssText;
+        el.style.cssText = s + '; transform: translateX(0);';
+        void el.offsetHeight;
+        el.style.cssText = s;
+    });
+    
+    const ytApp = document.querySelector('ytd-app');
+    if (ytApp) {
         try {
-            const subscribe = store.subscribe;
-            const getState = store.getState;
-            if (typeof subscribe === 'function' && typeof getState === 'function') {
-                const unsubscribe = subscribe(() => {});
-                unsubscribe();
-                return;
+            const methodKeys = Object.keys(ytApp).filter(k => typeof ytApp[k] === 'function');
+            for (const key of methodKeys) {
+                if (key.toLowerCase().includes('refresh') || key.toLowerCase().includes('reload') || key.toLowerCase().includes('update')) {
+                    try { ytApp[key](); } catch (e) {}
+                }
             }
         } catch (e) {}
     }
     
-    const reduxStore = window.ytInitialData?. redux?.store;
-    if (reduxStore && typeof reduxStore.dispatch === 'function') {
-        try {
-            reduxStore.dispatch({ type: 'REFRESH' });
-            return;
-        } catch (e) {}
+    const continuation = document.querySelector('ytd-continuation-item-renderer');
+    if (continuation && continuation.update) {
+        try { continuation.update({}); } catch (e) {}
     }
     
-    const app = document.querySelector('ytd-app');
-    if (app && app.__REDUX_STORE__) {
-        try {
-            const actions = app.__REDUX_STORE__.getState();
-            if (actions && typeof app.__REDUX_STORE__.dispatch === 'function') {
-                app.__REDUX_STORE__.dispatch({ type: 'REFRESH' });
-                return;
-            }
-        } catch (e) {}
-    }
-    
-    if (window.yt && window.yt.fullyInitialized !== undefined) {
-        window.yt.fullyInitialized = false;
-        requestAnimationFrame(() => {
-            window.yt.fullyInitialized = true;
-        });
+    const scrollContainer = document.querySelector('#playlist-items, ytd-playlist-video-list-renderer');
+    if (scrollContainer) {
+        const scrollTop = scrollContainer.scrollTop;
+        scrollContainer.scrollTop = scrollTop + 1;
+        scrollContainer.scrollTop = scrollTop;
     }
 }
 
