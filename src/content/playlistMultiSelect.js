@@ -2428,20 +2428,23 @@ async function submitSplit() {
     try {
         const numPlaylists = Math.ceil(videoIds.length / perPlaylist);
         
-        const response = await sendBridgeRequest(ACTIONS.GET_PLAYLISTS, {});
-        const playlists = Array.isArray(response?.playlists) ? response.playlists : [];
-        
         let maxNum = 0;
-        playlists.forEach((playlist) => {
-            const title = playlist?.title || '';
-            const match = title.match(/^Playlist\s+(\d+)$/i);
-            if (match) {
-                const num = parseInt(match[1], 10);
-                if (num > maxNum) {
-                    maxNum = num;
+        try {
+            const response = await sendBridgeRequest(ACTIONS.GET_PLAYLISTS, { videoIds: [videoIds[0]] });
+            const playlists = Array.isArray(response?.playlists) ? response.playlists : [];
+            playlists.forEach((playlist) => {
+                const title = playlist?.title || '';
+                const match = title.match(/^Playlist\s+(\d+)$/i);
+                if (match) {
+                    const num = parseInt(match[1], 10);
+                    if (num > maxNum) {
+                        maxNum = num;
+                    }
                 }
-            }
-        });
+            });
+        } catch (e) {
+            logger.warn('Could not fetch existing playlists for naming', e);
+        }
         
         let created = 0;
         let totalAdded = 0;
