@@ -1516,21 +1516,47 @@ function removeSelectedCardsFromDom(videoIds) {
  * Trigger YouTube to refresh playlist data via soft navigation.
  */
 function softRefreshPlaylist() {
-    window.dispatchEvent(new PopStateEvent('popstate', { state: { action: 'navigate' } }));
+    const store = window.yt?.extracted?.initialData?.subscribe
+        ? window.yt?.extracted?.initialData
+        : null;
     
-    requestAnimationFrame(() => {
-        window.dispatchEvent(new HashChangeEvent('hashchange'));
-    });
+    if (store) {
+        try {
+            const subscribe = store.subscribe;
+            const getState = store.getState;
+            if (typeof subscribe === 'function' && typeof getState === 'function') {
+                const unsubscribe = subscribe(() => {});
+                unsubscribe();
+                return;
+            }
+        } catch (e) {}
+    }
     
-    setTimeout(() => {
-        const player = document.getElementById('movie_player');
-        if (player) {
-            player.dispatchEvent(new Event('onStateChange'));
-        }
-        
-        window.dispatchEvent(new Event('yt-navigate-start'));
-        window.dispatchEvent(new Event('yt-navigate-finish'));
-    }, 100);
+    const reduxStore = window.ytInitialData?. redux?.store;
+    if (reduxStore && typeof reduxStore.dispatch === 'function') {
+        try {
+            reduxStore.dispatch({ type: 'REFRESH' });
+            return;
+        } catch (e) {}
+    }
+    
+    const app = document.querySelector('ytd-app');
+    if (app && app.__REDUX_STORE__) {
+        try {
+            const actions = app.__REDUX_STORE__.getState();
+            if (actions && typeof app.__REDUX_STORE__.dispatch === 'function') {
+                app.__REDUX_STORE__.dispatch({ type: 'REFRESH' });
+                return;
+            }
+        } catch (e) {}
+    }
+    
+    if (window.yt && window.yt.fullyInitialized !== undefined) {
+        window.yt.fullyInitialized = false;
+        requestAnimationFrame(() => {
+            window.yt.fullyInitialized = true;
+        });
+    }
 }
 
 /**
