@@ -1954,24 +1954,57 @@ function togglePlaylistSelection(playlistId) {
 }
 
 const playlistStateTimers = new WeakMap();
+let playlistObserver = null;
+let playlistObserverActive = false;
 
-function applyPlaylistSelectedStateNow(renderer, playlistId) {
+function getPlaylistObserver() {
+    if (!playlistObserver) {
+        playlistObserver = new MutationObserver(() => {
+            if (!playlistObserverActive) return;
+            
+            playlistObserverActive = false;
+            requestAnimationFrame(() => {
+                if (selectionMode && isPlaylistsPage()) {
+                    selectedPlaylistIds.forEach((playlistId) => {
+                        const link = document.querySelector(`a[href*="list=${playlistId}"]`);
+                        if (link) {
+                            const renderer = link.closest('ytd-rich-item-renderer');
+                            if (renderer) {
+                                applyPlaylistSelectedStateToRenderer(renderer, playlistId);
+                            }
+                        }
+                    });
+                }
+                playlistObserverActive = true;
+            });
+        });
+    }
+    return playlistObserver;
+}
+
+function observePlaylistsPage() {
+    if (!selectionMode || !isPlaylistsPage()) return;
+    
+    const observer = getPlaylistObserver();
+    const container = document.querySelector('ytd-rich-grid-renderer, #content, body');
+    if (container) {
+        try {
+            observer.observe(container, { childList: true, subtree: true });
+            playlistObserverActive = true;
+        } catch (e) {}
+    }
+}
+
+function applyPlaylistSelectedStateToRenderer(renderer, playlistId) {
     if (!renderer || !renderer.isConnected) return;
     
     const isSelected = selectedPlaylistIds.has(playlistId);
     
-    const currentClass = renderer.classList.contains('yt-commander-playlist-selected');
-    if (currentClass === isSelected) return;
-
     renderer.classList.toggle('yt-commander-playlist-selected', isSelected);
 
     const overlay = renderer.querySelector(`.${OVERLAY_CLASS}`);
     if (overlay) {
-        const currentState = overlay.getAttribute('aria-pressed');
-        const shouldBe = isSelected ? 'true' : 'false';
-        if (currentState === shouldBe) return;
-        
-        overlay.setAttribute('aria-pressed', shouldBe);
+        overlay.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
         overlay.setAttribute('data-state', isSelected ? 'selected' : 'idle');
         
         const hint = overlay.querySelector('.yt-commander-playlist-overlay__hint');
@@ -1988,7 +2021,7 @@ function schedulePlaylistStateUpdate(renderer, playlistId) {
     
     const timer = setTimeout(() => {
         if (!renderer.isConnected) return;
-        applyPlaylistSelectedStateNow(renderer, playlistId);
+        applyPlaylistSelectedStateToRenderer(renderer, playlistId);
         playlistStateTimers.delete(renderer);
     }, 100);
     
@@ -2003,7 +2036,7 @@ function restorePlaylistSelectionState() {
         if (link) {
             const renderer = link.closest('ytd-rich-item-renderer');
             if (renderer) {
-                applyPlaylistSelectedStateNow(renderer, playlistId);
+                applyPlaylistSelectedStateToRenderer(renderer, playlistId);
             }
         }
     });
@@ -2019,7 +2052,9 @@ function applyPlaylistSelectedState(renderer, playlistId) {
         return;
     }
 
-    applyPlaylistSelectedStateNow(renderer, playlistId);
+    playlistObserverActive = false;
+    applyPlaylistSelectedStateToRenderer(renderer, playlistId);
+    playlistObserverActive = true;
 }
 
 /**
@@ -2370,8 +2405,14 @@ function setSelectionMode(active) {
         selectAllMode = false;
         playlistStateTimers.forEach((timer) => clearTimeout(timer));
         playlistStateTimers = new WeakMap();
+        if (playlistObserver) {
+            playlistObserver.disconnect();
+        }
     } else {
         queueFullRescan();
+        if (isPlaylistsPage()) {
+            observePlaylistsPage();
+        }
     }
 
     updateMastheadButtonState();
