@@ -1953,6 +1953,53 @@ function togglePlaylistSelection(playlistId) {
     updateActionUiState();
 }
 
+let playlistMutationObserver = null;
+const playlistObservers = new WeakMap();
+
+function observePlaylistRenderer(renderer, playlistId) {
+    if (!selectionMode || !isPlaylistsPage()) return;
+    
+    if (playlistObservers.has(renderer)) return;
+    
+    const observer = new MutationObserver(() => {
+        if (!renderer.isConnected) {
+            observer.disconnect();
+            playlistObservers.delete(renderer);
+            return;
+        }
+        if (selectedPlaylistIds.has(playlistId)) {
+            applyPlaylistSelectedStateNow(renderer, playlistId);
+        }
+    });
+    
+    observer.observe(renderer, { 
+        childList: true, 
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'data-state', 'aria-pressed']
+    });
+    
+    playlistObservers.set(renderer, observer);
+}
+
+function applyPlaylistSelectedStateNow(renderer, playlistId) {
+    if (!renderer || !renderer.isConnected) return;
+    
+    const isSelected = selectedPlaylistIds.has(playlistId);
+    renderer.classList.toggle('yt-commander-playlist-selected', isSelected);
+
+    const overlay = renderer.querySelector(`.${OVERLAY_CLASS}`);
+    if (overlay) {
+        overlay.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+        overlay.setAttribute('data-state', isSelected ? 'selected' : 'idle');
+        
+        const hint = overlay.querySelector('.yt-commander-playlist-overlay__hint');
+        if (hint) {
+            hint.textContent = isSelected ? 'Selected' : 'Select';
+        }
+    }
+}
+
 /**
  * Apply selected visual state to playlist renderer.
  * @param {Element} renderer
@@ -1963,23 +2010,8 @@ function applyPlaylistSelectedState(renderer, playlistId) {
         return;
     }
 
-    const isSelected = selectedPlaylistIds.has(playlistId);
-    
-    setTimeout(() => {
-        if (!renderer.isConnected) return;
-        renderer.classList.toggle('yt-commander-playlist-selected', isSelected);
-
-        const overlay = renderer.querySelector(`.${OVERLAY_CLASS}`);
-        if (overlay) {
-            overlay.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
-            overlay.setAttribute('data-state', isSelected ? 'selected' : 'idle');
-            
-            const hint = overlay.querySelector('.yt-commander-playlist-overlay__hint');
-            if (hint) {
-                hint.textContent = isSelected ? 'Selected' : 'Select';
-            }
-        }
-    }, 50);
+    applyPlaylistSelectedStateNow(renderer, playlistId);
+    observePlaylistRenderer(renderer, playlistId);
 }
 
 /**
@@ -2328,6 +2360,8 @@ function setSelectionMode(active) {
         selectedPlaylistIds.clear();
         lastPlaylistProbeVideoId = '';
         selectAllMode = false;
+        playlistObservers.forEach((observer) => observer.disconnect());
+        playlistObservers = new WeakMap();
     } else {
         queueFullRescan();
     }
