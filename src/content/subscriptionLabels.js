@@ -8,24 +8,18 @@ const LOCAL_STORAGE_KEY = 'ytCommanderSubscribedChannelsCache';
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 const recentlyHoveredCards = new WeakSet();
-let globalHoverPause = false;
-let resumeTimer = null;
+let hoverCleanupTimer = null;
 
-function pauseDecorationDuringHover() {
-    globalHoverPause = true;
-    if (resumeTimer) {
-        clearTimeout(resumeTimer);
-        resumeTimer = null;
+function markCardHovered(card) {
+    recentlyHoveredCards.add(card);
+    
+    if (hoverCleanupTimer) {
+        clearTimeout(hoverCleanupTimer);
     }
-}
-
-function resumeDecoration() {
-    if (resumeTimer) {
-        clearTimeout(resumeTimer);
-    }
-    resumeTimer = setTimeout(() => {
-        globalHoverPause = false;
-        resumeTimer = null;
+    
+    hoverCleanupTimer = setTimeout(() => {
+        recentlyHoveredCards.delete(card);
+        hoverCleanupTimer = null;
     }, 500);
 }
 
@@ -1230,13 +1224,6 @@ function decorateCard(card) {
         return;
     }
 
-    if (globalHoverPause) {
-        const hasExistingLabel = card.querySelector(`.${LABEL_CLASS}`);
-        if (hasExistingLabel) {
-            return;
-        }
-    }
-
     if (card.matches(':hover') || card.contains(document.activeElement)) {
         markCardHovered(card);
         return;
@@ -1304,9 +1291,6 @@ function decorateCard(card) {
  * Schedule rendering of pending cards.
  */
 function scheduleRender() {
-    if (globalHoverPause) {
-        return;
-    }
     if (renderScheduled) {
         return;
     }
@@ -1330,9 +1314,6 @@ function scheduleRender() {
  * @param {Iterable<Element>} cards
  */
 function queueCards(cards) {
-    if (globalHoverPause) {
-        return;
-    }
     for (const card of cards) {
         if (!card) {
             continue;
@@ -1436,9 +1417,6 @@ function startScanLoop() {
         return;
     }
     scanIntervalId = window.setInterval(() => {
-        if (globalHoverPause) {
-            return;
-        }
         scanVisibleCards();
     }, 1000);
 }
@@ -1460,10 +1438,13 @@ async function init() {
     document.addEventListener('yt-navigate-finish', scanVisibleCards);
     window.addEventListener('yt-page-data-updated', scanVisibleCards);
     document.addEventListener('yt-page-data-updated', scanVisibleCards);
-    
+     
     document.addEventListener('mousemove', (e) => {
         if (isCardElement(e.target)) {
-            pauseDecorationDuringHover();
+            const card = e.target.closest(CARD_SELECTOR);
+            if (card) {
+                markCardHovered(card);
+            }
         }
     }, { passive: true });
 }
