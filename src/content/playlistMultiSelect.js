@@ -2936,7 +2936,7 @@ function handleSelectionClickCapture(event) {
     }
 
     if (isPlaylistsPage()) {
-        const playlistRenderer = target.closest('ytd-grid-playlist-renderer, ytd-playlist-renderer');
+        const playlistRenderer = target.closest('ytd-rich-item-renderer, yt-lockup-view-model');
         if (playlistRenderer) {
             const link = playlistRenderer.querySelector('a[href*="list="]');
             if (link) {
@@ -2951,17 +2951,9 @@ function handleSelectionClickCapture(event) {
                         }
                         handlePlaylistSelectionInteraction(playlistId, playlistRenderer);
                         return;
-                    } else {
-                        logger.debug('Playlist page: found link but no list param', { href: link.href });
                     }
-                } catch (_e) {
-                    logger.debug('Playlist page: URL parse error', _e);
-                }
-            } else {
-                logger.debug('Playlist page: no link found in renderer');
+                } catch (_e) {}
             }
-        } else {
-            logger.debug('Playlist page: no renderer found for target', target.tagName, target.className);
         }
         return;
     }
