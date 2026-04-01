@@ -1964,18 +1964,22 @@ function applyPlaylistSelectedState(renderer, playlistId) {
     }
 
     const isSelected = selectedPlaylistIds.has(playlistId);
-    renderer.classList.toggle('yt-commander-playlist-selected', isSelected);
+    
+    setTimeout(() => {
+        if (!renderer.isConnected) return;
+        renderer.classList.toggle('yt-commander-playlist-selected', isSelected);
 
-    const overlay = renderer.querySelector(`.${OVERLAY_CLASS}`);
-    if (overlay) {
-        overlay.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
-        overlay.setAttribute('data-state', isSelected ? 'selected' : 'idle');
-        
-        const hint = overlay.querySelector('.yt-commander-playlist-overlay__hint');
-        if (hint) {
-            hint.textContent = isSelected ? 'Selected' : 'Select';
+        const overlay = renderer.querySelector(`.${OVERLAY_CLASS}`);
+        if (overlay) {
+            overlay.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+            overlay.setAttribute('data-state', isSelected ? 'selected' : 'idle');
+            
+            const hint = overlay.querySelector('.yt-commander-playlist-overlay__hint');
+            if (hint) {
+                hint.textContent = isSelected ? 'Selected' : 'Select';
+            }
         }
-    }
+    }, 50);
 }
 
 /**
