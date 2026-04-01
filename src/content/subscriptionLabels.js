@@ -1192,6 +1192,10 @@ function decorateCard(card) {
         return;
     }
 
+    if (card.matches(':hover') || card.contains(document.activeElement)) {
+        return;
+    }
+
     const { channelId, channelPath, anchor, host } = extractChannelInfo(card);
     if ((!anchor && !host) || (!channelId && !channelPath)) {
         const existing = card.querySelector(`.${LABEL_CLASS}`);
