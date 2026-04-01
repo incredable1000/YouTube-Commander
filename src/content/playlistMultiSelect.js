@@ -2049,10 +2049,6 @@ function decorateContainer(container) {
         return false;
     }
 
-    if (isPlaylistsPage()) {
-        return false;
-    }
-
     const link = findVideoLink(container);
     if (!link || !link.href) {
         return false;
@@ -2088,6 +2084,21 @@ function decorateContainer(container) {
         overlay.addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();
+            
+            if (isPlaylistsPage()) {
+                const link = host.querySelector('a[href*="list="]');
+                if (link) {
+                    try {
+                        const url = new URL(link.href, location.origin);
+                        const playlistId = url.searchParams.get('list');
+                        if (playlistId && PLAYLIST_ID_PATTERN.test(playlistId)) {
+                            handlePlaylistSelectionInteraction(playlistId, host);
+                        }
+                    } catch (_e) {}
+                }
+                return;
+            }
+            
             const id = overlay?.getAttribute('data-yt-commander-video-id');
             if (id) {
                 handleVideoSelectionInteraction({
