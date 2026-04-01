@@ -9,6 +9,8 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 const recentlyHoveredCards = new WeakSet();
 let hoverCleanupTimer = null;
+let globalHoverPause = false;
+let hoverPauseTimeout = null;
 
 function markCardHovered(card) {
     recentlyHoveredCards.add(card);
@@ -20,6 +22,17 @@ function markCardHovered(card) {
     hoverCleanupTimer = setTimeout(() => {
         recentlyHoveredCards.delete(card);
         hoverCleanupTimer = null;
+    }, 2000);
+}
+
+function pauseDecorationDuringHover() {
+    globalHoverPause = true;
+    if (hoverPauseTimeout) {
+        clearTimeout(hoverPauseTimeout);
+    }
+    hoverPauseTimeout = setTimeout(() => {
+        globalHoverPause = false;
+        hoverPauseTimeout = null;
     }, 2000);
 }
 const LABEL_CLASS = 'yt-commander-subscription-label';
@@ -1200,6 +1213,10 @@ function ensureLabel(anchor, hostOverride = null) {
  * @param {Element} card
  */
 function decorateCard(card) {
+    if (globalHoverPause) {
+        return;
+    }
+    
     if (!isHomeCard(card)) {
         clearLabelsFromCard(card);
         return;
@@ -1435,6 +1452,7 @@ async function init() {
                 mouseOverThrottle = null;
             }, 100);
             markCardHovered(card);
+            pauseDecorationDuringHover();
         }
     };
     
