@@ -2049,6 +2049,10 @@ function decorateContainer(container) {
         return false;
     }
 
+    if (isPlaylistsPage()) {
+        return false;
+    }
+
     const link = findVideoLink(container);
     if (!link || !link.href) {
         return false;
