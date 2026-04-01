@@ -854,6 +854,14 @@ function decorateContainer(container) {
         return;
     }
 
+    const isFeedPage = location.pathname === '/' || 
+                       location.pathname === '/feed/subscriptions' ||
+                       location.pathname === '/feed/playlists' ||
+                       location.pathname === '/feed/trending';
+    if (isFeedPage) {
+        return;
+    }
+
     if (isWatched && !deleteVideosEnabled) {
         thumbnail.setAttribute(WATCHED_ATTR, 'true');
 
