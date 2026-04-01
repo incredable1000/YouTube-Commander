@@ -9,13 +9,24 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 const recentlyHoveredCards = new WeakSet();
 let globalHoverPause = false;
+let resumeTimer = null;
 
 function pauseDecorationDuringHover() {
     globalHoverPause = true;
+    if (resumeTimer) {
+        clearTimeout(resumeTimer);
+        resumeTimer = null;
+    }
 }
 
 function resumeDecoration() {
-    globalHoverPause = false;
+    if (resumeTimer) {
+        clearTimeout(resumeTimer);
+    }
+    resumeTimer = setTimeout(() => {
+        globalHoverPause = false;
+        resumeTimer = null;
+    }, 500);
 }
 const LABEL_CLASS = 'yt-commander-subscription-label';
 const LABEL_KIND_ATTR = 'data-yt-commander-subscription-kind';
@@ -1274,6 +1285,9 @@ function decorateCard(card) {
  * Schedule rendering of pending cards.
  */
 function scheduleRender() {
+    if (globalHoverPause) {
+        return;
+    }
     if (renderScheduled) {
         return;
     }
@@ -1297,6 +1311,9 @@ function scheduleRender() {
  * @param {Iterable<Element>} cards
  */
 function queueCards(cards) {
+    if (globalHoverPause) {
+        return;
+    }
     for (const card of cards) {
         if (!card) {
             continue;
@@ -1417,22 +1434,17 @@ async function init() {
     setDebugState('initializedAt', Date.now());
     setDebugAttribute('initialized');
     
-    // TEMPORARY: Skip everything on feed pages to test if subscription labels are the cause
-    const isFeedPage = location.pathname === '/' || 
-                       location.pathname === '/feed/subscriptions' ||
-                       location.pathname === '/feed/playlists' ||
-                       location.pathname === '/feed/trending';
-    if (isFeedPage) {
-        logger.info('Skipping subscription labels on feed page for testing');
-        return;
-    }
-    
     startObserver();
     startScanLoop();
     scanVisibleCards();
     window.addEventListener('yt-navigate-finish', scanVisibleCards);
     document.addEventListener('yt-navigate-finish', scanVisibleCards);
     window.addEventListener('yt-page-data-updated', scanVisibleCards);
+    document.addEventListener('yt-page-data-updated', scanVisibleCards);
+    
+    document.addEventListener('mousemove', () => {
+        pauseDecorationDuringHover();
+    }, { passive: true });
     document.addEventListener('yt-page-data-updated', scanVisibleCards);
 
     let mouseOverThrottle = null;
