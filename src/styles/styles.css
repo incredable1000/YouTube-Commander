@@ -8,6 +8,12 @@
     vertical-align: middle;
 }
 
+/* Disable overlay-related styles on playlists page */
+body[data-page-type="playlists"] .yt-commander-playlist-overlay,
+body[data-page-type="playlists"] .yt-commander-playlist-selection-mode .yt-commander-playlist-overlay {
+    display: none !important;
+}
+
 .custom-seek-button {
     background: rgba(0, 0, 0, 0.58);
     border: 1px solid rgba(255, 255, 255, 0.2);
