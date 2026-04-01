@@ -1926,7 +1926,9 @@ function handleVideoSelectionInteraction(options) {
  * @param {Element} renderer
  */
 function handlePlaylistSelectionInteraction(playlistId, renderer) {
+    logger.debug('handlePlaylistSelectionInteraction called', { playlistId, hasRenderer: !!renderer });
     if (!PLAYLIST_ID_PATTERN.test(playlistId)) {
+        logger.debug('Playlist ID pattern failed', playlistId);
         return;
     }
 
@@ -2916,6 +2918,7 @@ function handleSelectionClickCapture(event) {
     if (!selectionMode || !isEnabled || !isEligiblePage()) {
         return;
     }
+    logger.debug('handleSelectionClickCapture called');
 
     const target = event.target;
     if (!target || !(target instanceof Element)) {
@@ -2936,13 +2939,16 @@ function handleSelectionClickCapture(event) {
     }
 
     if (isPlaylistsPage()) {
+        logger.debug('Playlists page click detected', { targetTag: target.tagName, targetClass: target.className });
         const playlistRenderer = target.closest('ytd-rich-item-renderer, yt-lockup-view-model');
         if (playlistRenderer) {
+            logger.debug('Found playlist renderer');
             const link = playlistRenderer.querySelector('a[href*="list="]');
             if (link) {
                 try {
                     const url = new URL(link.href, location.origin);
                     const playlistId = url.searchParams.get('list');
+                    logger.debug('Got link with list param', { playlistId });
                     if (playlistId) {
                         event.preventDefault();
                         event.stopPropagation();
