@@ -1995,6 +1995,20 @@ function schedulePlaylistStateUpdate(renderer, playlistId) {
     playlistStateTimers.set(renderer, timer);
 }
 
+function restorePlaylistSelectionState() {
+    if (!selectionMode || !isPlaylistsPage()) return;
+    
+    selectedPlaylistIds.forEach((playlistId) => {
+        const link = document.querySelector(`a[href*="list=${playlistId}"]`);
+        if (link) {
+            const renderer = link.closest('ytd-rich-item-renderer');
+            if (renderer) {
+                applyPlaylistSelectedStateNow(renderer, playlistId);
+            }
+        }
+    });
+}
+
 /**
  * Apply selected visual state to playlist renderer.
  * @param {Element} renderer
@@ -3189,6 +3203,17 @@ function setupListeners() {
     document.addEventListener('mousedown', handleDocumentMouseDown, true);
     document.addEventListener('click', handleSelectionClickCapture, true);
     document.addEventListener('keydown', handleDocumentKeydown, true);
+    
+    let playlistScrollThrottle = null;
+    const handlePlaylistScroll = () => {
+        if (!playlistScrollThrottle) {
+            playlistScrollThrottle = setTimeout(() => {
+                restorePlaylistSelectionState();
+                playlistScrollThrottle = null;
+            }, 200);
+        }
+    };
+    window.addEventListener('scroll', handlePlaylistScroll, { passive: true });
 
     cleanupCallbacks.push(() => window.removeEventListener('message', handleBridgeResponse));
     cleanupCallbacks.push(() => window.removeEventListener('message', handleBridgeProgress));
@@ -3199,6 +3224,10 @@ function setupListeners() {
     cleanupCallbacks.push(() => document.removeEventListener('mousedown', handleDocumentMouseDown, true));
     cleanupCallbacks.push(() => document.removeEventListener('click', handleSelectionClickCapture, true));
     cleanupCallbacks.push(() => document.removeEventListener('keydown', handleDocumentKeydown, true));
+    cleanupCallbacks.push(() => {
+        clearTimeout(playlistScrollThrottle);
+        window.removeEventListener('scroll', handlePlaylistScroll);
+    });
 }
 
 /**
