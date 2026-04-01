@@ -805,6 +805,10 @@ function decorateContainer(container) {
         return;
     }
 
+    if (thumbnail.matches(':hover') || (document.activeElement && thumbnail.contains(document.activeElement))) {
+        return;
+    }
+
     if (isWatched && !deleteVideosEnabled) {
         thumbnail.setAttribute(WATCHED_ATTR, 'true');
 
