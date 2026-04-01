@@ -29,22 +29,6 @@ let db = null;
 let initialized = false;
 let initializingPromise = null;
 
-const recentlyHoveredThumbnails = new WeakSet();
-let hoverCleanupTimer = null;
-
-function markThumbnailHovered(thumbnail) {
-    recentlyHoveredThumbnails.add(thumbnail);
-    
-    if (hoverCleanupTimer) {
-        clearTimeout(hoverCleanupTimer);
-    }
-    
-    hoverCleanupTimer = setTimeout(() => {
-        recentlyHoveredThumbnails = new WeakSet();
-        hoverCleanupTimer = null;
-    }, 500);
-}
-
 let isEnabled = true;
 let deleteVideosEnabled = false;
 let watchedIds = new Set();
@@ -624,30 +608,6 @@ function attachListeners() {
     teardownCallbacks.push(() => window.removeEventListener('popstate', onNavigate));
     teardownCallbacks.push(() => document.removeEventListener('visibilitychange', onVisibilityOrFocus));
     teardownCallbacks.push(() => window.removeEventListener('focus', onVisibilityOrFocus));
-
-    let mouseOverThrottle = null;
-    const onMouseOver = (event) => {
-        if (mouseOverThrottle) return;
-        
-        const target = event.target;
-        if (!target) return;
-        
-        const thumbnail = target.closest('ytd-thumbnail, yt-thumbnail-view-model, a#thumbnail, #thumbnail, ytd-playlist-thumbnail');
-        if (thumbnail) {
-            mouseOverThrottle = setTimeout(() => {
-                mouseOverThrottle = null;
-            }, 100);
-            markThumbnailHovered(thumbnail);
-        }
-    };
-    
-    document.addEventListener('mouseover', onMouseOver, true);
-    teardownCallbacks.push(() => {
-        document.removeEventListener('mouseover', onMouseOver, true);
-        if (mouseOverThrottle) {
-            clearTimeout(mouseOverThrottle);
-        }
-    });
 }
 
 /**
@@ -660,14 +620,6 @@ function startMutationObserver() {
 
     mutationObserver = new MutationObserver((mutations) => {
         if (!isEnabled) {
-            return;
-        }
-
-        const isFeedPage = location.pathname === '/' || 
-                           location.pathname === '/feed/subscriptions' ||
-                           location.pathname === '/feed/playlists' ||
-                           location.pathname === '/feed/trending';
-        if (isFeedPage) {
             return;
         }
 
@@ -850,23 +802,6 @@ function decorateContainer(container) {
 
     const thumbnail = findThumbnailAnchor(container, link);
     if (!thumbnail) {
-        return;
-    }
-
-    if (thumbnail.matches(':hover') || (document.activeElement && thumbnail.contains(document.activeElement))) {
-        markThumbnailHovered(thumbnail);
-        return;
-    }
-
-    if (recentlyHoveredThumbnails.has(thumbnail)) {
-        return;
-    }
-
-    const isFeedPage = location.pathname === '/' || 
-                       location.pathname === '/feed/subscriptions' ||
-                       location.pathname === '/feed/playlists' ||
-                       location.pathname === '/feed/trending';
-    if (isFeedPage) {
         return;
     }
 
