@@ -6,6 +6,10 @@
 import { createLogger } from './utils/logger.js';
 import { createThrottledObserver } from './utils/events.js';
 import {
+    BRIDGE_SOURCE,
+    REQUEST_TYPE,
+    RESPONSE_TYPE,
+    ACTIONS,
     HOST_SELECTED_CLASS,
     OVERLAY_CLASS,
     ACTION_BAR_CLASS,
