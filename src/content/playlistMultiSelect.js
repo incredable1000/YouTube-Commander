@@ -1941,8 +1941,10 @@ function handlePlaylistSelectionInteraction(playlistId, renderer) {
 function togglePlaylistSelection(playlistId) {
     if (selectedPlaylistIds.has(playlistId)) {
         selectedPlaylistIds.delete(playlistId);
+        logger.debug('Playlist deselected', playlistId, 'count:', selectedPlaylistIds.size);
     } else {
         selectedPlaylistIds.add(playlistId);
+        logger.debug('Playlist selected', playlistId, 'count:', selectedPlaylistIds.size);
     }
     updateActionUiState();
 }
@@ -2948,9 +2950,17 @@ function handleSelectionClickCapture(event) {
                         }
                         handlePlaylistSelectionInteraction(playlistId, playlistRenderer);
                         return;
+                    } else {
+                        logger.debug('Playlist page: found link but no list param', { href: link.href });
                     }
-                } catch (_e) {}
+                } catch (_e) {
+                    logger.debug('Playlist page: URL parse error', _e);
+                }
+            } else {
+                logger.debug('Playlist page: no link found in renderer');
             }
+        } else {
+            logger.debug('Playlist page: no renderer found for target', target.tagName, target.className);
         }
         return;
     }
