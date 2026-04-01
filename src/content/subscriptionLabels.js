@@ -28,6 +28,22 @@ function resumeDecoration() {
         resumeTimer = null;
     }, 500);
 }
+
+function isCardElement(target) {
+    if (!target) return false;
+    const cardSelectors = [
+        'ytd-rich-item-renderer',
+        'ytd-video-renderer', 
+        'ytd-grid-video-renderer',
+        'ytd-rich-grid-renderer',
+        '#contents'
+    ];
+    for (const sel of cardSelectors) {
+        if (target.matches && target.matches(sel)) return true;
+        if (target.closest && target.closest(sel)) return true;
+    }
+    return false;
+}
 const LABEL_CLASS = 'yt-commander-subscription-label';
 const LABEL_KIND_ATTR = 'data-yt-commander-subscription-kind';
 const LABEL_KIND_SUBSCRIBED = 'subscribed';
@@ -1442,43 +1458,11 @@ async function init() {
     window.addEventListener('yt-page-data-updated', scanVisibleCards);
     document.addEventListener('yt-page-data-updated', scanVisibleCards);
     
-    document.addEventListener('mousemove', () => {
-        pauseDecorationDuringHover();
-    }, { passive: true });
-    document.addEventListener('yt-page-data-updated', scanVisibleCards);
-
-    let mouseOverThrottle = null;
-    let mouseLeaveTimeout = null;
-    const onMouseOver = (event) => {
-        if (mouseOverThrottle) return;
-        
-        const target = event.target;
-        if (!target) return;
-        
-        const card = target.closest(CARD_SELECTOR);
-        if (card) {
-            mouseOverThrottle = setTimeout(() => {
-                mouseOverThrottle = null;
-            }, 100);
+    document.addEventListener('mousemove', (e) => {
+        if (isCardElement(e.target)) {
             pauseDecorationDuringHover();
         }
-    };
-    
-    const onMouseLeave = () => {
-        if (mouseLeaveTimeout) {
-            clearTimeout(mouseLeaveTimeout);
-        }
-        mouseLeaveTimeout = setTimeout(() => {
-            resumeDecoration();
-            mouseLeaveTimeout = null;
-        }, 500);
-    };
-    
-    const feedContainer = document.querySelector(HOME_BROWSE_SELECTOR);
-    if (feedContainer) {
-        feedContainer.addEventListener('mouseenter', onMouseOver, true);
-        feedContainer.addEventListener('mouseleave', onMouseLeave, true);
-    }
+    }, { passive: true });
 }
 
 /**
