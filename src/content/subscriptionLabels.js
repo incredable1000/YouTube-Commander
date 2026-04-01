@@ -11,6 +11,7 @@ const recentlyHoveredCards = new WeakSet();
 let hoverCleanupTimer = null;
 let globalHoverPause = false;
 let hoverPauseTimeout = null;
+let isMouseOverFeed = false;
 
 function markCardHovered(card) {
     recentlyHoveredCards.add(card);
@@ -22,18 +23,24 @@ function markCardHovered(card) {
     hoverCleanupTimer = setTimeout(() => {
         recentlyHoveredCards.delete(card);
         hoverCleanupTimer = null;
-    }, 2000);
+    }, 500);
 }
 
 function pauseDecorationDuringHover() {
     globalHoverPause = true;
+    isMouseOverFeed = true;
     if (hoverPauseTimeout) {
         clearTimeout(hoverPauseTimeout);
+        hoverPauseTimeout = null;
     }
+}
+
+function resumeDecoration() {
     hoverPauseTimeout = setTimeout(() => {
         globalHoverPause = false;
+        isMouseOverFeed = false;
         hoverPauseTimeout = null;
-    }, 2000);
+    }, 500);
 }
 const LABEL_CLASS = 'yt-commander-subscription-label';
 const LABEL_KIND_ATTR = 'data-yt-commander-subscription-kind';
@@ -1456,7 +1463,18 @@ async function init() {
         }
     };
     
+    const onMouseOut = (event) => {
+        const target = event.target;
+        if (!target) return;
+        
+        const card = target.closest(CARD_SELECTOR);
+        if (card && !card.contains(event.relatedTarget)) {
+            resumeDecoration();
+        }
+    };
+    
     document.addEventListener('mouseover', onMouseOver, true);
+    document.addEventListener('mouseout', onMouseOut, true);
 }
 
 /**
