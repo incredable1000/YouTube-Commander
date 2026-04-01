@@ -1953,44 +1953,25 @@ function togglePlaylistSelection(playlistId) {
     updateActionUiState();
 }
 
-let playlistMutationObserver = null;
-const playlistObservers = new WeakMap();
-
-function observePlaylistRenderer(renderer, playlistId) {
-    if (!selectionMode || !isPlaylistsPage()) return;
-    
-    if (playlistObservers.has(renderer)) return;
-    
-    const observer = new MutationObserver(() => {
-        if (!renderer.isConnected) {
-            observer.disconnect();
-            playlistObservers.delete(renderer);
-            return;
-        }
-        if (selectedPlaylistIds.has(playlistId)) {
-            applyPlaylistSelectedStateNow(renderer, playlistId);
-        }
-    });
-    
-    observer.observe(renderer, { 
-        childList: true, 
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['class', 'data-state', 'aria-pressed']
-    });
-    
-    playlistObservers.set(renderer, observer);
-}
+const playlistStateTimers = new WeakMap();
 
 function applyPlaylistSelectedStateNow(renderer, playlistId) {
     if (!renderer || !renderer.isConnected) return;
     
     const isSelected = selectedPlaylistIds.has(playlistId);
+    
+    const currentClass = renderer.classList.contains('yt-commander-playlist-selected');
+    if (currentClass === isSelected) return;
+
     renderer.classList.toggle('yt-commander-playlist-selected', isSelected);
 
     const overlay = renderer.querySelector(`.${OVERLAY_CLASS}`);
     if (overlay) {
-        overlay.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+        const currentState = overlay.getAttribute('aria-pressed');
+        const shouldBe = isSelected ? 'true' : 'false';
+        if (currentState === shouldBe) return;
+        
+        overlay.setAttribute('aria-pressed', shouldBe);
         overlay.setAttribute('data-state', isSelected ? 'selected' : 'idle');
         
         const hint = overlay.querySelector('.yt-commander-playlist-overlay__hint');
@@ -1998,6 +1979,20 @@ function applyPlaylistSelectedStateNow(renderer, playlistId) {
             hint.textContent = isSelected ? 'Selected' : 'Select';
         }
     }
+}
+
+function schedulePlaylistStateUpdate(renderer, playlistId) {
+    if (playlistStateTimers.has(renderer)) {
+        clearTimeout(playlistStateTimers.get(renderer));
+    }
+    
+    const timer = setTimeout(() => {
+        if (!renderer.isConnected) return;
+        applyPlaylistSelectedStateNow(renderer, playlistId);
+        playlistStateTimers.delete(renderer);
+    }, 100);
+    
+    playlistStateTimers.set(renderer, timer);
 }
 
 /**
@@ -2011,7 +2006,6 @@ function applyPlaylistSelectedState(renderer, playlistId) {
     }
 
     applyPlaylistSelectedStateNow(renderer, playlistId);
-    observePlaylistRenderer(renderer, playlistId);
 }
 
 /**
@@ -2360,8 +2354,8 @@ function setSelectionMode(active) {
         selectedPlaylistIds.clear();
         lastPlaylistProbeVideoId = '';
         selectAllMode = false;
-        playlistObservers.forEach((observer) => observer.disconnect());
-        playlistObservers = new WeakMap();
+        playlistStateTimers.forEach((timer) => clearTimeout(timer));
+        playlistStateTimers = new WeakMap();
     } else {
         queueFullRescan();
     }
