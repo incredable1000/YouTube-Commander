@@ -1222,16 +1222,19 @@ function ensureLabel(anchor, hostOverride = null) {
  * @param {Element} card
  */
 function decorateCard(card) {
-    if (globalHoverPause) {
-        return;
-    }
-    
     if (!isHomeCard(card)) {
         clearLabelsFromCard(card);
         return;
     }
     if (!dataInitialized) {
         return;
+    }
+
+    if (globalHoverPause) {
+        const hasExistingLabel = card.querySelector(`.${LABEL_CLASS}`);
+        if (hasExistingLabel) {
+            return;
+        }
     }
 
     if (card.matches(':hover') || card.contains(document.activeElement)) {
