@@ -4,7 +4,7 @@
  */
 
 import { createLogger } from './utils/logger.js';
-import { createThrottledObserver } from './utils/events.js';
+import { createThrottledObserver, debounce } from './utils/events.js';
 import {
     BRIDGE_SOURCE,
     REQUEST_TYPE,
@@ -129,6 +129,7 @@ let observer = null;
 let pendingContainers = new Set();
 let renderScheduled = false;
 let deferredRescanTimer = null;
+let loadPlaylistsDebounced = null;
 
 let lastKnownUrl = location.href;
 let statusTimer = null;
@@ -1832,8 +1833,8 @@ function commitSelectionMutation(changedVideoIds) {
     changedVideoIds.forEach((videoId) => syncVideoSelectedState(videoId));
     updateActionUiState();
 
-    if (playlistPanelVisible) {
-        loadPlaylistsForPanel().catch((error) => {
+    if (playlistPanelVisible && loadPlaylistsDebounced) {
+        loadPlaylistsDebounced().catch((error) => {
             logger.warn('Failed to refresh playlists', error);
         });
     }
@@ -3278,6 +3279,8 @@ function initPlaylistMultiSelect() {
     if (isInitialized) {
         return;
     }
+
+    loadPlaylistsDebounced = debounce(loadPlaylistsForPanel, 300);
 
     ensureMastheadButton();
     ensureActionUi();

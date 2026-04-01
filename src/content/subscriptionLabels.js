@@ -1416,6 +1416,17 @@ async function init() {
     dataInitialized = true;
     setDebugState('initializedAt', Date.now());
     setDebugAttribute('initialized');
+    
+    // TEMPORARY: Skip everything on feed pages to test if subscription labels are the cause
+    const isFeedPage = location.pathname === '/' || 
+                       location.pathname === '/feed/subscriptions' ||
+                       location.pathname === '/feed/playlists' ||
+                       location.pathname === '/feed/trending';
+    if (isFeedPage) {
+        logger.info('Skipping subscription labels on feed page for testing');
+        return;
+    }
+    
     startObserver();
     startScanLoop();
     scanVisibleCards();
