@@ -663,6 +663,14 @@ function startMutationObserver() {
             return;
         }
 
+        const isFeedPage = location.pathname === '/' || 
+                           location.pathname === '/feed/subscriptions' ||
+                           location.pathname === '/feed/playlists' ||
+                           location.pathname === '/feed/trending';
+        if (isFeedPage) {
+            return;
+        }
+
         if (location.href !== lastUrl) {
             lastUrl = location.href;
             fullScanRequested = true;
