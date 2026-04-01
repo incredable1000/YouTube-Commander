@@ -1927,11 +1927,13 @@ function handleVideoSelectionInteraction(options) {
  */
 function handlePlaylistSelectionInteraction(playlistId, renderer) {
     logger.debug('handlePlaylistSelectionInteraction called', { playlistId, hasRenderer: !!renderer });
+    logger.debug('PLAYLIST_ID_PATTERN.test result:', PLAYLIST_ID_PATTERN.test(playlistId), 'for ID:', playlistId);
     if (!PLAYLIST_ID_PATTERN.test(playlistId)) {
         logger.debug('Playlist ID pattern failed', playlistId);
         return;
     }
 
+    logger.debug('Calling togglePlaylistSelection for', playlistId);
     togglePlaylistSelection(playlistId);
     applyPlaylistSelectedState(renderer, playlistId);
 }
