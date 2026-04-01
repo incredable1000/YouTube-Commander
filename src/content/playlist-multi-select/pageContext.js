@@ -130,7 +130,7 @@ function isPlaylistsPage() {
 function collectRenderedPlaylistIds() {
     const playlistIds = new Set();
     
-    document.querySelectorAll('ytd-grid-playlist-renderer, ytd-playlist-renderer').forEach((renderer) => {
+    document.querySelectorAll('ytd-rich-item-renderer').forEach((renderer) => {
         const link = renderer.querySelector('a[href*="list="]');
         if (link) {
             try {
@@ -140,14 +140,6 @@ function collectRenderedPlaylistIds() {
                     playlistIds.add(listId);
                 }
             } catch (_e) {}
-        }
-        
-        const videoId = renderer.getAttribute('data-video-id') || '';
-        if (videoId && VIDEO_ID_PATTERN.test(videoId)) {
-            const listId = renderer.closest('[data-list-id]')?.getAttribute('data-list-id');
-            if (listId && PLAYLIST_ID_PATTERN.test(listId)) {
-                playlistIds.add(listId);
-            }
         }
     });
 
