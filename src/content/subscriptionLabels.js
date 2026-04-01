@@ -6,6 +6,22 @@ const logger = createLogger('SubscriptionLabels');
 const LOCAL_STORAGE_KEY = 'ytCommanderSubscribedChannelsCache';
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+const recentlyHoveredCards = new WeakSet();
+let hoverCleanupTimer = null;
+
+function markCardHovered(card) {
+    recentlyHoveredCards.add(card);
+    
+    if (hoverCleanupTimer) {
+        clearTimeout(hoverCleanupTimer);
+    }
+    
+    hoverCleanupTimer = setTimeout(() => {
+        recentlyHoveredCards.delete(card);
+        hoverCleanupTimer = null;
+    }, 2000);
+}
 const LABEL_CLASS = 'yt-commander-subscription-label';
 const LABEL_KIND_ATTR = 'data-yt-commander-subscription-kind';
 const LABEL_KIND_SUBSCRIBED = 'subscribed';
@@ -1193,6 +1209,11 @@ function decorateCard(card) {
     }
 
     if (card.matches(':hover') || card.contains(document.activeElement)) {
+        markCardHovered(card);
+        return;
+    }
+
+    if (recentlyHoveredCards.has(card)) {
         return;
     }
 
@@ -1400,6 +1421,24 @@ async function init() {
     document.addEventListener('yt-navigate-finish', scanVisibleCards);
     window.addEventListener('yt-page-data-updated', scanVisibleCards);
     document.addEventListener('yt-page-data-updated', scanVisibleCards);
+
+    let mouseOverThrottle = null;
+    const onMouseOver = (event) => {
+        if (mouseOverThrottle) return;
+        
+        const target = event.target;
+        if (!target) return;
+        
+        const card = target.closest(CARD_SELECTOR);
+        if (card) {
+            mouseOverThrottle = setTimeout(() => {
+                mouseOverThrottle = null;
+            }, 100);
+            markCardHovered(card);
+        }
+    };
+    
+    document.addEventListener('mouseover', onMouseOver, true);
 }
 
 /**
