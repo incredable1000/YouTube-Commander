@@ -1953,16 +1953,51 @@ function togglePlaylistSelection(playlistId) {
     updateActionUiState();
 }
 
-/**
- * Apply selected visual state to playlist renderer.
- * @param {Element} renderer
- * @param {string} playlistId
- */
-function applyPlaylistSelectedState(renderer, playlistId) {
-    if (!renderer || !renderer.isConnected) {
-        return;
-    }
+const playlistStateTimers = new WeakMap();
+let playlistObserver = null;
+let playlistObserverActive = false;
 
+function getPlaylistObserver() {
+    if (!playlistObserver) {
+        playlistObserver = new MutationObserver(() => {
+            if (!playlistObserverActive) return;
+            
+            playlistObserverActive = false;
+            requestAnimationFrame(() => {
+                if (selectionMode && isPlaylistsPage()) {
+                    selectedPlaylistIds.forEach((playlistId) => {
+                        const link = document.querySelector(`a[href*="list=${playlistId}"]`);
+                        if (link) {
+                            const renderer = link.closest('ytd-rich-item-renderer');
+                            if (renderer) {
+                                applyPlaylistSelectedStateToRenderer(renderer, playlistId);
+                            }
+                        }
+                    });
+                }
+                playlistObserverActive = true;
+            });
+        });
+    }
+    return playlistObserver;
+}
+
+function observePlaylistsPage() {
+    if (!selectionMode || !isPlaylistsPage()) return;
+    
+    const observer = getPlaylistObserver();
+    const container = document.querySelector('ytd-rich-grid-renderer, #content, body');
+    if (container) {
+        try {
+            observer.observe(container, { childList: true, subtree: true });
+            playlistObserverActive = true;
+        } catch (e) {}
+    }
+}
+
+function applyPlaylistSelectedStateToRenderer(renderer, playlistId) {
+    if (!renderer || !renderer.isConnected) return;
+    
     const isSelected = selectedPlaylistIds.has(playlistId);
     
     renderer.classList.toggle('yt-commander-playlist-selected', isSelected);
@@ -1977,6 +2012,49 @@ function applyPlaylistSelectedState(renderer, playlistId) {
             hint.textContent = isSelected ? 'Selected' : 'Select';
         }
     }
+}
+
+function schedulePlaylistStateUpdate(renderer, playlistId) {
+    if (playlistStateTimers.has(renderer)) {
+        clearTimeout(playlistStateTimers.get(renderer));
+    }
+    
+    const timer = setTimeout(() => {
+        if (!renderer.isConnected) return;
+        applyPlaylistSelectedStateToRenderer(renderer, playlistId);
+        playlistStateTimers.delete(renderer);
+    }, 100);
+    
+    playlistStateTimers.set(renderer, timer);
+}
+
+function restorePlaylistSelectionState() {
+    if (!selectionMode || !isPlaylistsPage()) return;
+    
+    selectedPlaylistIds.forEach((playlistId) => {
+        const link = document.querySelector(`a[href*="list=${playlistId}"]`);
+        if (link) {
+            const renderer = link.closest('ytd-rich-item-renderer');
+            if (renderer) {
+                applyPlaylistSelectedStateToRenderer(renderer, playlistId);
+            }
+        }
+    });
+}
+
+/**
+ * Apply selected visual state to playlist renderer.
+ * @param {Element} renderer
+ * @param {string} playlistId
+ */
+function applyPlaylistSelectedState(renderer, playlistId) {
+    if (!renderer || !renderer.isConnected) {
+        return;
+    }
+
+    playlistObserverActive = false;
+    applyPlaylistSelectedStateToRenderer(renderer, playlistId);
+    playlistObserverActive = true;
 }
 
 /**
@@ -2190,10 +2268,6 @@ function queueFullRescan() {
         return;
     }
 
-    if (isPlaylistsPage()) {
-        return;
-    }
-
     const all = new Set();
     const root = resolveActivePageRoot();
     root.querySelectorAll(FEED_RENDERER_SELECTOR).forEach((container) => {
@@ -2209,11 +2283,6 @@ function processPendingContainers() {
     renderScheduled = false;
 
     if (!isEnabled || !selectionMode || !isEligiblePage()) {
-        pendingContainers.clear();
-        return;
-    }
-
-    if (isPlaylistsPage()) {
         pendingContainers.clear();
         return;
     }
@@ -2334,8 +2403,16 @@ function setSelectionMode(active) {
         selectedPlaylistIds.clear();
         lastPlaylistProbeVideoId = '';
         selectAllMode = false;
+        playlistStateTimers.forEach((timer) => clearTimeout(timer));
+        playlistStateTimers = new WeakMap();
+        if (playlistObserver) {
+            playlistObserver.disconnect();
+        }
     } else {
         queueFullRescan();
+        if (isPlaylistsPage()) {
+            observePlaylistsPage();
+        }
     }
 
     updateMastheadButtonState();
@@ -3082,12 +3159,6 @@ function handleRouteChange() {
     updateMastheadVisibility();
     syncActionBarVisibility();
     syncRemoveActionButton();
-
-    if (isPlaylistsPage()) {
-        document.body.setAttribute('data-page-type', 'playlists');
-    } else {
-        document.body.removeAttribute('data-page-type');
-    }
 }
 
 /**
@@ -3105,14 +3176,7 @@ function setupObserver() {
         return;
     }
 
-    let observerInstance = null;
-    let observerTimeout = null;
-    
-    function handleMutations(mutations) {
-        if (isPlaylistsPage()) {
-            return;
-        }
-
+    observer = createThrottledObserver((mutations) => {
         ensureMastheadButton();
         ensureActionUi();
         handleRouteChange();
@@ -3147,25 +3211,14 @@ function setupObserver() {
         });
 
         queueContainers(found);
-    }
+    }, 250);
 
-    observerInstance = new MutationObserver((mutations) => {
-        if (observerTimeout) return;
-        
-        observerTimeout = setTimeout(() => {
-            observerTimeout = null;
-            handleMutations(mutations);
-        }, 250);
-    });
-
-    observerInstance.observe(document.body, {
+    observer.observe(document.body, {
         childList: true,
         subtree: true,
         attributes: true,
         attributeFilter: ['href', 'video-id', 'data-video-id']
     });
-    
-    observer = observerInstance;
 }
 
 /**
@@ -3191,6 +3244,17 @@ function setupListeners() {
     document.addEventListener('mousedown', handleDocumentMouseDown, true);
     document.addEventListener('click', handleSelectionClickCapture, true);
     document.addEventListener('keydown', handleDocumentKeydown, true);
+    
+    let playlistScrollThrottle = null;
+    const handlePlaylistScroll = () => {
+        if (!playlistScrollThrottle) {
+            playlistScrollThrottle = setTimeout(() => {
+                restorePlaylistSelectionState();
+                playlistScrollThrottle = null;
+            }, 200);
+        }
+    };
+    window.addEventListener('scroll', handlePlaylistScroll, { passive: true });
 
     cleanupCallbacks.push(() => window.removeEventListener('message', handleBridgeResponse));
     cleanupCallbacks.push(() => window.removeEventListener('message', handleBridgeProgress));
@@ -3201,6 +3265,10 @@ function setupListeners() {
     cleanupCallbacks.push(() => document.removeEventListener('mousedown', handleDocumentMouseDown, true));
     cleanupCallbacks.push(() => document.removeEventListener('click', handleSelectionClickCapture, true));
     cleanupCallbacks.push(() => document.removeEventListener('keydown', handleDocumentKeydown, true));
+    cleanupCallbacks.push(() => {
+        clearTimeout(playlistScrollThrottle);
+        window.removeEventListener('scroll', handlePlaylistScroll);
+    });
 }
 
 /**
@@ -3209,12 +3277,6 @@ function setupListeners() {
 function initPlaylistMultiSelect() {
     if (isInitialized) {
         return;
-    }
-
-    if (isPlaylistsPage()) {
-        document.body.setAttribute('data-page-type', 'playlists');
-    } else {
-        document.body.removeAttribute('data-page-type');
     }
 
     ensureMastheadButton();
