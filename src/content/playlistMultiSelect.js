@@ -1003,40 +1003,49 @@ function updateActionUiState() {
     }
 
     if (actionSaveButton) {
+        actionSaveButton.hidden = isPlaylistPage;
         actionSaveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
 
     if (actionQuickCreateButton) {
+        actionQuickCreateButton.hidden = isPlaylistPage;
         actionQuickCreateButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
 
     if (actionSplitButton) {
+        actionSplitButton.hidden = isPlaylistPage;
         actionSplitButton.disabled = selectedCount === 0 || submitting;
     }
 
     if (actionWatchLaterButton) {
+        actionWatchLaterButton.hidden = isPlaylistPage;
         actionWatchLaterButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
 
     if (actionSelectAllButton) {
+        actionSelectAllButton.hidden = isPlaylistPage;
         actionSelectAllButton.disabled = pageCount === 0 || loadingPlaylists || submitting || createSubmitting;
         actionSelectAllButton.classList.toggle('is-active', selectAllMode);
     }
 
     if (actionUnselectAllButton) {
+        actionUnselectAllButton.hidden = isPlaylistPage;
         actionUnselectAllButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
 
     if (actionOpenAllButton) {
+        actionOpenAllButton.hidden = isPlaylistPage;
         actionOpenAllButton.disabled = selectedCount === 0 || submitting;
     }
 
     syncRemoveActionButton();
     if (actionRemoveButton) {
+        actionRemoveButton.hidden = isPlaylistPage;
         actionRemoveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
 
     if (actionRemoveWatchedButton) {
+        actionRemoveWatchedButton.hidden = isPlaylistPage;
         actionRemoveWatchedButton.disabled = submitting || loadingPlaylists;
     }
 
