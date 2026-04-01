@@ -2265,6 +2265,7 @@ function setSelectionMode(active) {
         return;
     }
 
+    logger.debug('Selection mode changing', { from: selectionMode, to: next, isPlaylistsPage: isPlaylistsPage() });
     selectionMode = next;
     document.documentElement.classList.toggle(ROOT_SELECTION_CLASS, selectionMode);
 
