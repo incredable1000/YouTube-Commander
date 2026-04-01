@@ -3521,3 +3521,7 @@ body.yt-commander-windowed-lock #columns {
     margin-top: 12px;
     font-weight: 500;
 }
+
+.yt-commander-playlist-selected {
+    opacity: 0.6;
+}

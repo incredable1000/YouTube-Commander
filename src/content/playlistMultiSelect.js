@@ -6,17 +6,6 @@
 import { createLogger } from './utils/logger.js';
 import { createThrottledObserver } from './utils/events.js';
 import {
-    BRIDGE_SOURCE,
-    REQUEST_TYPE,
-    RESPONSE_TYPE,
-    ACTIONS,
-    FEED_RENDERER_SELECTOR,
-    VIDEO_LINK_SELECTOR,
-    VIDEO_ID_PATTERN,
-    MASTHEAD_SLOT_CLASS,
-    MASTHEAD_BUTTON_CLASS,
-    MASTHEAD_BADGE_CLASS,
-    HOST_CLASS,
     HOST_SELECTED_CLASS,
     OVERLAY_CLASS,
     ACTION_BAR_CLASS,
@@ -27,7 +16,8 @@ import {
     REQUEST_TIMEOUT_MS,
     PROCESS_CHUNK_SIZE,
     STATUS_KIND,
-    VISIBILITY_OPTIONS
+    VISIBILITY_OPTIONS,
+    PLAYLIST_ID_PATTERN
 } from './playlist-multi-select/constants.js';
 import { ICONS } from '../shared/constants.js';
 import {
@@ -51,7 +41,9 @@ import {
     resolveMastheadMountPoint,
     getCurrentPlaylistId,
     isPlaylistCollectionPage,
-    getRemoveActionLabel
+    getRemoveActionLabel,
+    isPlaylistsPage,
+    collectRenderedPlaylistIds
 } from './playlist-multi-select/pageContext.js';
 import { createBridgeClient } from './playlist-multi-select/bridge.js';
 import { createSelectionRangeController } from './playlist-multi-select/selectionRange.js';
@@ -89,6 +81,7 @@ let actionQuickCreateButton = null;
 let actionSplitButton = null;
 let actionRemoveButton = null;
 let actionRemoveWatchedButton = null;
+let actionDeletePlaylistsButton = null;
 let actionSelectAllButton = null;
 let actionUnselectAllButton = null;
 let actionOpenAllButton = null;
@@ -330,6 +323,7 @@ function ensureActionBar() {
     actionSplitButton = createActionIconButton(createSplitIcon(), 'Split into playlists');
     actionRemoveButton = createActionIconButton(createRemoveIcon(), getRemoveActionLabel());
     actionRemoveWatchedButton = createActionIconButton(createRemoveIcon(), 'Remove watched');
+    actionDeletePlaylistsButton = createActionIconButton(createRemoveIcon(), 'Delete selected playlists');
     actionSelectAllButton = createActionIconButton(createSelectAllIcon(), 'Select all');
     actionUnselectAllButton = createActionIconButton(createUnselectAllIcon(), 'Unselect all');
 
@@ -357,6 +351,7 @@ function ensureActionBar() {
     actionBar.appendChild(actionSplitButton);
     actionBar.appendChild(actionRemoveButton);
     actionBar.appendChild(actionRemoveWatchedButton);
+    actionBar.appendChild(actionDeletePlaylistsButton);
     actionBar.appendChild(actionSelectAllButton);
     actionBar.appendChild(actionUnselectAllButton);
     actionBar.appendChild(actionOpenAllButton);
@@ -394,6 +389,7 @@ function ensureActionBar() {
     actionSplitButton.addEventListener('click', handleSplitClick);
     actionRemoveButton.addEventListener('click', handleActionRemoveClick);
     actionRemoveWatchedButton.addEventListener('click', handleActionRemoveWatchedClick);
+    actionDeletePlaylistsButton.addEventListener('click', handleActionDeletePlaylistsClick);
     actionSelectAllButton.addEventListener('click', handleActionSelectAllClick);
     actionUnselectAllButton.addEventListener('click', handleActionUnselectAllClick);
     actionOpenAllButton.addEventListener('click', handleOpenInNewTab);
@@ -405,6 +401,7 @@ function ensureActionBar() {
     cleanupCallbacks.push(() => actionSplitButton?.removeEventListener('click', handleSplitClick));
     cleanupCallbacks.push(() => actionRemoveButton?.removeEventListener('click', handleActionRemoveClick));
     cleanupCallbacks.push(() => actionRemoveWatchedButton?.removeEventListener('click', handleActionRemoveWatchedClick));
+    cleanupCallbacks.push(() => actionDeletePlaylistsButton?.removeEventListener('click', handleActionDeletePlaylistsClick));
     cleanupCallbacks.push(() => actionSelectAllButton?.removeEventListener('click', handleActionSelectAllClick));
     cleanupCallbacks.push(() => actionUnselectAllButton?.removeEventListener('click', handleActionUnselectAllClick));
     cleanupCallbacks.push(() => actionOpenAllButton?.removeEventListener('click', handleOpenInNewTab));
@@ -973,8 +970,14 @@ function syncRemoveActionButton() {
  * Update action controls based on selection and loading/submitting states.
  */
 function updateActionUiState() {
-    const selectedCount = selectedVideoIds.size;
-    const pageCount = collectRenderedVideoIds().length;
+    const isPlaylistPage = isPlaylistsPage();
+    const selectedVideoCount = selectedVideoIds.size;
+    const selectedPlaylistCount = selectedPlaylistIds.size;
+    const pageVideoCount = collectRenderedVideoIds().length;
+    const pagePlaylistCount = collectRenderedPlaylistIds().length;
+
+    const selectedCount = isPlaylistPage ? selectedPlaylistCount : selectedVideoCount;
+    const pageCount = isPlaylistPage ? pagePlaylistCount : pageVideoCount;
 
     if (actionCount) {
         actionCount.textContent = selectedCount > 999 ? '999+' : String(selectedCount);
@@ -1024,6 +1027,11 @@ function updateActionUiState() {
 
     if (actionRemoveWatchedButton) {
         actionRemoveWatchedButton.disabled = submitting || loadingPlaylists;
+    }
+
+    if (actionDeletePlaylistsButton) {
+        actionDeletePlaylistsButton.classList.toggle('is-visible', isPlaylistPage);
+        actionDeletePlaylistsButton.disabled = selectedPlaylistCount === 0 || submitting || loadingPlaylists;
     }
 
     if (playlistPanelCloseButton) {
@@ -1893,6 +1901,47 @@ function handleVideoSelectionInteraction(options) {
 }
 
 /**
+ * Handle playlist selection interaction on playlists page.
+ * @param {string} playlistId
+ * @param {Element} renderer
+ */
+function handlePlaylistSelectionInteraction(playlistId, renderer) {
+    if (!PLAYLIST_ID_PATTERN.test(playlistId)) {
+        return;
+    }
+
+    togglePlaylistSelection(playlistId);
+    applyPlaylistSelectedState(renderer, playlistId);
+}
+
+/**
+ * Toggle playlist selection state.
+ * @param {string} playlistId
+ */
+function togglePlaylistSelection(playlistId) {
+    if (selectedPlaylistIds.has(playlistId)) {
+        selectedPlaylistIds.delete(playlistId);
+    } else {
+        selectedPlaylistIds.add(playlistId);
+    }
+    updateActionUiState();
+}
+
+/**
+ * Apply selected visual state to playlist renderer.
+ * @param {Element} renderer
+ * @param {string} playlistId
+ */
+function applyPlaylistSelectedState(renderer, playlistId) {
+    if (!renderer || !renderer.isConnected) {
+        return;
+    }
+
+    const isSelected = selectedPlaylistIds.has(playlistId);
+    renderer.classList.toggle('yt-commander-playlist-selected', isSelected);
+}
+
+/**
  * Clear selected videos and update visuals.
  */
 function clearSelectedVideos() {
@@ -1904,6 +1953,10 @@ function clearSelectedVideos() {
     document.querySelectorAll(`.${HOST_CLASS}`).forEach((host) => {
         const videoId = host.getAttribute('data-yt-commander-video-id') || '';
         applySelectedState(host, videoId);
+    });
+
+    document.querySelectorAll('.yt-commander-playlist-selected').forEach((renderer) => {
+        renderer.classList.remove('yt-commander-playlist-selected');
     });
 
     updateActionUiState();
@@ -2576,6 +2629,60 @@ async function handleActionRemoveWatchedClick(event) {
 }
 
 /**
+ * Handle "delete playlists" click - deletes selected playlists.
+ * @param {MouseEvent} event
+ */
+async function handleActionDeletePlaylistsClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (submitting) {
+        return;
+    }
+
+    const playlistIds = Array.from(selectedPlaylistIds);
+    if (playlistIds.length === 0) {
+        setStatusMessage('Select playlists to delete.', STATUS_KIND.ERROR);
+        return;
+    }
+
+    submitting = true;
+    updateActionUiState();
+    showSaveProgress(0, playlistIds.length, 'Deleting playlists');
+
+    try {
+        const response = await sendBridgeRequest(ACTIONS.DELETE_PLAYLISTS, {
+            playlistIds
+        }, (progress) => {
+            if (progress) {
+                showSaveProgress(progress.processed, progress.total, 'Deleting playlists');
+            }
+        });
+
+        hideSaveProgress();
+        const deletedCount = Number(response?.deletedCount) || 0;
+        const failedCount = Number(response?.failedCount) || 0;
+
+        selectedPlaylistIds.clear();
+
+        if (failedCount > 0) {
+            setStatusMessage(`Deleted ${deletedCount} playlist(s). ${failedCount} failed.`, STATUS_KIND.ERROR);
+        } else {
+            setStatusMessage(`Deleted ${deletedCount} playlist(s). Refreshing...`, STATUS_KIND.SUCCESS);
+            window.location.reload();
+        }
+
+    } catch (error) {
+        logger.warn('Failed to delete playlists', error);
+        hideSaveProgress();
+        setStatusMessage(error instanceof Error ? error.message : 'Failed to delete playlists.', STATUS_KIND.ERROR);
+    } finally {
+        submitting = false;
+        updateActionUiState();
+    }
+}
+
+/**
  * Handle "open in new tab" click - opens all selected videos in new tabs.
  * @param {MouseEvent} event
  */
@@ -2802,6 +2909,29 @@ function handleSelectionClickCapture(event) {
     }
 
     if (target.closest(`.${OVERLAY_CLASS}`)) {
+        return;
+    }
+
+    if (isPlaylistsPage()) {
+        const playlistRenderer = target.closest('ytd-grid-playlist-renderer, ytd-playlist-renderer');
+        if (playlistRenderer) {
+            const link = playlistRenderer.querySelector('a[href*="list="]');
+            if (link) {
+                try {
+                    const url = new URL(link.href, location.origin);
+                    const playlistId = url.searchParams.get('list');
+                    if (playlistId) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (typeof event.stopImmediatePropagation === 'function') {
+                            event.stopImmediatePropagation();
+                        }
+                        handlePlaylistSelectionInteraction(playlistId, playlistRenderer);
+                        return;
+                    }
+                } catch (_e) {}
+            }
+        }
         return;
     }
 

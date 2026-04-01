@@ -17,6 +17,7 @@ const ACTIONS = {
     ADD_TO_PLAYLISTS: 'ADD_TO_PLAYLISTS',
     CREATE_PLAYLIST_AND_ADD: 'CREATE_PLAYLIST_AND_ADD',
     REMOVE_FROM_PLAYLIST: 'REMOVE_FROM_PLAYLIST',
+    DELETE_PLAYLISTS: 'DELETE_PLAYLISTS',
     GET_SHORTS_UPLOAD_TIMESTAMPS: 'GET_SHORTS_UPLOAD_TIMESTAMPS',
     GET_SUBSCRIPTIONS: 'GET_SUBSCRIPTIONS',
     UNSUBSCRIBE_CHANNELS: 'UNSUBSCRIBE_CHANNELS'
@@ -1921,6 +1922,56 @@ async function removeFromPlaylist(payload, options = {}) {
 }
 
 /**
+ * Delete multiple playlists.
+ * @param {{playlistIds: string[]}} payload
+ * @param {{onProgress?: (progress: {processed: number, total: number}) => void}} [options]
+ * @returns {Promise<{
+ *   deletedCount: number,
+ *   failedCount: number,
+ *   failures: Array<{playlistId: string, error: string}>
+ * }>}
+ */
+async function deletePlaylists(payload, options = {}) {
+    const playlistIds = sanitizePlaylistIds(payload?.playlistIds || []);
+    if (playlistIds.length === 0) {
+        throw new Error('No playlists selected for deletion.');
+    }
+
+    const config = await getInnertubeConfig();
+    const deletedCount = 0;
+    const failures = [];
+
+    for (let i = 0; i < playlistIds.length; i += 1) {
+        const playlistId = playlistIds[i];
+
+        try {
+            await postInnertube('playlist/delete', {
+                context: config.context,
+                playlistId
+            }, config);
+
+            if (typeof options?.onProgress === 'function') {
+                options.onProgress({
+                    processed: i + 1,
+                    total: playlistIds.length
+                });
+            }
+        } catch (error) {
+            failures.push({
+                playlistId,
+                error: error instanceof Error ? error.message : 'Failed to delete playlist.'
+            });
+        }
+    }
+
+    return {
+        deletedCount: playlistIds.length - failures.length,
+        failedCount: failures.length,
+        failures
+    };
+}
+
+/**
  * Create a playlist and add selected videos into it.
  * @param {{title?: string, privacyStatus?: string, collaborate?: boolean, videoIds?: string[]}} payload
  * @param {{onProgress?: (progress: {processed: number, total: number, label: string}) => void}} [options]
@@ -2420,6 +2471,12 @@ async function handleBridgeRequest(message) {
             });
         } else if (action === ACTIONS.GET_SHORTS_UPLOAD_TIMESTAMPS) {
             result = await getShortsUploadTimestamps(payload);
+        } else if (action === ACTIONS.DELETE_PLAYLISTS) {
+            result = await deletePlaylists(payload, {
+                onProgress: (progress) => {
+                    postBridgeProgress(requestId, progress);
+                }
+            });
         } else if (action === ACTIONS.GET_SUBSCRIPTIONS) {
             result = await getSubscriptions(payload);
         } else if (action === ACTIONS.UNSUBSCRIBE_CHANNELS) {

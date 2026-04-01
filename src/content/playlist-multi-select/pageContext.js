@@ -114,11 +114,53 @@ function getRemoveActionLabel() {
     return getCurrentPlaylistId() === 'WL' ? 'Remove from Watch later' : 'Remove from playlist';
 }
 
+/**
+ * Whether current page is the playlists feed page.
+ * @returns {boolean}
+ */
+function isPlaylistsPage() {
+    const path = location.pathname || '';
+    return path === '/feed/playlists';
+}
+
+/**
+ * Collect playlist IDs from rendered playlist cards on the playlists page.
+ * @returns {string[]}
+ */
+function collectRenderedPlaylistIds() {
+    const playlistIds = new Set();
+    
+    document.querySelectorAll('ytd-grid-playlist-renderer, ytd-playlist-renderer').forEach((renderer) => {
+        const link = renderer.querySelector('a[href*="list="]');
+        if (link) {
+            try {
+                const url = new URL(link.href, location.origin);
+                const listId = url.searchParams.get('list');
+                if (listId && PLAYLIST_ID_PATTERN.test(listId)) {
+                    playlistIds.add(listId);
+                }
+            } catch (_e) {}
+        }
+        
+        const videoId = renderer.getAttribute('data-video-id') || '';
+        if (videoId && VIDEO_ID_PATTERN.test(videoId)) {
+            const listId = renderer.closest('[data-list-id]')?.getAttribute('data-list-id');
+            if (listId && PLAYLIST_ID_PATTERN.test(listId)) {
+                playlistIds.add(listId);
+            }
+        }
+    });
+
+    return Array.from(playlistIds);
+}
+
 export {
     extractVideoId,
     isEligiblePage,
     resolveMastheadMountPoint,
     getCurrentPlaylistId,
     isPlaylistCollectionPage,
-    getRemoveActionLabel
+    getRemoveActionLabel,
+    isPlaylistsPage,
+    collectRenderedPlaylistIds
 };
