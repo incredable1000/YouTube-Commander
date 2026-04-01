@@ -8,39 +8,14 @@ const LOCAL_STORAGE_KEY = 'ytCommanderSubscribedChannelsCache';
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 const recentlyHoveredCards = new WeakSet();
-let hoverCleanupTimer = null;
 let globalHoverPause = false;
-let hoverPauseTimeout = null;
-let isMouseOverFeed = false;
-
-function markCardHovered(card) {
-    recentlyHoveredCards.add(card);
-    
-    if (hoverCleanupTimer) {
-        clearTimeout(hoverCleanupTimer);
-    }
-    
-    hoverCleanupTimer = setTimeout(() => {
-        recentlyHoveredCards.delete(card);
-        hoverCleanupTimer = null;
-    }, 500);
-}
 
 function pauseDecorationDuringHover() {
     globalHoverPause = true;
-    isMouseOverFeed = true;
-    if (hoverPauseTimeout) {
-        clearTimeout(hoverPauseTimeout);
-        hoverPauseTimeout = null;
-    }
 }
 
 function resumeDecoration() {
-    hoverPauseTimeout = setTimeout(() => {
-        globalHoverPause = false;
-        isMouseOverFeed = false;
-        hoverPauseTimeout = null;
-    }, 500);
+    globalHoverPause = false;
 }
 const LABEL_CLASS = 'yt-commander-subscription-label';
 const LABEL_KIND_ATTR = 'data-yt-commander-subscription-kind';
@@ -1425,6 +1400,9 @@ function startScanLoop() {
         return;
     }
     scanIntervalId = window.setInterval(() => {
+        if (globalHoverPause) {
+            return;
+        }
         scanVisibleCards();
     }, 1000);
 }
@@ -1447,6 +1425,7 @@ async function init() {
     document.addEventListener('yt-page-data-updated', scanVisibleCards);
 
     let mouseOverThrottle = null;
+    let mouseLeaveTimeout = null;
     const onMouseOver = (event) => {
         if (mouseOverThrottle) return;
         
@@ -1458,23 +1437,25 @@ async function init() {
             mouseOverThrottle = setTimeout(() => {
                 mouseOverThrottle = null;
             }, 100);
-            markCardHovered(card);
             pauseDecorationDuringHover();
         }
     };
     
-    const onMouseOut = (event) => {
-        const target = event.target;
-        if (!target) return;
-        
-        const card = target.closest(CARD_SELECTOR);
-        if (card && !card.contains(event.relatedTarget)) {
-            resumeDecoration();
+    const onMouseLeave = () => {
+        if (mouseLeaveTimeout) {
+            clearTimeout(mouseLeaveTimeout);
         }
+        mouseLeaveTimeout = setTimeout(() => {
+            resumeDecoration();
+            mouseLeaveTimeout = null;
+        }, 500);
     };
     
-    document.addEventListener('mouseover', onMouseOver, true);
-    document.addEventListener('mouseout', onMouseOut, true);
+    const feedContainer = document.querySelector(HOME_BROWSE_SELECTOR);
+    if (feedContainer) {
+        feedContainer.addEventListener('mouseenter', onMouseOver, true);
+        feedContainer.addEventListener('mouseleave', onMouseLeave, true);
+    }
 }
 
 /**
