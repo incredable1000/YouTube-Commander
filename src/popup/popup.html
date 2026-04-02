@@ -1169,6 +1169,14 @@
             <div class="action-buttons">
                 <button class="btn btn-secondary" id="exportHistory">Export</button>
                 <button class="btn btn-secondary" id="importHistory">Import</button>
+                <button class="btn" id="exportSqlMigration">Export SQL</button>
+                <button class="btn btn-secondary" id="importHistory" style="display:none">Import</button>
+            </div>
+            <div class="note">
+                <strong>Export SQL for D1:</strong> Downloads .sql files. Run in your project folder:<br>
+                <code style="display:block;margin-top:6px;padding:6px 8px;background:rgba(0,0,0,0.3);border-radius:4px;font-size:12px;">
+                    npx wrangler d1 execute YOUR_DB --file=youtube-watched-history-d1.sql
+                </code>
             </div>
         </div>
         <div class="ytc-v2-section">
