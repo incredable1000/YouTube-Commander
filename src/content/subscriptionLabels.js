@@ -7,36 +7,30 @@ const LOCAL_STORAGE_KEY = 'ytCommanderSubscribedChannelsCache';
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
-const recentlyHoveredCards = new WeakSet();
-let hoverCleanupTimer = null;
+let isHovering = false;
+let hoverResumeTimer = null;
 
-function markCardHovered(card) {
-    recentlyHoveredCards.add(card);
-    
-    if (hoverCleanupTimer) {
-        clearTimeout(hoverCleanupTimer);
+function onHoverStart() {
+    if (isHovering) return;
+    isHovering = true;
+    if (hoverResumeTimer) {
+        clearTimeout(hoverResumeTimer);
+        hoverResumeTimer = null;
     }
-    
-    hoverCleanupTimer = setTimeout(() => {
-        recentlyHoveredCards.delete(card);
-        hoverCleanupTimer = null;
-    }, 500);
+}
+
+function onHoverEnd() {
+    if (hoverResumeTimer) return;
+    hoverResumeTimer = setTimeout(() => {
+        isHovering = false;
+        hoverResumeTimer = null;
+    }, 600);
 }
 
 function isCardElement(target) {
     if (!target) return false;
-    const cardSelectors = [
-        'ytd-rich-item-renderer',
-        'ytd-video-renderer', 
-        'ytd-grid-video-renderer',
-        'ytd-rich-grid-renderer',
-        '#contents'
-    ];
-    for (const sel of cardSelectors) {
-        if (target.matches && target.matches(sel)) return true;
-        if (target.closest && target.closest(sel)) return true;
-    }
-    return false;
+    return target.matches?.('ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer')
+        || target.closest?.('ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-rich-section-renderer');
 }
 const LABEL_CLASS = 'yt-commander-subscription-label';
 const LABEL_KIND_ATTR = 'data-yt-commander-subscription-kind';
@@ -1225,11 +1219,10 @@ function decorateCard(card) {
     }
 
     if (card.matches(':hover') || card.contains(document.activeElement)) {
-        markCardHovered(card);
         return;
     }
 
-    if (recentlyHoveredCards.has(card)) {
+    if (isHovering) {
         return;
     }
 
@@ -1439,14 +1432,20 @@ async function init() {
     window.addEventListener('yt-page-data-updated', scanVisibleCards);
     document.addEventListener('yt-page-data-updated', scanVisibleCards);
      
+    let lastHoverCheck = 0;
     document.addEventListener('mousemove', (e) => {
+        const now = Date.now();
+        if (now - lastHoverCheck < 100) return;
+        lastHoverCheck = now;
+        
         if (isCardElement(e.target)) {
-            const card = e.target.closest(CARD_SELECTOR);
-            if (card) {
-                markCardHovered(card);
-            }
+            onHoverStart();
+        } else {
+            onHoverEnd();
         }
     }, { passive: true });
+    
+    document.addEventListener('mouseleave', onHoverEnd);
 }
 
 /**
