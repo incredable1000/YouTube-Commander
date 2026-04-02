@@ -70,6 +70,20 @@ const SUBSCRIPTION_MANAGER_STORAGE_KEYS = {
     PENDING_KEYS: 'subscriptionSyncPendingKeys',
     PENDING_COUNT: 'subscriptionSyncPendingCount'
 };
+
+const AUTOMATION_STORAGE_KEYS = {
+    ENABLED: 'subscriptionAutomationEnabled',
+    TIME: 'subscriptionAutomationTime',
+    LOOKBACK: 'subscriptionAutomationLookback',
+    SHORTS_PLAYLIST: 'subscriptionAutomationShortsPlaylist',
+    VIDEOS_MODE: 'subscriptionAutomationVideosMode',
+    VIDEOS_PLAYLIST: 'subscriptionAutomationVideosPlaylist',
+    SPLIT_COUNT: 'subscriptionAutomationSplitCount',
+    LAST_RUN: 'subscriptionAutomationLastRun',
+    LAST_VIDEOS_COUNT: 'subscriptionAutomationLastVideosCount',
+    LAST_SHORTS_COUNT: 'subscriptionAutomationLastShortsCount',
+    LAST_STATUS: 'subscriptionAutomationLastStatus'
+};
 const SYNC_INTERVAL_OPTIONS = [15, 30, 60, 180, 720, 1440];
 const SQL_EXPORT_TABLE_NAME = 'watched_videos';
 const SQL_EXPORT_IDS_PER_FILE = 200000;
@@ -1510,6 +1524,292 @@ function setupSubscriptionSyncControls() {
     };
 
     endpointInput?.addEventListener('blur', saveOnBlur);
+}
+
+/**
+ * Setup subscription automation controls.
+ */
+function setupSubscriptionAutomationControls() {
+    const toggle = document.getElementById('subscriptionAutomationToggle');
+    const timeInput = document.getElementById('subscriptionAutomationTime');
+    const lookbackDropdown = document.getElementById('automationLookbackDropdown');
+    const shortsPlaylistDropdown = document.getElementById('automationShortsPlaylistDropdown');
+    const videosModeDropdown = document.getElementById('automationVideosModeDropdown');
+    const videosPlaylistRow = document.getElementById('automationVideosPlaylistRow');
+    const videosPlaylistDropdown = document.getElementById('automationVideosPlaylistDropdown');
+    const splitCountRow = document.getElementById('automationSplitCountRow');
+    const splitCountInput = document.getElementById('automationSplitCount');
+    const runNowBtn = document.getElementById('runAutomationNow');
+
+    if (toggle) {
+        toggle.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            setToggleState(toggle, !toggle.classList.contains('active'));
+            await saveAutomationSettings();
+            showStatus(toggle.classList.contains('active') ? 'Automation enabled' : 'Automation disabled', 'success');
+        });
+    }
+
+    if (timeInput) {
+        timeInput.addEventListener('change', async () => {
+            await saveAutomationSettings();
+        });
+    }
+
+    if (lookbackDropdown) {
+        lookbackDropdown.querySelectorAll('.ytc-dropdown-option').forEach(opt => {
+            opt.addEventListener('click', async () => {
+                lookbackDropdown.querySelectorAll('.ytc-dropdown-option').forEach(o => o.classList.remove('selected'));
+                opt.classList.add('selected');
+                lookbackDropdown.querySelector('.ytc-dropdown-label').textContent = opt.textContent;
+                lookbackDropdown.dataset.value = opt.dataset.value;
+                await saveAutomationSettings();
+            });
+        });
+    }
+
+    if (videosModeDropdown) {
+        videosModeDropdown.querySelectorAll('.ytc-dropdown-option').forEach(opt => {
+            opt.addEventListener('click', async () => {
+                videosModeDropdown.querySelectorAll('.ytc-dropdown-option').forEach(o => o.classList.remove('selected'));
+                opt.classList.add('selected');
+                videosModeDropdown.querySelector('.ytc-dropdown-label').textContent = opt.textContent;
+                videosModeDropdown.dataset.value = opt.dataset.value;
+                
+                const isSplit = opt.dataset.value === 'split';
+                if (videosPlaylistRow) videosPlaylistRow.style.display = isSplit ? 'none' : 'flex';
+                if (splitCountRow) splitCountRow.style.display = isSplit ? 'flex' : 'none';
+                
+                await saveAutomationSettings();
+            });
+        });
+    }
+
+    if (splitCountInput) {
+        splitCountInput.addEventListener('change', async () => {
+            await saveAutomationSettings();
+        });
+    }
+
+    if (runNowBtn) {
+        runNowBtn.addEventListener('click', async () => {
+            runNowBtn.disabled = true;
+            runNowBtn.textContent = 'Running...';
+            showStatus('Running automation...', 'info');
+            
+            try {
+                const response = await chrome.runtime.sendMessage({ type: 'RUN_SUBSCRIPTION_AUTOMATION' });
+                if (response?.success) {
+                    showStatus(`Added ${response.videosCount || 0} videos, ${response.shortsCount || 0} shorts`, 'success');
+                } else {
+                    showStatus(response?.error || 'Automation failed', 'error');
+                }
+            } catch (error) {
+                showStatus('Failed to run automation', 'error');
+            } finally {
+                runNowBtn.disabled = false;
+                runNowBtn.textContent = 'Run Now (Debug)';
+                await loadAutomationStats();
+            }
+        });
+    }
+}
+
+async function saveAutomationSettings() {
+    const toggle = document.getElementById('subscriptionAutomationToggle');
+    const timeInput = document.getElementById('subscriptionAutomationTime');
+    const lookbackDropdown = document.getElementById('automationLookbackDropdown');
+    const shortsPlaylistDropdown = document.getElementById('automationShortsPlaylistDropdown');
+    const videosModeDropdown = document.getElementById('automationVideosModeDropdown');
+    const videosPlaylistDropdown = document.getElementById('automationVideosPlaylistDropdown');
+    const splitCountInput = document.getElementById('automationSplitCount');
+    
+    const settings = {
+        [AUTOMATION_STORAGE_KEYS.ENABLED]: toggle?.classList.contains('active') || false,
+        [AUTOMATION_STORAGE_KEYS.TIME]: timeInput?.value || '19:30',
+        [AUTOMATION_STORAGE_KEYS.LOOKBACK]: lookbackDropdown?.dataset.value || 'yesterday',
+        [AUTOMATION_STORAGE_KEYS.SHORTS_PLAYLIST]: shortsPlaylistDropdown?.dataset.value || 'WL',
+        [AUTOMATION_STORAGE_KEYS.VIDEOS_MODE]: videosModeDropdown?.dataset.value || 'single',
+        [AUTOMATION_STORAGE_KEYS.VIDEOS_PLAYLIST]: videosPlaylistDropdown?.dataset.value || 'WL',
+        [AUTOMATION_STORAGE_KEYS.SPLIT_COUNT]: parseInt(splitCountInput?.value) || 20
+    };
+    
+    await chrome.storage.local.set(settings);
+    
+    chrome.runtime.sendMessage({ type: 'SCHEDULE_AUTOMATION' }).catch(() => {});
+}
+
+async function loadAutomationSettings() {
+    const result = await chrome.storage.local.get([
+        AUTOMATION_STORAGE_KEYS.ENABLED,
+        AUTOMATION_STORAGE_KEYS.TIME,
+        AUTOMATION_STORAGE_KEYS.LOOKBACK,
+        AUTOMATION_STORAGE_KEYS.SHORTS_PLAYLIST,
+        AUTOMATION_STORAGE_KEYS.VIDEOS_MODE,
+        AUTOMATION_STORAGE_KEYS.VIDEOS_PLAYLIST,
+        AUTOMATION_STORAGE_KEYS.SPLIT_COUNT
+    ]);
+    
+    const toggle = document.getElementById('subscriptionAutomationToggle');
+    const timeInput = document.getElementById('subscriptionAutomationTime');
+    const lookbackDropdown = document.getElementById('automationLookbackDropdown');
+    const shortsPlaylistDropdown = document.getElementById('automationShortsPlaylistDropdown');
+    const videosModeDropdown = document.getElementById('automationVideosModeDropdown');
+    const videosPlaylistRow = document.getElementById('automationVideosPlaylistRow');
+    const videosPlaylistDropdown = document.getElementById('automationVideosPlaylistDropdown');
+    const splitCountRow = document.getElementById('automationSplitCountRow');
+    const splitCountInput = document.getElementById('automationSplitCount');
+    
+    if (toggle) {
+        setToggleState(toggle, result[AUTOMATION_STORAGE_KEYS.ENABLED] === true);
+    }
+    
+    if (timeInput) {
+        timeInput.value = result[AUTOMATION_STORAGE_KEYS.TIME] || '19:30';
+    }
+    
+    if (lookbackDropdown) {
+        const lookbackValue = result[AUTOMATION_STORAGE_KEYS.LOOKBACK] || 'yesterday';
+        lookbackDropdown.dataset.value = lookbackValue;
+        const option = lookbackDropdown.querySelector(`[data-value="${lookbackValue}"]`);
+        lookbackDropdown.querySelectorAll('.ytc-dropdown-option').forEach(o => o.classList.remove('selected'));
+        if (option) {
+            option.classList.add('selected');
+            lookbackDropdown.querySelector('.ytc-dropdown-label').textContent = option.textContent;
+        }
+    }
+    
+    if (shortsPlaylistDropdown) {
+        shortsPlaylistDropdown.dataset.value = result[AUTOMATION_STORAGE_KEYS.SHORTS_PLAYLIST] || 'WL';
+    }
+    
+    if (videosModeDropdown) {
+        const modeValue = result[AUTOMATION_STORAGE_KEYS.VIDEOS_MODE] || 'single';
+        videosModeDropdown.dataset.value = modeValue;
+        const option = videosModeDropdown.querySelector(`[data-value="${modeValue}"]`);
+        videosModeDropdown.querySelectorAll('.ytc-dropdown-option').forEach(o => o.classList.remove('selected'));
+        if (option) {
+            option.classList.add('selected');
+            videosModeDropdown.querySelector('.ytc-dropdown-label').textContent = option.textContent;
+        }
+        
+        if (videosPlaylistRow) videosModeDropdown.style.display = modeValue === 'split' ? 'none' : 'flex';
+        if (splitCountRow) splitCountRow.style.display = modeValue === 'split' ? 'flex' : 'none';
+    }
+    
+    if (videosPlaylistDropdown) {
+        videosPlaylistDropdown.dataset.value = result[AUTOMATION_STORAGE_KEYS.VIDEOS_PLAYLIST] || 'WL';
+    }
+    
+    if (splitCountInput) {
+        splitCountInput.value = result[AUTOMATION_STORAGE_KEYS.SPLIT_COUNT] || 20;
+    }
+}
+
+async function loadAutomationStats() {
+    const result = await chrome.storage.local.get([
+        AUTOMATION_STORAGE_KEYS.LAST_RUN,
+        AUTOMATION_STORAGE_KEYS.LAST_VIDEOS_COUNT,
+        AUTOMATION_STORAGE_KEYS.LAST_SHORTS_COUNT,
+        AUTOMATION_STORAGE_KEYS.LAST_STATUS,
+        AUTOMATION_STORAGE_KEYS.TIME
+    ]);
+    
+    const lastRunEl = document.getElementById('automationLastRun');
+    const statusEl = document.getElementById('automationStatus');
+    const videosEl = document.getElementById('automationVideosAdded');
+    const shortsEl = document.getElementById('automationShortsAdded');
+    const nextRunEl = document.getElementById('automationNextRun');
+    
+    if (lastRunEl) {
+        const lastRun = result[AUTOMATION_STORAGE_KEYS.LAST_RUN];
+        if (lastRun) {
+            const date = new Date(lastRun);
+            const formatted = date.toLocaleString('en-US', { 
+                month: 'short', 
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            });
+            lastRunEl.textContent = formatted;
+        } else {
+            lastRunEl.textContent = 'Never';
+        }
+    }
+    
+    if (statusEl) {
+        const status = result[AUTOMATION_STORAGE_KEYS.LAST_STATUS];
+        if (status === 'success') {
+            statusEl.textContent = 'Success';
+            statusEl.style.color = 'var(--ytc-v2-green)';
+        } else if (status === 'partial') {
+            statusEl.textContent = 'Partial';
+            statusEl.style.color = 'var(--ytc-v2-amber)';
+        } else if (status === 'failed') {
+            statusEl.textContent = 'Failed';
+            statusEl.style.color = 'var(--ytc-v2-red)';
+        } else {
+            statusEl.textContent = '-';
+            statusEl.style.color = 'var(--ytc-v2-text)';
+        }
+    }
+    
+    if (videosEl) {
+        videosEl.textContent = result[AUTOMATION_STORAGE_KEYS.LAST_VIDEOS_COUNT] || 0;
+    }
+    
+    if (shortsEl) {
+        shortsEl.textContent = result[AUTOMATION_STORAGE_KEYS.LAST_SHORTS_COUNT] || 0;
+    }
+    
+    if (nextRunEl) {
+        const now = new Date();
+        const timeStr = result[AUTOMATION_STORAGE_KEYS.TIME] || '19:30';
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        
+        let nextRun = new Date(now);
+        nextRun.setHours(hours, minutes, 0, 0);
+        
+        if (nextRun <= now) {
+            nextRun.setDate(nextRun.getDate() + 1);
+            nextRunEl.textContent = `Tomorrow ${timeStr}`;
+        } else {
+            const todayOrTomorrow = nextRun.toDateString() === now.toDateString() ? 'Today' : 'Tomorrow';
+            nextRunEl.textContent = `${todayOrTomorrow} ${timeStr}`;
+        }
+    }
+}
+
+function renderAutomationNextRunCountdown() {
+    const nextRunEl = document.getElementById('automationNextRun');
+    if (!nextRunEl) return;
+    
+    chrome.storage.local.get([AUTOMATION_STORAGE_KEYS.TIME, AUTOMATION_STORAGE_KEYS.ENABLED], (result) => {
+        if (!result[AUTOMATION_STORAGE_KEYS.ENABLED]) {
+            nextRunEl.textContent = 'Disabled';
+            nextRunEl.style.color = 'var(--ytc-v2-muted)';
+            return;
+        }
+        
+        const now = new Date();
+        const timeStr = result[AUTOMATION_STORAGE_KEYS.TIME] || '19:30';
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        
+        let nextRun = new Date(now);
+        nextRun.setHours(hours, minutes, 0, 0);
+        
+        if (nextRun <= now) {
+            nextRun.setDate(nextRun.getDate() + 1);
+        }
+        
+        const diff = nextRun - now;
+        const hoursLeft = Math.floor(diff / (1000 * 60 * 60));
+        const minutesLeft = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        
+        nextRunEl.textContent = `in ${hoursLeft}h ${minutesLeft}m`;
+        nextRunEl.style.color = 'var(--ytc-v2-amber)';
+    });
 }
 
 /**
@@ -3124,5 +3424,10 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(refreshSubscriptionSyncStatus, 30000);
     setInterval(renderCloudflareNextSyncCountdown, 1000);
     setInterval(renderSubscriptionNextSyncCountdown, 1000);
+    setInterval(renderAutomationNextRunCountdown, 1000);
+    
+    setupSubscriptionAutomationControls();
+    loadAutomationSettings();
+    loadAutomationStats();
 });
 

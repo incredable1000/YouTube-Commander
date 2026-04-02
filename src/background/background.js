@@ -2974,3 +2974,323 @@ ensureSubscriptionAutoSyncAlarm().catch((error) => {
 runSubscriptionAutoSyncIfDue('startup-bootstrap').catch((error) => {
     console.error('[YT-Commander][SubscriptionSync] Startup bootstrap due-check failed', error);
 });
+
+const AUTOMATION_ALARM_NAME = 'ytCommanderSubscriptionAutomation';
+const AUTOMATION_STORAGE_KEYS = {
+    ENABLED: 'subscriptionAutomationEnabled',
+    TIME: 'subscriptionAutomationTime',
+    LOOKBACK: 'subscriptionAutomationLookback',
+    SHORTS_PLAYLIST: 'subscriptionAutomationShortsPlaylist',
+    VIDEOS_MODE: 'subscriptionAutomationVideosMode',
+    VIDEOS_PLAYLIST: 'subscriptionAutomationVideosPlaylist',
+    SPLIT_COUNT: 'subscriptionAutomationSplitCount',
+    LAST_RUN: 'subscriptionAutomationLastRun',
+    LAST_VIDEOS_COUNT: 'subscriptionAutomationLastVideosCount',
+    LAST_SHORTS_COUNT: 'subscriptionAutomationLastShortsCount',
+    LAST_STATUS: 'subscriptionAutomationLastStatus'
+};
+
+async function readAutomationSettings() {
+    const result = await storageLocalGet([
+        AUTOMATION_STORAGE_KEYS.ENABLED,
+        AUTOMATION_STORAGE_KEYS.TIME,
+        AUTOMATION_STORAGE_KEYS.LOOKBACK,
+        AUTOMATION_STORAGE_KEYS.SHORTS_PLAYLIST,
+        AUTOMATION_STORAGE_KEYS.VIDEOS_MODE,
+        AUTOMATION_STORAGE_KEYS.VIDEOS_PLAYLIST,
+        AUTOMATION_STORAGE_KEYS.SPLIT_COUNT
+    ]);
+    
+    return {
+        enabled: result[AUTOMATION_STORAGE_KEYS.ENABLED] === true,
+        time: result[AUTOMATION_STORAGE_KEYS.TIME] || '19:30',
+        lookback: result[AUTOMATION_STORAGE_KEYS.LOOKBACK] || 'yesterday',
+        shortsPlaylist: result[AUTOMATION_STORAGE_KEYS.SHORTS_PLAYLIST] || 'WL',
+        videosMode: result[AUTOMATION_STORAGE_KEYS.VIDEOS_MODE] || 'single',
+        videosPlaylist: result[AUTOMATION_STORAGE_KEYS.VIDEOS_PLAYLIST] || 'WL',
+        splitCount: parseInt(result[AUTOMATION_STORAGE_KEYS.SPLIT_COUNT]) || 20
+    };
+}
+
+async function scheduleAutomation() {
+    const settings = await readAutomationSettings();
+    
+    if (!settings.enabled) {
+        await clearAlarm(AUTOMATION_ALARM_NAME);
+        console.info('[YT-Commander][Automation] Disabled, clearing alarm');
+        return;
+    }
+    
+    const [hours, minutes] = settings.time.split(':').map(Number);
+    const now = new Date();
+    let nextRun = new Date(now);
+    nextRun.setHours(hours, minutes, 0, 0);
+    
+    if (nextRun <= now) {
+        nextRun.setDate(nextRun.getDate() + 1);
+    }
+    
+    const delayInMinutes = (nextRun - now) / (1000 * 60);
+    
+    await clearAlarm(AUTOMATION_ALARM_NAME);
+    chrome.alarms.create(AUTOMATION_ALARM_NAME, {
+        delayInMinutes: delayInMinutes
+    });
+    
+    console.info('[YT-Commander][Automation] Scheduled for', nextRun.toISOString(), 'in', Math.round(delayInMinutes), 'minutes');
+}
+
+async function runSubscriptionAutomation() {
+    console.info('[YT-Commander][Automation] Starting subscription automation...');
+    
+    try {
+        const settings = await readAutomationSettings();
+        console.info('[YT-Commander][Automation] Settings:', settings);
+        
+        const now = new Date();
+        
+        await storageLocalSet({
+            [AUTOMATION_STORAGE_KEYS.LAST_RUN]: now.toISOString(),
+            [AUTOMATION_STORAGE_KEYS.LAST_VIDEOS_COUNT]: 0,
+            [AUTOMATION_STORAGE_KEYS.LAST_SHORTS_COUNT]: 0,
+            [AUTOMATION_STORAGE_KEYS.LAST_STATUS]: 'running'
+        });
+        
+        const youtubeTabs = await queryTabs({ url: YOUTUBE_TAB_URL_PATTERN });
+        let tab;
+        
+        if (youtubeTabs.length > 0) {
+            tab = youtubeTabs[0];
+        } else {
+            tab = await createTab({ url: YOUTUBE_BOOTSTRAP_URL, active: false });
+            await waitForTabReady(tab.id);
+            await delay(2000);
+        }
+        
+        let lookbackMs = 24 * 60 * 60 * 1000;
+        switch (settings.lookback) {
+            case 'yesterday':
+                lookbackMs = 24 * 60 * 60 * 1000;
+                break;
+            case '24h':
+                lookbackMs = 24 * 60 * 60 * 1000;
+                break;
+            case '48h':
+                lookbackMs = 48 * 60 * 60 * 1000;
+                break;
+            default:
+                lookbackMs = 24 * 60 * 60 * 1000;
+        }
+        
+        const automationScript = `
+            (async function() {
+                const INNERTUBE_API = 'https://www.youtube.com/youtubei/v1';
+                const API_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+                const lookbackMs = ${lookbackMs};
+                
+                function parsePublishedTime(publishedText) {
+                    if (!publishedText) return null;
+                    const now = new Date();
+                    const match = publishedText.match(/(\\d+)\\s*(second|minute|hour|day|week|month|year)s?\\s*ago/i);
+                    if (!match) return null;
+                    const value = parseInt(match[1]);
+                    const unit = match[2].toLowerCase();
+                    let ms;
+                    switch (unit) {
+                        case 'second': ms = value * 1000; break;
+                        case 'minute': ms = value * 60 * 1000; break;
+                        case 'hour': ms = value * 60 * 60 * 1000; break;
+                        case 'day': ms = value * 24 * 60 * 60 * 1000; break;
+                        case 'week': ms = value * 7 * 24 * 60 * 60 * 1000; break;
+                        case 'month': ms = value * 30 * 24 * 60 * 60 * 1000; break;
+                        case 'year': ms = value * 365 * 24 * 60 * 60 * 1000; break;
+                        default: return null;
+                    }
+                    return new Date(now.getTime() - ms);
+                }
+                
+                async function sendRequest(endpoint, payload) {
+                    const response = await fetch(INNERTUBE_API + '/' + endpoint + '?key=' + API_KEY, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    return response.json();
+                }
+                
+                async function getWatchedVideoIds() {
+                    return new Promise((resolve) => {
+                        try {
+                            const request = indexedDB.open('YouTubeCommanderDB');
+                            request.onsuccess = () => {
+                                const db = request.result;
+                                if (!db.objectStoreNames.contains('watchedVideos')) {
+                                    resolve([]);
+                                    return;
+                                }
+                                const tx = db.transaction(['watchedVideos'], 'readonly');
+                                const store = tx.objectStore('watchedVideos');
+                                const getAll = store.getAll();
+                                getAll.onsuccess = () => resolve(getAll.result.map(v => v.videoId));
+                                getAll.onerror = () => resolve([]);
+                            };
+                            request.onerror = () => resolve([]);
+                        } catch (e) { resolve([]); }
+                    });
+                }
+                
+                const watchedIds = new Set(await getWatchedVideoIds());
+                const lookbackDate = new Date(Date.now() - lookbackMs);
+                
+                const response = await sendRequest('browse', {
+                    browseId: 'FEsubscriptions'
+                });
+                
+                const videos = [];
+                const shorts = [];
+                
+                const items = response?.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents || [];
+                
+                for (const section of items) {
+                    const sectionItems = section?.itemSectionRenderer?.contents || [];
+                    for (const item of sectionItems) {
+                        const video = item?.richItemRenderer?.content?.videoRenderer;
+                        const short = item?.richItemRenderer?.content?.reelItemRenderer;
+                        
+                        if (video?.videoId && !watchedIds.has(video.videoId)) {
+                            const publishedTime = video?.publishedTimeText?.simpleText || '';
+                            const videoDate = parsePublishedTime(publishedTime);
+                            if (!videoDate || videoDate >= lookbackDate) {
+                                videos.push({ videoId: video.videoId, title: video.title?.runs?.[0]?.text || 'Unknown' });
+                            }
+                        }
+                        
+                        if (short?.videoId && !watchedIds.has(short.videoId)) {
+                            const publishedTime = short?.publishedTimeText?.simpleText || '';
+                            const videoDate = parsePublishedTime(publishedTime);
+                            if (!videoDate || videoDate >= lookbackDate) {
+                                shorts.push({ videoId: short.videoId, title: short.headline?.simpleText || 'Short' });
+                            }
+                        }
+                    }
+                }
+                
+                return { success: true, videos, shorts };
+            })();
+        `;
+        
+        const result = await new Promise((resolve, reject) => {
+            chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                func: (script) => {
+                    return eval(script);
+                },
+                args: [automationScript]
+            }, (results) => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                } else {
+                    resolve(results?.[0]?.result || { success: false, error: 'No result', videos: [], shorts: [] });
+                }
+            });
+        });
+        
+        const videosCount = result?.videos?.length || 0;
+        const shortsCount = result?.shorts?.length || 0;
+        
+        console.info('[YT-Commander][Automation] Found', videosCount, 'videos and', shortsCount, 'shorts');
+        
+        await storageLocalSet({
+            [AUTOMATION_STORAGE_KEYS.LAST_VIDEOS_COUNT]: videosCount,
+            [AUTOMATION_STORAGE_KEYS.LAST_SHORTS_COUNT]: shortsCount,
+            [AUTOMATION_STORAGE_KEYS.LAST_STATUS]: 'success'
+        });
+        
+        await scheduleAutomation();
+        
+        chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'assets/icon.png',
+            title: 'YouTube Commander',
+            message: `Found ${videosCount} videos and ${shortsCount} shorts from subscriptions`
+        });
+        
+        return {
+            success: true,
+            videosCount,
+            shortsCount
+        };
+    } catch (error) {
+        console.error('[YT-Commander][Automation] Error:', error);
+        
+        await storageLocalSet({
+            [AUTOMATION_STORAGE_KEYS.LAST_STATUS]: 'failed'
+        });
+        
+        chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'assets/icon.png',
+            title: 'YouTube Commander',
+            message: 'Subscription automation failed: ' + error.message
+        });
+        
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === AUTOMATION_ALARM_NAME) {
+        console.info('[YT-Commander][Automation] Alarm triggered, running automation...');
+        runSubscriptionAutomation().catch((error) => {
+            console.error('[YT-Commander][Automation] Alarm handler error:', error);
+        });
+    }
+});
+
+chrome.runtime.onStartup.addListener(async () => {
+    console.info('[YT-Commander][Automation] Browser started, checking if automation was missed...');
+    
+    const settings = await readAutomationSettings();
+    if (!settings.enabled) {
+        return;
+    }
+    
+    const [hours, minutes] = settings.time.split(':').map(Number);
+    const now = new Date();
+    const scheduledToday = new Date(now);
+    scheduledToday.setHours(hours, minutes, 0, 0);
+    
+    if (scheduledToday <= now) {
+        console.info('[YT-Commander][Automation] Missed today\'s scheduled run, executing now...');
+        runSubscriptionAutomation().catch((error) => {
+            console.error('[YT-Commander][Automation] Startup automation error:', error);
+        });
+    }
+    
+    await scheduleAutomation();
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'SCHEDULE_AUTOMATION') {
+        scheduleAutomation()
+            .then(() => sendResponse({ success: true }))
+            .catch((error) => sendResponse({ success: false, error: error.message }));
+        return true;
+    }
+    
+    if (message.type === 'RUN_SUBSCRIPTION_AUTOMATION') {
+        runSubscriptionAutomation()
+            .then((result) => sendResponse(result))
+            .catch((error) => sendResponse({ success: false, error: error.message }));
+        return true;
+    }
+    
+    return false;
+});
+
+scheduleAutomation().catch((error) => {
+    console.error('[YT-Commander][Automation] Initial schedule error:', error);
+});

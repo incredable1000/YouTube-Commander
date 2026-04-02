@@ -37,6 +37,11 @@
       "js": ["content/content-main.js"],
       "world": "MAIN",
       "run_at": "document_end"
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content/subscriptionAutomation.js"],
+      "run_at": "document_idle"
     }
   ]
 }

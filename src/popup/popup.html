@@ -266,6 +266,31 @@
             border-color: var(--ytc-v2-green);
         }
 
+        body.yt-commander-popup-v2 input[type="time"] {
+            background: linear-gradient(180deg, #1a1d24 0%, #141720 100%);
+            border: 1px solid var(--ytc-v2-border);
+            color: var(--ytc-v2-cyan);
+            font-size: 15px;
+            font-weight: 600;
+            text-align: center;
+            min-height: 42px;
+            padding: 8px 12px;
+            border-radius: 10px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 2px 4px rgba(0,0,0,0.15);
+            width: 110px;
+        }
+
+        body.yt-commander-popup-v2 input[type="time"]:focus {
+            outline: none;
+            border-color: var(--ytc-v2-amber);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 2px 4px rgba(0,0,0,0.15), 0 0 0 3px rgba(251, 191, 36, 0.2);
+        }
+
+        body.yt-commander-popup-v2 input[type="time"]::-webkit-calendar-picker-indicator {
+            filter: invert(0.7);
+            cursor: pointer;
+        }
+
         body.yt-commander-popup-v2 .btn-secondary {
             background: linear-gradient(180deg, #2a2e38 0%, #22262e 100%);
             border: 1px solid var(--ytc-v2-border);
@@ -1221,6 +1246,94 @@ npx wrangler d1 execute YOUR_DB --file=youtube-watched-history-d1.sql
             <div class="action-buttons">
                 <button class="btn btn-secondary" id="exportSubscriptionCsv">Export CSV</button>
                 <button class="btn btn-secondary" id="importSubscriptionCsv">Import CSV</button>
+            </div>
+        </div>
+        <div class="ytc-v2-section">
+            <div class="ytc-v2-section-title">Subscription Automation</div>
+            <div class="setting-row">
+                <div class="setting-label">Enable</div>
+                <div class="toggle-switch small-toggle" id="subscriptionAutomationToggle">
+                    <div class="toggle-slider"></div>
+                </div>
+            </div>
+            <div class="setting-row" style="margin-top: 12px;">
+                <div class="setting-label">Run Time</div>
+                <input type="time" id="subscriptionAutomationTime" class="setting-input" value="19:30">
+            </div>
+            <div class="setting-row" style="margin-top: 12px;">
+                <div class="setting-label">Lookback Period</div>
+                <div class="ytc-dropdown" id="automationLookbackDropdown" data-value="yesterday">
+                    <button type="button" class="ytc-dropdown-trigger" aria-haspopup="listbox" aria-expanded="false">
+                        <span class="ytc-dropdown-label">Yesterday</span>
+                        <svg class="ytc-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                    <div class="ytc-dropdown-menu" role="listbox">
+                        <div class="ytc-dropdown-option selected" data-value="yesterday">Yesterday</div>
+                        <div class="ytc-dropdown-option" data-value="24h">Last 24 hours</div>
+                        <div class="ytc-dropdown-option" data-value="48h">Last 48 hours</div>
+                    </div>
+                </div>
+            </div>
+            <div class="setting-row" style="margin-top: 12px;">
+                <div class="setting-label">Shorts Playlist</div>
+                <div class="ytc-dropdown" id="automationShortsPlaylistDropdown" data-value="WL">
+                    <button type="button" class="ytc-dropdown-trigger" aria-haspopup="listbox" aria-expanded="false">
+                        <span class="ytc-dropdown-label">Watch Later</span>
+                        <svg class="ytc-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                    <div class="ytc-dropdown-menu" role="listbox">
+                        <div class="ytc-dropdown-option selected" data-value="WL">Watch Later</div>
+                    </div>
+                </div>
+            </div>
+            <div class="setting-row" style="margin-top: 12px;">
+                <div class="setting-label">Videos To</div>
+                <div class="ytc-dropdown" id="automationVideosModeDropdown" data-value="single">
+                    <button type="button" class="ytc-dropdown-trigger" aria-haspopup="listbox" aria-expanded="false">
+                        <span class="ytc-dropdown-label">Single Playlist</span>
+                        <svg class="ytc-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                    <div class="ytc-dropdown-menu" role="listbox">
+                        <div class="ytc-dropdown-option selected" data-value="single">Single Playlist</div>
+                        <div class="ytc-dropdown-option" data-value="split">Split into Playlists</div>
+                    </div>
+                </div>
+            </div>
+            <div class="setting-row" id="automationVideosPlaylistRow" style="margin-top: 12px; display: none;">
+                <div class="setting-label">Videos Playlist</div>
+                <div class="ytc-dropdown" id="automationVideosPlaylistDropdown" data-value="WL">
+                    <button type="button" class="ytc-dropdown-trigger" aria-haspopup="listbox" aria-expanded="false">
+                        <span class="ytc-dropdown-label">Watch Later</span>
+                        <svg class="ytc-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                    <div class="ytc-dropdown-menu" role="listbox">
+                        <div class="ytc-dropdown-option selected" data-value="WL">Watch Later</div>
+                    </div>
+                </div>
+            </div>
+            <div class="setting-row" id="automationSplitCountRow" style="margin-top: 12px; display: none;">
+                <div class="setting-label">Per Playlist</div>
+                <input type="number" id="automationSplitCount" class="setting-input" value="20" min="5" max="100" style="width: 80px;">
+            </div>
+            <div class="automation-stats" id="automationStats" style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--ytc-v2-border);">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <div style="font-size: 12px; color: var(--ytc-v2-muted);">Last Run: <span id="automationLastRun" style="color: var(--ytc-v2-text);">Never</span></div>
+                    <div style="font-size: 12px; color: var(--ytc-v2-muted);">Status: <span id="automationStatus" style="color: var(--ytc-v2-text);">-</span></div>
+                    <div style="font-size: 12px; color: var(--ytc-v2-muted);">Videos: <span id="automationVideosAdded" style="color: var(--ytc-v2-cyan);">0</span></div>
+                    <div style="font-size: 12px; color: var(--ytc-v2-muted);">Shorts: <span id="automationShortsAdded" style="color: var(--ytc-v2-cyan);">0</span></div>
+                </div>
+                <div style="font-size: 12px; color: var(--ytc-v2-muted); margin-top: 8px;">Next Run: <span id="automationNextRun" style="color: var(--ytc-v2-amber);">-</span></div>
+            </div>
+            <div style="margin-top: 14px;">
+                <button class="btn" id="runAutomationNow" style="width:100%;">Run Now (Debug)</button>
             </div>
         </div>
         <div id="status" class="status"></div>
