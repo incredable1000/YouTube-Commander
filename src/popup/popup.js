@@ -2215,12 +2215,107 @@ async function exportSqlMigration() {
         }
 
         showStatus(`Exported ${exportedIds} IDs as ${totalParts} SQL file(s)`, 'success');
+        showSqlCommands(totalParts);
     } catch (error) {
         showStatus(error?.message || 'Failed to export SQL migration', 'error');
     } finally {
         button.disabled = false;
         button.textContent = initialLabel;
     }
+}
+
+/**
+ * Show SQL commands section after export.
+ * @param {number} totalParts
+ */
+function showSqlCommands(totalParts) {
+    const section = document.getElementById('sqlCommandsSection');
+    const code = document.getElementById('sqlCommandsCode');
+    if (!section || !code) {
+        return;
+    }
+
+    let commands = '# Run these commands in your wrangler project folder:\n';
+    commands += '# Replace YOUR_DB with your D1 database name\n\n';
+
+    if (totalParts === 1) {
+        commands += `npx wrangler d1 execute YOUR_DB --file=youtube-watched-history-d1.sql\n`;
+    } else {
+        commands += '# For loop to run all part files:\n';
+        commands += `for f in youtube-watched-history-d1-part-*.sql; do npx wrangler d1 execute YOUR_DB --file="$f"; done\n`;
+        commands += '\n# Or run them individually:\n';
+        for (let i = 1; i <= totalParts; i++) {
+            const padded = String(i).padStart(3, '0');
+            commands += `# npx wrangler d1 execute YOUR_DB --file=youtube-watched-history-d1-part-${padded}-of-${String(totalParts).padStart(3, '0')}.sql\n`;
+        }
+    }
+
+    code.textContent = commands;
+    section.style.display = 'block';
+}
+
+/**
+ * Copy text to clipboard.
+ * @param {string} text
+ * @returns {Promise<boolean>}
+ */
+async function copyToClipboard(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch (_error) {
+        try {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            return true;
+        } catch (_err) {
+            return false;
+        }
+    }
+}
+
+/**
+ * Setup SQL export copy button.
+ */
+function setupSqlCopyButton() {
+    const button = document.getElementById('copySqlCommands');
+    if (!button) {
+        return;
+    }
+
+    button.addEventListener('click', async () => {
+        const code = document.getElementById('sqlCommandsCode');
+        if (!code) {
+            return;
+        }
+
+        const copied = await copyToClipboard(code.textContent);
+        if (copied) {
+            button.classList.add('copied');
+            button.innerHTML = `
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                Copied!
+            `;
+            setTimeout(() => {
+                button.classList.remove('copied');
+                button.innerHTML = `
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
+                    </svg>
+                    Copy
+                `;
+            }, 2000);
+        }
+    });
 }
 
 /**
@@ -2987,6 +3082,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (importBtn) importBtn.addEventListener('click', importHistory);
     const sqlBtn = document.getElementById('exportSqlMigration');
     if (sqlBtn) sqlBtn.addEventListener('click', exportSqlMigration);
+    setupSqlCopyButton();
     
     // Cloudflare sync buttons
     const syncBtn = document.getElementById('syncToCloudflare');

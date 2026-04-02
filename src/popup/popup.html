@@ -240,6 +240,32 @@
             cursor: not-allowed;
         }
 
+        body.yt-commander-popup-v2 .btn-copy-cmd {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            font-size: 12px;
+            font-weight: 600;
+            background: linear-gradient(180deg, #3a3f4a 0%, #2d323c 100%);
+            border: 1px solid var(--ytc-v2-border);
+            color: var(--ytc-v2-cyan);
+            border-radius: 6px;
+            cursor: pointer;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+        }
+
+        body.yt-commander-popup-v2 .btn-copy-cmd:hover {
+            background: linear-gradient(180deg, #454c5a 0%, #363b48 100%);
+            border-color: var(--ytc-v2-cyan);
+            color: #fff;
+        }
+
+        body.yt-commander-popup-v2 .btn-copy-cmd.copied {
+            color: var(--ytc-v2-green);
+            border-color: var(--ytc-v2-green);
+        }
+
         body.yt-commander-popup-v2 .btn-secondary {
             background: linear-gradient(180deg, #2a2e38 0%, #22262e 100%);
             border: 1px solid var(--ytc-v2-border);
@@ -1169,14 +1195,24 @@
             <div class="action-buttons">
                 <button class="btn btn-secondary" id="exportHistory">Export</button>
                 <button class="btn btn-secondary" id="importHistory">Import</button>
-                <button class="btn" id="exportSqlMigration">Export SQL</button>
-                <button class="btn btn-secondary" id="importHistory" style="display:none">Import</button>
             </div>
-            <div class="note">
-                <strong>Export SQL for D1:</strong> Downloads .sql files. Run in your project folder:<br>
-                <code style="display:block;margin-top:6px;padding:6px 8px;background:rgba(0,0,0,0.3);border-radius:4px;font-size:12px;">
-                    npx wrangler d1 execute YOUR_DB --file=youtube-watched-history-d1.sql
-                </code>
+            <div style="margin-top: 10px;">
+                <button class="btn" id="exportSqlMigration" style="width:100%;">Export SQL for D1</button>
+            </div>
+            <div class="sql-commands" id="sqlCommandsSection" style="display:none; margin-top:10px;">
+                <div class="note">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                        <strong>Run these commands:</strong>
+                        <button class="btn-copy-cmd" id="copySqlCommands" title="Copy commands">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
+                            </svg>
+                            Copy
+                        </button>
+                    </div>
+                    <code id="sqlCommandsCode" style="display:block;padding:8px;background:rgba(0,0,0,0.3);border-radius:4px;font-size:12px;white-space:pre-wrap;max-height:120px;overflow-y:auto;"></code>
+                </div>
             </div>
         </div>
         <div class="ytc-v2-section">
