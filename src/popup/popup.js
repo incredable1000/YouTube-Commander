@@ -2215,7 +2215,17 @@ async function exportSqlMigration() {
         }
 
         showStatus(`Exported ${exportedIds} IDs as ${totalParts} SQL file(s)`, 'success');
-        showSqlCommands(totalParts);
+        
+        const defaultCmd = document.getElementById('sqlDefaultCmd');
+        const multiFileCmd = document.getElementById('sqlMultiFileCmd');
+        if (totalParts === 1) {
+            if (defaultCmd) defaultCmd.textContent = 'npx wrangler d1 execute YOUR_DB --file=youtube-watched-history-d1.sql';
+            if (multiFileCmd) multiFileCmd.parentElement.style.display = 'none';
+        } else {
+            const loopCmd = `for f in youtube-watched-history-d1-part-*.sql; do npx wrangler d1 execute YOUR_DB --file="$f"; done`;
+            if (defaultCmd) defaultCmd.textContent = loopCmd;
+            if (multiFileCmd) multiFileCmd.textContent = loopCmd;
+        }
     } catch (error) {
         showStatus(error?.message || 'Failed to export SQL migration', 'error');
     } finally {
@@ -2284,13 +2294,13 @@ async function copyToClipboard(text) {
  * Setup SQL export copy button.
  */
 function setupSqlCopyButton() {
-    const button = document.getElementById('copySqlCommands');
+    const button = document.getElementById('copySqlDefaultCmd');
     if (!button) {
         return;
     }
 
     button.addEventListener('click', async () => {
-        const code = document.getElementById('sqlCommandsCode');
+        const code = document.getElementById('sqlDefaultCmd');
         if (!code) {
             return;
         }
@@ -2299,7 +2309,7 @@ function setupSqlCopyButton() {
         if (copied) {
             button.classList.add('copied');
             button.innerHTML = `
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="20 6 9 17 4 12"></polyline>
                 </svg>
                 Copied!
@@ -2307,7 +2317,7 @@ function setupSqlCopyButton() {
             setTimeout(() => {
                 button.classList.remove('copied');
                 button.innerHTML = `
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
                     </svg>

@@ -1199,19 +1199,20 @@
             <div style="margin-top: 10px;">
                 <button class="btn" id="exportSqlMigration" style="width:100%;">Export SQL for D1</button>
             </div>
-            <div class="sql-commands" id="sqlCommandsSection" style="display:none; margin-top:10px;">
-                <div class="note">
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-                        <strong>Run these commands:</strong>
-                        <button class="btn-copy-cmd" id="copySqlCommands" title="Copy commands">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
-                            </svg>
-                            Copy
-                        </button>
-                    </div>
-                    <code id="sqlCommandsCode" style="display:block;padding:8px;background:rgba(0,0,0,0.3);border-radius:4px;font-size:12px;white-space:pre-wrap;max-height:120px;overflow-y:auto;"></code>
+            <div class="note" style="margin-top: 10px;">
+                <strong>Export SQL:</strong> Downloads .sql file(s). Then run in your wrangler project folder:<br>
+                <code id="sqlDefaultCmd" style="display:block;margin-top:6px;padding:8px;background:rgba(0,0,0,0.3);border-radius:4px;font-size:12px;">
+npx wrangler d1 execute YOUR_DB --file=youtube-watched-history-d1.sql
+                </code>
+                <div style="margin-top:8px;display:flex;align-items:center;justify-content:space-between;">
+                    <span style="font-size:11px;color:var(--ytc-v2-muted);">Multiple files: <code id="sqlMultiFileCmd">for f in *.sql; do ...; done</code></span>
+                    <button class="btn-copy-cmd" id="copySqlDefaultCmd" title="Copy default command">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
+                        </svg>
+                        Copy
+                    </button>
                 </div>
             </div>
         </div>
