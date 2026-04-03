@@ -3129,7 +3129,6 @@ async function runSubscriptionAutomation() {
                         'X-Youtube-Client-Name': '1',
                         'X-Youtube-Client-Version': '2.20200610.04.00'
                     },
-                    credentials: 'include',
                     body: JSON.stringify({
                         ...payload,
                         context: {
@@ -3214,7 +3213,8 @@ async function runSubscriptionAutomation() {
             chrome.scripting.executeScript({
                 target: { tabId: tab.id },
                 func: automationScript,
-                args: [lookbackMs]
+                args: [lookbackMs],
+                world: 'MAIN'
             }, (results) => {
                 if (chrome.runtime.lastError) {
                     reject(new Error(chrome.runtime.lastError.message));
