@@ -2976,6 +2976,22 @@ runSubscriptionAutoSyncIfDue('startup-bootstrap').catch((error) => {
 });
 
 const AUTOMATION_ALARM_NAME = 'ytCommanderSubscriptionAutomation';
+
+function showNotification(title, message) {
+    try {
+        if (chrome.notifications) {
+            chrome.notifications.create({
+                type: 'basic',
+                iconUrl: 'assets/icon.png',
+                title: title,
+                message: message
+            });
+        }
+    } catch (e) {
+        console.warn('[YT-Commander][Notifications] Failed to show notification:', e);
+    }
+}
+
 const AUTOMATION_STORAGE_KEYS = {
     ENABLED: 'subscriptionAutomationEnabled',
     TIME: 'subscriptionAutomationTime',
@@ -3203,12 +3219,7 @@ async function runSubscriptionAutomation() {
         
         await scheduleAutomation();
         
-        chrome.notifications.create({
-            type: 'basic',
-            iconUrl: 'assets/icon.png',
-            title: 'YouTube Commander',
-            message: `Found ${videosCount} videos and ${shortsCount} shorts from subscriptions`
-        });
+        showNotification('YouTube Commander', `Found ${videosCount} videos and ${shortsCount} shorts from subscriptions`);
         
         return {
             success: true,
@@ -3222,12 +3233,7 @@ async function runSubscriptionAutomation() {
             [AUTOMATION_STORAGE_KEYS.LAST_STATUS]: 'failed'
         });
         
-        chrome.notifications.create({
-            type: 'basic',
-            iconUrl: 'assets/icon.png',
-            title: 'YouTube Commander',
-            message: 'Subscription automation failed: ' + error.message
-        });
+        showNotification('YouTube Commander', 'Subscription automation failed: ' + error.message);
         
         return {
             success: false,
