@@ -3122,10 +3122,25 @@ async function runSubscriptionAutomation() {
             }
             
             async function sendRequest(endpoint, payload) {
+                const visitorData = window.ytInitialData?.responseContext?.webResponseContextExtensionData?.ytConfigData?.visitorData || '';
+                
                 const response = await fetch(INNERTUBE_API + '/' + endpoint + '?key=' + API_KEY, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-Youtube-Client-Name': '1',
+                        'X-Youtube-Client-Version': '2.20200610.04.00'
+                    },
+                    body: JSON.stringify({
+                        ...payload,
+                        context: {
+                            client: {
+                                clientName: 'WEB',
+                                clientVersion: '2.20200610.04.00',
+                                visitorData: visitorData
+                            }
+                        }
+                    })
                 });
                 return response.json();
             }
@@ -3162,11 +3177,7 @@ async function runSubscriptionAutomation() {
                 const videos = [];
                 const shorts = [];
                 
-                console.log('[Automation Debug] API Response keys:', Object.keys(response || {}));
-                console.log('[Automation Debug] Contents keys:', Object.keys(response?.contents || {}));
-                
                 const items = response?.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents || [];
-                console.log('[Automation Debug] Items count:', items.length);
                 
                 for (const section of items) {
                     const sectionItems = section?.itemSectionRenderer?.contents || [];
@@ -3191,8 +3202,6 @@ async function runSubscriptionAutomation() {
                         }
                     }
                 }
-                
-                console.log('[Automation Debug] Found videos:', videos.length, 'shorts:', shorts.length);
                 
                 return { success: true, videos, shorts };
             })();
