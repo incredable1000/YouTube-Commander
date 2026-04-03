@@ -3072,16 +3072,11 @@ async function runSubscriptionAutomation() {
             [AUTOMATION_STORAGE_KEYS.LAST_STATUS]: 'running'
         });
         
-        const youtubeTabs = await queryTabs({ url: YOUTUBE_TAB_URL_PATTERN, active: true });
-        let tab;
+        const SUBSCRIPTIONS_URL = 'https://www.youtube.com/feed/subscriptions';
         
-        if (youtubeTabs.length > 0) {
-            tab = youtubeTabs[0];
-        } else {
-            tab = await createTab({ url: YOUTUBE_BOOTSTRAP_URL, active: true });
-            await waitForTabReady(tab.id);
-            await delay(3000);
-        }
+        let tab = await createTab({ url: SUBSCRIPTIONS_URL, active: true });
+        await waitForTabReady(tab.id);
+        await delay(4000);
         
         let lookbackMs = 24 * 60 * 60 * 1000;
         switch (settings.lookback) {
@@ -3097,9 +3092,6 @@ async function runSubscriptionAutomation() {
         }
         
         const automationScript = function(lookbackMsParam) {
-            const INNERTUBE_API = 'https://www.youtube.com/youtubei/v1';
-            const API_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
-            
             function parsePublishedTime(publishedText) {
                 if (!publishedText) return null;
                 const now = new Date();
@@ -3118,29 +3110,7 @@ async function runSubscriptionAutomation() {
                     case 'year': ms = value * 365 * 24 * 60 * 60 * 1000; break;
                     default: return null;
                 }
-                return new Date(now.getTime() - ms);
-            }
-            
-            async function sendRequest(endpoint, payload) {
-                const response = await fetch(INNERTUBE_API + '/' + endpoint + '?key=' + API_KEY, {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'X-Youtube-Client-Name': '1',
-                        'X-Youtube-Client-Version': '2.20200610.04.00'
-                    },
-                    body: JSON.stringify({
-                        ...payload,
-                        context: {
-                            client: {
-                                clientName: 'WEB',
-                                clientVersion: '2.20200610.04.00',
-                                visitorData: ''
-                            }
-                        }
-                    })
-                });
-                return response.json();
+return new Date(now.getTime() - ms);
             }
             
             async function getWatchedVideoIds() {
@@ -3168,18 +3138,16 @@ async function runSubscriptionAutomation() {
                 const watchedIds = new Set(await getWatchedVideoIds());
                 const lookbackDate = new Date(Date.now() - lookbackMsParam);
                 
-                const response = await sendRequest('browse', {
-                    browseId: 'FEsubscriptions'
-                });
-                
-                if (response?.error) {
-                    return { success: false, error: JSON.stringify(response.error), videos: [], shorts: [] };
-                }
-                
                 const videos = [];
                 const shorts = [];
                 
-                const items = response?.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents || [];
+                const data = window.ytInitialData;
+                
+                if (!data) {
+                    return { success: false, error: 'No ytInitialData found', videos: [], shorts: [] };
+                }
+                
+                const items = data?.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents || [];
                 
                 for (const section of items) {
                     const sectionItems = section?.itemSectionRenderer?.contents || [];
