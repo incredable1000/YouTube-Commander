@@ -150,6 +150,7 @@ const cleanupCallbacks = [];
 const playlistMap = new Map();
 const selectionRangeController = createSelectionRangeController();
 let decorateRetryCounts = new WeakMap();
+let cachedPageVideoCount = 0;
 
 const DECORATE_MAX_RETRIES = 3;
 const DECORATE_RETRY_DELAY_MS = 320;
@@ -987,6 +988,8 @@ function resetActionCounters() {
     if (actionTotalCount) {
         actionTotalCount.textContent = '0';
     }
+
+    cachedPageVideoCount = 0;
 }
 
 /**
@@ -1016,7 +1019,7 @@ function updateActionUiState() {
     const isPlaylistPage = isPlaylistsPage();
     const selectedVideoCount = selectedVideoIds.size;
     const selectedPlaylistCount = selectedPlaylistIds.size;
-    const pageVideoCount = collectRenderedVideoIds().length;
+    const pageVideoCount = cachedPageVideoCount;
     const pagePlaylistCount = collectRenderedPlaylistIds().length;
 
     const selectedCount = isPlaylistPage ? selectedPlaylistCount : selectedVideoCount;
@@ -2364,6 +2367,7 @@ function processPendingContainers() {
     if (autoSelectedIds.size > 0) {
         commitSelectionMutation(Array.from(autoSelectedIds));
     } else if (decoratedCount > 0) {
+        cachedPageVideoCount += decoratedCount;
         updateActionUiState();
     }
 
