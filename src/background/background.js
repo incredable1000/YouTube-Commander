@@ -3073,21 +3073,30 @@ async function runSubscriptionAutomation() {
         });
         
 const SUBSCRIPTIONS_URL = 'https://www.youtube.com/feed/subscriptions';
-        const youtubeTabs = await queryTabs({ url: SUBSCRIPTIONS_URL, active: true });
-        let tab;
+        let tab = null;
         
-        if (youtubeTabs.length > 0) {
-            tab = youtubeTabs[0];
-        } else {
-            const existingTab = await queryTabs({ url: YOUTUBE_TAB_URL_PATTERN, active: true });
-            if (existingTab.length > 0) {
-                tab = existingTab[0];
-                await new Promise(resolve => setTimeout(resolve, 5000));
+        const subscriptionsTabs = await queryTabs({ url: SUBSCRIPTIONS_URL, active: true });
+        if (subscriptionsTabs.length > 0) {
+            tab = subscriptionsTabs[0];
+        }
+        
+        if (!tab) {
+            const existingTabs = await queryTabs({ url: YOUTUBE_TAB_URL_PATTERN, active: true, currentWindow: true });
+            if (existingTabs.length > 0) {
+                tab = existingTabs[0];
+                await new Promise((resolve) => {
+                    chrome.tabs.update(tab.id, { url: SUBSCRIPTIONS_URL, active: true }, () => resolve());
+                });
+                await waitForTabReady(tab.id);
+                await delay(2000);
             } else {
                 tab = await createTab({ url: SUBSCRIPTIONS_URL, active: true });
                 await waitForTabReady(tab.id);
-                await delay(5000);
+                await delay(3000);
             }
+        } else {
+            await chrome.tabs.update(tab.id, { active: true });
+            await delay(2000);
         }
         
         let lookbackMs = 24 * 60 * 60 * 1000;
