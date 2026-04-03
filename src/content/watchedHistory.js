@@ -499,8 +499,12 @@ function attachListeners() {
             }
 
             if (message.type === 'GET_WATCHED_COUNT') {
-                sendResponse({ count: watchedIds.size });
-                return undefined;
+                ensureInitialized().then(() => {
+                    sendResponse({ count: watchedIds.size });
+                }).catch(() => {
+                    sendResponse({ count: 0 });
+                });
+                return true;
             }
 
             if (message.type === 'GET_ALL_WATCHED_VIDEOS') {
