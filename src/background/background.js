@@ -3122,8 +3122,6 @@ async function runSubscriptionAutomation() {
             }
             
             async function sendRequest(endpoint, payload) {
-                const visitorData = window.ytInitialData?.responseContext?.webResponseContextExtensionData?.ytConfigData?.visitorData || '';
-                
                 const response = await fetch(INNERTUBE_API + '/' + endpoint + '?key=' + API_KEY, {
                     method: 'POST',
                     headers: { 
@@ -3131,13 +3129,14 @@ async function runSubscriptionAutomation() {
                         'X-Youtube-Client-Name': '1',
                         'X-Youtube-Client-Version': '2.20200610.04.00'
                     },
+                    credentials: 'include',
                     body: JSON.stringify({
                         ...payload,
                         context: {
                             client: {
                                 clientName: 'WEB',
                                 clientVersion: '2.20200610.04.00',
-                                visitorData: visitorData
+                                visitorData: ''
                             }
                         }
                     })
