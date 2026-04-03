@@ -3056,22 +3056,20 @@ async function runSubscriptionAutomation() {
             [AUTOMATION_STORAGE_KEYS.LAST_STATUS]: 'running'
         });
         
-        const youtubeTabs = await queryTabs({ url: YOUTUBE_TAB_URL_PATTERN });
+        const youtubeTabs = await queryTabs({ url: YOUTUBE_TAB_URL_PATTERN, active: true });
         let tab;
         
         if (youtubeTabs.length > 0) {
             tab = youtubeTabs[0];
         } else {
-            tab = await createTab({ url: YOUTUBE_BOOTSTRAP_URL, active: false });
+            tab = await createTab({ url: YOUTUBE_BOOTSTRAP_URL, active: true });
             await waitForTabReady(tab.id);
-            await delay(2000);
+            await delay(3000);
         }
         
         let lookbackMs = 24 * 60 * 60 * 1000;
         switch (settings.lookback) {
             case 'yesterday':
-                lookbackMs = 24 * 60 * 60 * 1000;
-                break;
             case '24h':
                 lookbackMs = 24 * 60 * 60 * 1000;
                 break;
@@ -3082,65 +3080,64 @@ async function runSubscriptionAutomation() {
                 lookbackMs = 24 * 60 * 60 * 1000;
         }
         
-        const automationScript = `
-            (async function() {
-                const INNERTUBE_API = 'https://www.youtube.com/youtubei/v1';
-                const API_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
-                const lookbackMs = ${lookbackMs};
-                
-                function parsePublishedTime(publishedText) {
-                    if (!publishedText) return null;
-                    const now = new Date();
-                    const match = publishedText.match(/(\\d+)\\s*(second|minute|hour|day|week|month|year)s?\\s*ago/i);
-                    if (!match) return null;
-                    const value = parseInt(match[1]);
-                    const unit = match[2].toLowerCase();
-                    let ms;
-                    switch (unit) {
-                        case 'second': ms = value * 1000; break;
-                        case 'minute': ms = value * 60 * 1000; break;
-                        case 'hour': ms = value * 60 * 60 * 1000; break;
-                        case 'day': ms = value * 24 * 60 * 60 * 1000; break;
-                        case 'week': ms = value * 7 * 24 * 60 * 60 * 1000; break;
-                        case 'month': ms = value * 30 * 24 * 60 * 60 * 1000; break;
-                        case 'year': ms = value * 365 * 24 * 60 * 60 * 1000; break;
-                        default: return null;
-                    }
-                    return new Date(now.getTime() - ms);
+        const automationScript = function(lookbackMsParam) {
+            const INNERTUBE_API = 'https://www.youtube.com/youtubei/v1';
+            const API_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+            
+            function parsePublishedTime(publishedText) {
+                if (!publishedText) return null;
+                const now = new Date();
+                const match = publishedText.match(/(\d+)\s*(second|minute|hour|day|week|month|year)s?\s*ago/i);
+                if (!match) return null;
+                const value = parseInt(match[1]);
+                const unit = match[2].toLowerCase();
+                let ms;
+                switch (unit) {
+                    case 'second': ms = value * 1000; break;
+                    case 'minute': ms = value * 60 * 1000; break;
+                    case 'hour': ms = value * 60 * 60 * 1000; break;
+                    case 'day': ms = value * 24 * 60 * 60 * 1000; break;
+                    case 'week': ms = value * 7 * 24 * 60 * 60 * 1000; break;
+                    case 'month': ms = value * 30 * 24 * 60 * 60 * 1000; break;
+                    case 'year': ms = value * 365 * 24 * 60 * 60 * 1000; break;
+                    default: return null;
                 }
-                
-                async function sendRequest(endpoint, payload) {
-                    const response = await fetch(INNERTUBE_API + '/' + endpoint + '?key=' + API_KEY, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    return response.json();
-                }
-                
-                async function getWatchedVideoIds() {
-                    return new Promise((resolve) => {
-                        try {
-                            const request = indexedDB.open('YouTubeCommanderDB');
-                            request.onsuccess = () => {
-                                const db = request.result;
-                                if (!db.objectStoreNames.contains('watchedVideos')) {
-                                    resolve([]);
-                                    return;
-                                }
-                                const tx = db.transaction(['watchedVideos'], 'readonly');
-                                const store = tx.objectStore('watchedVideos');
-                                const getAll = store.getAll();
-                                getAll.onsuccess = () => resolve(getAll.result.map(v => v.videoId));
-                                getAll.onerror = () => resolve([]);
-                            };
-                            request.onerror = () => resolve([]);
-                        } catch (e) { resolve([]); }
-                    });
-                }
-                
+                return new Date(now.getTime() - ms);
+            }
+            
+            async function sendRequest(endpoint, payload) {
+                const response = await fetch(INNERTUBE_API + '/' + endpoint + '?key=' + API_KEY, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                return response.json();
+            }
+            
+            async function getWatchedVideoIds() {
+                return new Promise((resolve) => {
+                    try {
+                        const request = indexedDB.open('YouTubeCommanderDB');
+                        request.onsuccess = () => {
+                            const db = request.result;
+                            if (!db.objectStoreNames.contains('watchedVideos')) {
+                                resolve([]);
+                                return;
+                            }
+                            const tx = db.transaction(['watchedVideos'], 'readonly');
+                            const store = tx.objectStore('watchedVideos');
+                            const getAll = store.getAll();
+                            getAll.onsuccess = () => resolve(getAll.result.map(v => v.videoId));
+                            getAll.onerror = () => resolve([]);
+                        };
+                        request.onerror = () => resolve([]);
+                    } catch (e) { resolve([]); }
+                });
+            }
+            
+            return (async function() {
                 const watchedIds = new Set(await getWatchedVideoIds());
-                const lookbackDate = new Date(Date.now() - lookbackMs);
+                const lookbackDate = new Date(Date.now() - lookbackMsParam);
                 
                 const response = await sendRequest('browse', {
                     browseId: 'FEsubscriptions'
@@ -3177,15 +3174,13 @@ async function runSubscriptionAutomation() {
                 
                 return { success: true, videos, shorts };
             })();
-        `;
+        };
         
         const result = await new Promise((resolve, reject) => {
             chrome.scripting.executeScript({
                 target: { tabId: tab.id },
-                func: (script) => {
-                    return eval(script);
-                },
-                args: [automationScript]
+                func: automationScript,
+                args: [lookbackMs]
             }, (results) => {
                 if (chrome.runtime.lastError) {
                     reject(new Error(chrome.runtime.lastError.message));
