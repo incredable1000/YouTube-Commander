@@ -3134,8 +3134,15 @@ const youtubeTabs = await queryTabs({ url: YOUTUBE_TAB_URL_PATTERN, active: true
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/json',
-                        'X-Youtube-Client-Name': '1',
-                        'X-Youtube-Client-Version': '2.20200610.04.00',
+                        'Accept': '*/*',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Referer': 'https://www.youtube.com/feed/subscriptions',
+                        'Origin': 'https://www.youtube.com',
+                        'X-YouTube-Client-Name': '1',
+                        'X-YouTube-Client-Version': '2.20260401.08.00',
+                        'X-Goog-Visitor-Id': '',
+                        'X-YouTube-Bootstrap-Logged-In': 'true',
+                        'X-Goog-AuthUser': '2',
                         'Cookie': cookieHeader
                     },
                     body: JSON.stringify({
@@ -3143,8 +3150,21 @@ const youtubeTabs = await queryTabs({ url: YOUTUBE_TAB_URL_PATTERN, active: true
                         context: {
                             client: {
                                 clientName: 'WEB',
-                                clientVersion: '2.20200610.04.00',
-                                visitorData: ''
+                                clientVersion: '2.20260401.08.00',
+                                visitorData: '',
+                                userLocale: 'en-US',
+                                mainAppWebResponseContext: {
+                                    datasyncId: '',
+                                    loggedOut: false
+                                }
+                            },
+                            user: {
+                                onBehalfOfUser: ''
+                            },
+                            request: {
+                                useSsl: true,
+                                internalExperimentFlags: [],
+                                consistencyTokenJars: []
                             }
                         }
                     })
@@ -3188,27 +3208,30 @@ return (async function() {
                 const videos = [];
                 const shorts = [];
                 
-                const items = response?.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents || [];
+                const contents = response?.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.richGridRenderer?.contents || [];
                 
-                for (const section of items) {
-                    const sectionItems = section?.itemSectionRenderer?.contents || [];
-                    for (const item of sectionItems) {
-                        const video = item?.richItemRenderer?.content?.videoRenderer;
-                        const short = item?.richItemRenderer?.content?.reelItemRenderer;
+                for (const section of contents) {
+                    const richSection = section?.richSectionRenderer?.content;
+                    const richShelf = richSection?.richShelfRenderer || richSection?.shelfRenderer;
+                    const items = richShelf?.contents || [];
+                    
+                    for (const item of items) {
+                        const richItem = item?.richItemRenderer?.content;
+                        const lockup = richItem?.lockupViewModel;
                         
-                        if (video?.videoId) {
-                            const publishedTime = video?.publishedTimeText?.simpleText || '';
-                            const videoDate = parsePublishedTime(publishedTime);
-                            if (!watchedIds.has(video.videoId) && (!videoDate || videoDate >= lookbackDate)) {
-                                videos.push({ videoId: video.videoId, title: video.title?.runs?.[0]?.text || 'Unknown', publishedTime });
-                            }
-                        }
-                        
-                        if (short?.videoId) {
-                            const publishedTime = short?.publishedTimeText?.simpleText || '';
-                            const videoDate = parsePublishedTime(publishedTime);
-                            if (!watchedIds.has(short.videoId) && (!videoDate || videoDate >= lookbackDate)) {
-                                shorts.push({ videoId: short.videoId, title: short.headline?.simpleText || 'Short', publishedTime });
+                        if (lockup?.contentId) {
+                            const videoId = lockup.contentId;
+                            const title = lockup?.metadata?.lockupMetadataViewModel?.title?.content || 'Unknown';
+                            const metadata = lockup?.metadata?.lockupMetadataViewModel;
+                            
+                            if (!watchedIds.has(videoId)) {
+                                const isShort = metadata?.metadataBadgeContainer?.metadataBadgeContainerRenderer?.metadataBadgeRenderer?.label?.content?.toLowerCase()?.includes('short');
+                                
+                                videos.push({ 
+                                    videoId: videoId, 
+                                    title: title,
+                                    isShort: isShort
+                                });
                             }
                         }
                     }
