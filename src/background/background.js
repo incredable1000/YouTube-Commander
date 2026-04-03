@@ -2982,7 +2982,7 @@ function showNotification(title, message) {
         if (chrome.notifications) {
             chrome.notifications.create({
                 type: 'basic',
-                iconUrl: 'assets/icon.png',
+                iconUrl: '/assets/icon.png',
                 title: title,
                 message: message
             });
@@ -3162,7 +3162,11 @@ async function runSubscriptionAutomation() {
                 const videos = [];
                 const shorts = [];
                 
+                console.log('[Automation Debug] API Response keys:', Object.keys(response || {}));
+                console.log('[Automation Debug] Contents keys:', Object.keys(response?.contents || {}));
+                
                 const items = response?.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents || [];
+                console.log('[Automation Debug] Items count:', items.length);
                 
                 for (const section of items) {
                     const sectionItems = section?.itemSectionRenderer?.contents || [];
@@ -3170,23 +3174,25 @@ async function runSubscriptionAutomation() {
                         const video = item?.richItemRenderer?.content?.videoRenderer;
                         const short = item?.richItemRenderer?.content?.reelItemRenderer;
                         
-                        if (video?.videoId && !watchedIds.has(video.videoId)) {
+                        if (video?.videoId) {
                             const publishedTime = video?.publishedTimeText?.simpleText || '';
                             const videoDate = parsePublishedTime(publishedTime);
-                            if (!videoDate || videoDate >= lookbackDate) {
-                                videos.push({ videoId: video.videoId, title: video.title?.runs?.[0]?.text || 'Unknown' });
+                            if (!watchedIds.has(video.videoId) && (!videoDate || videoDate >= lookbackDate)) {
+                                videos.push({ videoId: video.videoId, title: video.title?.runs?.[0]?.text || 'Unknown', publishedTime });
                             }
                         }
                         
-                        if (short?.videoId && !watchedIds.has(short.videoId)) {
+                        if (short?.videoId) {
                             const publishedTime = short?.publishedTimeText?.simpleText || '';
                             const videoDate = parsePublishedTime(publishedTime);
-                            if (!videoDate || videoDate >= lookbackDate) {
-                                shorts.push({ videoId: short.videoId, title: short.headline?.simpleText || 'Short' });
+                            if (!watchedIds.has(short.videoId) && (!videoDate || videoDate >= lookbackDate)) {
+                                shorts.push({ videoId: short.videoId, title: short.headline?.simpleText || 'Short', publishedTime });
                             }
                         }
                     }
                 }
+                
+                console.log('[Automation Debug] Found videos:', videos.length, 'shorts:', shorts.length);
                 
                 return { success: true, videos, shorts };
             })();
