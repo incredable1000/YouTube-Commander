@@ -2624,13 +2624,14 @@ async function submitSplit() {
         return;
     }
 
+    const numPlaylists = Math.ceil(videoIds.length / perPlaylist);
     splitSubmitting = true;
     updateSplitModalState();
-    setSplitStatus(`Creating ${Math.ceil(videoIds.length / perPlaylist)} playlist(s)...`, 'info');
+    closeSplitModal();
+
+    showSaveProgress(0, numPlaylists, 'Splitting into playlists...');
 
     try {
-        const numPlaylists = Math.ceil(videoIds.length / perPlaylist);
-        
         let maxNum = 0;
         try {
             const response = await sendBridgeRequest(ACTIONS.GET_PLAYLISTS, { videoIds: [videoIds[0]] });
@@ -2648,7 +2649,7 @@ async function submitSplit() {
         } catch (e) {
             logger.warn('Could not fetch existing playlists for naming', e);
         }
-        
+
         let created = 0;
         let totalAdded = 0;
 
@@ -2670,22 +2671,20 @@ async function submitSplit() {
             totalAdded += addedCount;
             created++;
 
-            setSplitStatus(`Created ${created}/${numPlaylists} playlists...`, 'info');
+            showSaveProgress(created, numPlaylists, `Creating playlists...`);
         }
 
-        setSplitStatus(`Created ${created} playlists with ${totalAdded} videos.`, 'success');
+        hideSaveProgress();
+        setStatusMessage(`Split into ${created} playlists with ${totalAdded} videos.`, STATUS_KIND.SUCCESS);
         resetSelectionOnly();
-
-        setTimeout(() => {
-            closeSplitModal();
-        }, 1500);
 
     } catch (error) {
         logger.warn('Failed to split playlists', error);
-        setSplitStatus(error instanceof Error ? error.message : 'Failed to split playlists.', 'error');
+        hideSaveProgress();
+        setStatusMessage(error instanceof Error ? error.message : 'Failed to split playlists.', STATUS_KIND.ERROR);
     } finally {
         splitSubmitting = false;
-        updateSplitModalState();
+        updateActionUiState();
     }
 }
 
