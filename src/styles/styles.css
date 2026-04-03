@@ -1084,13 +1084,14 @@ body.yt-commander-windowed-lock #columns {
     width: max-content;
     min-width: 0;
     max-width: min(96vw, 720px);
-    height: 76px;
-    padding: 0 18px;
+    padding: 12px 18px;
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 20px;
     background: linear-gradient(180deg, rgba(44, 44, 44, 0.98), rgba(18, 18, 18, 0.98));
-    display: inline-flex;
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
+    justify-content: center;
     gap: 10px;
     box-shadow: 0 18px 38px rgba(0, 0, 0, 0.52);
     backdrop-filter: blur(10px);
@@ -1105,6 +1106,35 @@ body.yt-commander-windowed-lock #columns {
     opacity: 1;
     pointer-events: auto;
     transform: translateX(-50%) translateY(0);
+}
+
+.yt-commander-playlist-action-drag-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 32px;
+    color: rgba(241, 241, 241, 0.5);
+    cursor: grab;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.yt-commander-playlist-action-drag-handle:hover {
+    color: rgba(241, 241, 241, 0.8);
+}
+
+.yt-commander-playlist-action-drag-handle:active {
+    cursor: grabbing;
+}
+
+.yt-commander-playlist-action-bar.is-dragging {
+    cursor: grabbing;
+    user-select: none;
+}
+
+.yt-commander-playlist-action-bar.is-dragging .yt-commander-playlist-action-drag-handle {
+    cursor: grabbing;
 }
 
 .yt-commander-playlist-action-count {

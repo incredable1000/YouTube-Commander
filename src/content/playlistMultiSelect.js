@@ -137,6 +137,11 @@ let postSaveResetTimer = null;
 let lastPlaylistProbeVideoId = '';
 let createVisibility = 'PRIVATE';
 let selectAllMode = false;
+
+let isDragging = false;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+let isDragPositioned = false;
 const WATCH_LATER_PLAYLIST_ID = 'WL';
 
 const selectedVideoIds = new Set();
@@ -305,6 +310,11 @@ function ensureActionBar() {
     actionBar = document.createElement('div');
     actionBar.className = ACTION_BAR_CLASS;
 
+    const dragHandle = document.createElement('div');
+    dragHandle.className = 'yt-commander-playlist-action-drag-handle';
+    dragHandle.setAttribute('title', 'Drag to move');
+    dragHandle.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4h1v1H6V4zm3 0h1v1H9V4zm3 0h1v1h-1V4zM6 7h1v1H6V7zm3 0h1v1H9V7zm3 0h1v1h-1V7zM6 10h1v1H6v-1zm3 0h1v1H9v-1zm3 0h1v1h-1v-1z"/></svg>';
+
     const countWrap = document.createElement('div');
     countWrap.className = 'yt-commander-playlist-action-count';
 
@@ -329,13 +339,17 @@ function ensureActionBar() {
     countWrap.appendChild(totalLabel);
     countWrap.appendChild(actionTotalCount);
 
+    dragHandle.addEventListener('mousedown', handleDragStart);
+    document.addEventListener('mousemove', handleDragMove);
+    document.addEventListener('mouseup', handleDragEnd);
+
     actionWatchLaterButton = createActionIconButton(createWatchLaterIcon(), 'Save to Watch later');
     actionSaveButton = createActionIconButton(createBookmarkIcon(), 'Save to playlist');
     actionQuickCreateButton = createActionIconButton(createPlaylistAddIcon(), 'Save to new playlist');
     actionSplitButton = createActionIconButton(createSplitIcon(), 'Split into playlists');
     actionRemoveButton = createActionIconButton(createRemoveIcon(), getRemoveActionLabel());
     actionRemoveWatchedButton = createActionIconButton(createRemoveIcon(), 'Remove watched');
-    actionDeletePlaylistsButton = createActionIconButton(createRemoveIcon(), 'Delete selected playlists');
+    actionDeletePlaylistsButton = createActionIconButton(createRemoveIcon(), 'Remove selected playlist');
     actionSelectAllButton = createActionIconButton(createSelectAllIcon(), 'Select all');
     actionUnselectAllButton = createActionIconButton(createUnselectAllIcon(), 'Unselect all');
 
@@ -356,6 +370,7 @@ function ensureActionBar() {
     actionExitButton.setAttribute('data-tooltip', 'Exit selection mode');
     actionExitButton.appendChild(createCloseIcon());
 
+    actionBar.appendChild(dragHandle);
     actionBar.appendChild(countWrap);
     actionBar.appendChild(actionWatchLaterButton);
     actionBar.appendChild(actionSaveButton);
@@ -790,7 +805,23 @@ function syncActionBarVisibility() {
     if (!visible) {
         closePlaylistPanel();
         closeCreateModal(true);
+        resetActionBarPosition();
     }
+}
+
+/**
+ * Reset action bar position to default centered position.
+ */
+function resetActionBarPosition() {
+    if (!actionBar) {
+        return;
+    }
+
+    isDragPositioned = false;
+    actionBar.style.left = '';
+    actionBar.style.top = '';
+    actionBar.style.bottom = '';
+    actionBar.style.transform = '';
 }
 
 /**
@@ -1040,18 +1071,19 @@ function updateActionUiState() {
     }
 
     syncRemoveActionButton();
+    const isViewPlaylistPage = isPlaylistCollectionPage();
     if (actionRemoveButton) {
-        actionRemoveButton.hidden = isPlaylistPage;
+        actionRemoveButton.hidden = !isViewPlaylistPage;
         actionRemoveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
     }
 
     if (actionRemoveWatchedButton) {
-        actionRemoveWatchedButton.hidden = isPlaylistPage;
+        actionRemoveWatchedButton.hidden = !isViewPlaylistPage;
         actionRemoveWatchedButton.disabled = submitting || loadingPlaylists;
     }
 
     if (actionDeletePlaylistsButton) {
-        actionDeletePlaylistsButton.classList.toggle('is-visible', isPlaylistPage);
+        actionDeletePlaylistsButton.hidden = !isPlaylistPage;
         actionDeletePlaylistsButton.disabled = selectedPlaylistCount === 0 || submitting || loadingPlaylists;
     }
 
@@ -2453,7 +2485,65 @@ function handleMastheadButtonClick(event) {
 function handleActionExitButtonClick(event) {
     event.preventDefault();
     event.stopPropagation();
+    closePlaylistPanel();
+    actionBar?.classList.remove('is-visible');
     setSelectionMode(false);
+}
+
+/**
+ * Handle drag start on action bar.
+ * @param {MouseEvent} event
+ */
+function handleDragStart(event) {
+    if (!actionBar || !actionBar.classList.contains('is-visible')) {
+        return;
+    }
+
+    const target = event.target;
+    if (!target.closest('.yt-commander-playlist-action-drag-handle')) {
+        return;
+    }
+
+    isDragging = true;
+    actionBar.classList.add('is-dragging');
+
+    const rect = actionBar.getBoundingClientRect();
+    dragOffsetX = event.clientX - rect.left;
+    dragOffsetY = event.clientY - rect.top;
+
+    actionBar.style.left = `${rect.left}px`;
+    actionBar.style.transform = 'none';
+    actionBar.style.bottom = 'auto';
+    isDragPositioned = true;
+}
+
+/**
+ * Handle drag move.
+ * @param {MouseEvent} event
+ */
+function handleDragMove(event) {
+    if (!isDragging) {
+        return;
+    }
+
+    const x = event.clientX - dragOffsetX;
+    const y = event.clientY - dragOffsetY;
+
+    actionBar.style.left = `${Math.max(0, x)}px`;
+    actionBar.style.top = `${Math.max(0, y)}px`;
+}
+
+/**
+ * Handle drag end.
+ * @param {MouseEvent} event
+ */
+function handleDragEnd(event) {
+    if (!isDragging) {
+        return;
+    }
+
+    isDragging = false;
+    actionBar?.classList.remove('is-dragging');
 }
 
 /**
@@ -3142,6 +3232,8 @@ function handleDocumentKeydown(event) {
 
     if (selectionMode) {
         event.preventDefault();
+        closePlaylistPanel();
+        actionBar?.classList.remove('is-visible');
         setSelectionMode(false);
     }
 }
