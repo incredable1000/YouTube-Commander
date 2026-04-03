@@ -3174,6 +3174,10 @@ async function runSubscriptionAutomation() {
                     browseId: 'FEsubscriptions'
                 });
                 
+                if (response?.error) {
+                    return { success: false, error: JSON.stringify(response.error), videos: [], shorts: [] };
+                }
+                
                 const videos = [];
                 const shorts = [];
                 
@@ -3220,6 +3224,11 @@ async function runSubscriptionAutomation() {
                 }
             });
         });
+        
+        if (result?.error) {
+            console.error('[YT-Commander][Automation] API Error:', result.error);
+            throw new Error('API Error: ' + result.error);
+        }
         
         const videosCount = result?.videos?.length || 0;
         const shortsCount = result?.shorts?.length || 0;
