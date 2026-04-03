@@ -3082,12 +3082,12 @@ const SUBSCRIPTIONS_URL = 'https://www.youtube.com/feed/subscriptions';
             const existingTab = await queryTabs({ url: YOUTUBE_TAB_URL_PATTERN, active: true });
             if (existingTab.length > 0) {
                 tab = existingTab[0];
-                await updateTabUrl(tab.id, SUBSCRIPTIONS_URL);
+                await new Promise(resolve => setTimeout(resolve, 5000));
             } else {
                 tab = await createTab({ url: SUBSCRIPTIONS_URL, active: true });
+                await waitForTabReady(tab.id);
+                await delay(5000);
             }
-            await waitForTabReady(tab.id);
-            await delay(5000);
         }
         
         let lookbackMs = 24 * 60 * 60 * 1000;
