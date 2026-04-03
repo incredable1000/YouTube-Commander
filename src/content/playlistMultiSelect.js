@@ -149,7 +149,6 @@ const selectedPlaylistIds = new Set();
 const cleanupCallbacks = [];
 const playlistMap = new Map();
 const selectionRangeController = createSelectionRangeController();
-const pageVideoIds = new Set();
 let decorateRetryCounts = new WeakMap();
 
 const DECORATE_MAX_RETRIES = 3;
@@ -1830,12 +1829,6 @@ function findCardHost(container) {
  */
 function applySelectedState(host, videoId) {
     const selected = selectedVideoIds.has(videoId);
-    const isCurrentlySelected = host.classList.contains(HOST_SELECTED_CLASS);
-    
-    if (isCurrentlySelected === selected) {
-        return;
-    }
-
     host.classList.toggle(HOST_SELECTED_CLASS, selected);
 
     const overlay = host.querySelector(`.${OVERLAY_CLASS}`);
@@ -1869,14 +1862,7 @@ function commitSelectionMutation(changedVideoIds) {
         return;
     }
 
-    const changedSet = new Set(changedVideoIds);
-    document.querySelectorAll(`.${HOST_CLASS}`).forEach((host) => {
-        const videoId = host.getAttribute('data-yt-commander-video-id') || '';
-        if (changedSet.has(videoId)) {
-            applySelectedState(host, videoId);
-        }
-    });
-
+    changedVideoIds.forEach((videoId) => syncVideoSelectedState(videoId));
     updateActionUiState();
 
     if (playlistPanelVisible && loadPlaylistsDebounced) {
@@ -2173,7 +2159,6 @@ function cleanupDecorations() {
         host.classList.remove(HOST_CLASS, HOST_SELECTED_CLASS);
         host.removeAttribute('data-yt-commander-video-id');
     });
-    pageVideoIds.clear();
 }
 
 /**
@@ -2260,7 +2245,6 @@ function decorateContainer(container) {
     }
 
     overlay.setAttribute('data-yt-commander-video-id', videoId);
-    pageVideoIds.add(videoId);
     applySelectedState(host, videoId);
     decorateRetryCounts.delete(container);
     return true;
@@ -3267,6 +3251,13 @@ function handleRouteChange() {
     updateMastheadVisibility();
     syncActionBarVisibility();
     syncRemoveActionButton();
+}
+
+/**
+ * Handle viewport resize.
+ */
+function handleResize() {
+    positionPlaylistPanel();
 }
 
 /**
