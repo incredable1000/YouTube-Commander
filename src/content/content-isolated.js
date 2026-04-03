@@ -383,8 +383,13 @@ try {
                 } else if (message.type === 'GET_WATCHED_COUNT') {
                     // Handle watched count requests from background script
                     if (watchedModule && watchedModule.getWatchedCount) {
-                        const count = watchedModule.getWatchedCount();
-                        sendResponse({ count });
+                        watchedModule.getWatchedCount().then(count => {
+                            sendResponse({ count });
+                        }).catch(error => {
+                            logger.error('Failed to get watched count:', error);
+                            sendResponse({ count: 0 });
+                        });
+                        return true;
                     } else {
                         sendResponse({ count: 0 });
                     }
