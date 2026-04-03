@@ -3072,22 +3072,23 @@ async function runSubscriptionAutomation() {
             [AUTOMATION_STORAGE_KEYS.LAST_STATUS]: 'running'
         });
         
-const youtubeTabs = await queryTabs({ url: YOUTUBE_TAB_URL_PATTERN, active: true });
+const SUBSCRIPTIONS_URL = 'https://www.youtube.com/feed/subscriptions';
+        const youtubeTabs = await queryTabs({ url: SUBSCRIPTIONS_URL, active: true });
         let tab;
         
         if (youtubeTabs.length > 0) {
             tab = youtubeTabs[0];
         } else {
-            tab = await createTab({ url: YOUTUBE_BOOTSTRAP_URL, active: true });
+            const existingTab = await queryTabs({ url: YOUTUBE_TAB_URL_PATTERN, active: true });
+            if (existingTab.length > 0) {
+                tab = existingTab[0];
+                await updateTabUrl(tab.id, SUBSCRIPTIONS_URL);
+            } else {
+                tab = await createTab({ url: SUBSCRIPTIONS_URL, active: true });
+            }
             await waitForTabReady(tab.id);
-            await delay(3000);
+            await delay(5000);
         }
-        
-        const cookies = await new Promise((resolve) => {
-            chrome.cookies.getAll({ domain: '.youtube.com' }, (cookies) => {
-                resolve(cookies);
-            });
-        });
         
         let lookbackMs = 24 * 60 * 60 * 1000;
         switch (settings.lookback) {
@@ -3102,10 +3103,7 @@ const youtubeTabs = await queryTabs({ url: YOUTUBE_TAB_URL_PATTERN, active: true
                 lookbackMs = 24 * 60 * 60 * 1000;
         }
         
-        const automationScript = function(lookbackMsParam, cookiesParam) {
-            const INNERTUBE_API = 'https://www.youtube.com/youtubei/v1';
-            const API_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
-            
+        const automationScript = function(lookbackMsParam) {
             function parsePublishedTime(publishedText) {
                 if (!publishedText) return null;
                 const now = new Date();
@@ -3125,51 +3123,6 @@ const youtubeTabs = await queryTabs({ url: YOUTUBE_TAB_URL_PATTERN, active: true
                     default: return null;
                 }
                 return new Date(now.getTime() - ms);
-            }
-            
-            async function sendRequest(endpoint, payload) {
-                const cookieHeader = cookiesParam.map(c => `${c.name}=${c.value}`).join('; ');
-                
-                const response = await fetch(INNERTUBE_API + '/' + endpoint + '?key=' + API_KEY, {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Accept': '*/*',
-                        'Accept-Language': 'en-US,en;q=0.9',
-                        'Referer': 'https://www.youtube.com/feed/subscriptions',
-                        'Origin': 'https://www.youtube.com',
-                        'X-YouTube-Client-Name': '1',
-                        'X-YouTube-Client-Version': '2.20260401.08.00',
-                        'X-Goog-Visitor-Id': '',
-                        'X-YouTube-Bootstrap-Logged-In': 'true',
-                        'X-Goog-AuthUser': '2',
-                        'Cookie': cookieHeader
-                    },
-                    body: JSON.stringify({
-                        ...payload,
-                        context: {
-                            client: {
-                                clientName: 'WEB',
-                                clientVersion: '2.20260401.08.00',
-                                visitorData: '',
-                                userLocale: 'en-US',
-                                mainAppWebResponseContext: {
-                                    datasyncId: '',
-                                    loggedOut: false
-                                }
-                            },
-                            user: {
-                                onBehalfOfUser: ''
-                            },
-                            request: {
-                                useSsl: true,
-                                internalExperimentFlags: [],
-                                consistencyTokenJars: []
-                            }
-                        }
-                    })
-                });
-                return response.json();
             }
             
             async function getWatchedVideoIds() {
@@ -3193,22 +3146,13 @@ const youtubeTabs = await queryTabs({ url: YOUTUBE_TAB_URL_PATTERN, active: true
                 });
             }
             
-return (async function() {
+            return (async function() {
                 const watchedIds = new Set(await getWatchedVideoIds());
-                const lookbackDate = new Date(Date.now() - lookbackMsParam);
-                
-                const response = await sendRequest('browse', {
-                    browseId: 'FEsubscriptions'
-                });
-                
-                if (response?.error) {
-                    return { success: false, error: JSON.stringify(response.error), videos: [], shorts: [] };
-                }
                 
                 const videos = [];
                 const shorts = [];
                 
-                const contents = response?.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.richGridRenderer?.contents || [];
+                const contents = window.__ytInitialData?.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.richGridRenderer?.contents || [];
                 
                 for (const section of contents) {
                     const richSection = section?.richSectionRenderer?.content;
@@ -3245,7 +3189,7 @@ return (async function() {
             chrome.scripting.executeScript({
                 target: { tabId: tab.id },
                 func: automationScript,
-                args: [lookbackMs, cookies],
+                args: [lookbackMs],
                 world: 'MAIN'
             }, (results) => {
                 if (chrome.runtime.lastError) {
