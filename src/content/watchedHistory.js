@@ -1346,10 +1346,9 @@ async function getWatchedVideoCount() {
 
 /**
  * Alias used by content-isolated message bridge.
- * @returns {Promise<number>}
+ * @returns {number}
  */
-async function getWatchedCount() {
-    await ensureInitialized();
+function getWatchedCount() {
     return watchedIds.size;
 }
 
