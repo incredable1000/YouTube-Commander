@@ -6,204 +6,166 @@
 import { getCurrentVideoId } from './utils/youtube.js';
 import { createLogger } from './utils/logger.js';
 import {
+    DEFAULT_SYNC_ACCOUNT_KEY,
+    CLOUD_PENDING_QUEUE_KEY,
+    CLOUD_PENDING_COUNT_KEY,
+    CLOUD_PENDING_BY_ACCOUNT_KEY,
+} from './watched-history/cloudSync.js';
+import {
     CACHE_REFRESH_DEBOUNCE_MS,
     DB_NAME,
     DB_VERSION,
     FEED_RENDERER_SELECTOR,
     HIDDEN_CLASS,
     MARKER_CLASS,
-    MAX_PENDING_NODES,
     PLAYBACK_BIND_DELAY_MS,
-    PLAYBACK_BIND_MAX_RETRIES,
     RENDER_DEBOUNCE_MS,
     STORE_NAME,
     SYNC_QUEUE_STORE_NAME,
     VIDEO_LINK_SELECTOR,
-    WATCHED_ATTR
+    WATCHED_ATTR,
 } from './watched-history/constants.js';
 import { extractVideoId, isValidVideoId } from './watched-history/videoId.js';
 import {
-    CLOUD_PENDING_QUEUE_KEY,
-    CLOUD_PENDING_COUNT_KEY,
-    CLOUD_PENDING_BY_ACCOUNT_KEY,
-    DEFAULT_SYNC_ACCOUNT_KEY,
-    SUBSCRIPTION_IDENTITY_BRIDGE_SOURCE,
-    SUBSCRIPTION_IDENTITY_REQUEST_TYPE,
-    SUBSCRIPTION_IDENTITY_RESPONSE_TYPE,
-    SUBSCRIPTION_IDENTITY_ACTION,
-    SUBSCRIPTION_IDENTITY_TIMEOUT_MS,
-    isChannelAccountKey
-} from './watched-history/cloudSync.js';
+    resolveSyncAccountIdentity,
+    getSyncAccountIdentityState,
+    setSyncAccountIdentityState,
+} from './watched-history/identity-bridge.js';
+import {
+    initDatabase,
+    getDb,
+    setDb,
+    getAllWatchedVideos,
+    getPendingSyncVideoIds,
+    ackSyncedVideoIds as dbAckSyncedVideoIds,
+    getPendingSyncCount,
+} from './watched-history/db-utils.js';
+import { injectStyles } from './watched-history/styles.js';
+import {
+    setWatchedIds,
+    setDeleteVideosEnabled,
+    setIsEnabled,
+    getPendingContainers,
+    setFullScanRequested,
+    decorateContainer,
+    scheduleRender,
+    startMutationObserver,
+} from './watched-history/render-utils.js';
+import {
+    getPlaybackBindings,
+    schedulePlaybackBinding,
+    bindPlayHandler,
+    pruneDisconnectedPlaybackBindings,
+} from './watched-history/playback-utils.js';
 
 const logger = createLogger('WatchedHistory');
 
-let db = null;
 let initialized = false;
 let initializingPromise = null;
-
 let isEnabled = true;
 let deleteVideosEnabled = false;
 let watchedIds = new Set();
-
 let mutationObserver = null;
-let renderTimer = null;
 let playbackTimer = null;
 let cacheRefreshTimer = null;
-let fullScanRequested = false;
-let flushing = false;
-let flushAgain = false;
 let lastUrl = location.href;
-
 const pendingContainers = new Set();
 const playbackBindings = new Map();
-
 let runtimeMessageListener = null;
 let storageListener = null;
-
 const teardownCallbacks = [];
-
 let syncAccountKey = DEFAULT_SYNC_ACCOUNT_KEY;
-let syncAccountSource = 'fallback';
-let syncAccountIsPrimaryCandidate = false;
-let syncAccountIdentityPromise = null;
-let subscriptionIdentityRequestCounter = 0;
-const pendingSubscriptionIdentityRequests = new Map();
-let subscriptionIdentityResponseListenerAttached = false;
+let renderTimer = null;
 
-/**
- * Handle channel identity bridge responses from main world.
- * @param {MessageEvent} event
- */
-function handleSubscriptionIdentityBridgeResponse(event) {
-    if (event.source !== window || !event.data || typeof event.data !== 'object') {
+async function ensureInitialized() {
+    if (initialized) {
         return;
     }
 
-    const message = event.data;
-    if (message.source !== SUBSCRIPTION_IDENTITY_BRIDGE_SOURCE
-        || message.type !== SUBSCRIPTION_IDENTITY_RESPONSE_TYPE) {
-        return;
+    if (initializingPromise) {
+        return initializingPromise;
     }
 
-    const requestId = typeof message.requestId === 'string' ? message.requestId : '';
-    if (!requestId || !pendingSubscriptionIdentityRequests.has(requestId)) {
-        return;
-    }
-
-    const pending = pendingSubscriptionIdentityRequests.get(requestId);
-    pendingSubscriptionIdentityRequests.delete(requestId);
-    window.clearTimeout(pending.timeoutId);
-
-    if (message.success === true) {
-        pending.resolve(message.data || {});
-        return;
-    }
-
-    pending.reject(new Error(message.error || 'Failed to resolve YouTube channel identity'));
-}
-
-/**
- * Ensure the channel identity bridge response listener is attached once.
- */
-function ensureSubscriptionIdentityBridgeListener() {
-    if (subscriptionIdentityResponseListenerAttached) {
-        return;
-    }
-
-    window.addEventListener('message', handleSubscriptionIdentityBridgeResponse);
-    subscriptionIdentityResponseListenerAttached = true;
-}
-
-/**
- * Request the active signed-in YouTube channel identity from main world.
- * @returns {Promise<{accountKey: string, channelId: string, source: string, isPrimaryCandidate: boolean}>}
- */
-function requestSubscriptionSyncIdentity() {
-    ensureSubscriptionIdentityBridgeListener();
-
-    return new Promise((resolve, reject) => {
-        subscriptionIdentityRequestCounter += 1;
-        const requestId = `watched-identity-${Date.now()}-${subscriptionIdentityRequestCounter}`;
-        const timeoutId = window.setTimeout(() => {
-            pendingSubscriptionIdentityRequests.delete(requestId);
-            reject(new Error('Timed out while resolving YouTube channel identity'));
-        }, SUBSCRIPTION_IDENTITY_TIMEOUT_MS);
-
-        pendingSubscriptionIdentityRequests.set(requestId, {
-            resolve,
-            reject,
-            timeoutId
+    initializingPromise = (async () => {
+        logger.info('Initializing watched history');
+        const identity = await resolveSyncAccountIdentity(logger);
+        syncAccountKey = identity.accountKey;
+        setSyncAccountIdentityState(
+            identity.accountKey,
+            identity.source,
+            identity.isPrimaryCandidate
+        );
+        await initDatabase();
+        await loadDeleteModeSetting();
+        await hydrateWatchedIdCache();
+        injectStyles();
+        attachListeners();
+        mutationObserver = startMutationObserver();
+        scheduleRender('init', true);
+        schedulePlaybackBinding(playbackBindings, watchedIds, addToWatchedHistory);
+        initialized = true;
+        logger.info('Watched history initialized', {
+            watchedCount: watchedIds.size,
+            syncAccountKey,
+            syncAccountSource: identity.source,
         });
-
-        window.postMessage({
-            source: SUBSCRIPTION_IDENTITY_BRIDGE_SOURCE,
-            type: SUBSCRIPTION_IDENTITY_REQUEST_TYPE,
-            action: SUBSCRIPTION_IDENTITY_ACTION,
-            requestId
-        }, '*');
-    });
-}
-
-/**
- * Resolve and cache the sync account identity for watched history.
- * @returns {Promise<{accountKey: string, source: string, isPrimaryCandidate: boolean}>}
- */
-async function resolveSyncAccountIdentity() {
-    if (syncAccountKey && syncAccountKey !== DEFAULT_SYNC_ACCOUNT_KEY) {
-        return {
-            accountKey: syncAccountKey,
-            source: syncAccountSource,
-            isPrimaryCandidate: syncAccountIsPrimaryCandidate
-        };
-    }
-
-    if (syncAccountIdentityPromise) {
-        return syncAccountIdentityPromise;
-    }
-
-    syncAccountIdentityPromise = (async () => {
-        try {
-            const identity = await requestSubscriptionSyncIdentity();
-            const accountKey = typeof identity.accountKey === 'string' ? identity.accountKey.trim() : '';
-            if (isChannelAccountKey(accountKey)) {
-                syncAccountKey = accountKey;
-                syncAccountSource = typeof identity.source === 'string' ? identity.source : 'youtube-channel';
-                syncAccountIsPrimaryCandidate = identity.isPrimaryCandidate !== false;
-                return {
-                    accountKey: syncAccountKey,
-                    source: syncAccountSource,
-                    isPrimaryCandidate: syncAccountIsPrimaryCandidate
-                };
-            }
-            logger.warn('Invalid channel identity response for watched history sync', identity);
-        } catch (error) {
-            logger.warn('Failed to resolve YouTube channel identity for watched history sync', error);
-        }
-
-        syncAccountKey = DEFAULT_SYNC_ACCOUNT_KEY;
-        syncAccountSource = 'fallback';
-        syncAccountIsPrimaryCandidate = false;
-        return {
-            accountKey: syncAccountKey,
-            source: syncAccountSource,
-            isPrimaryCandidate: syncAccountIsPrimaryCandidate
-        };
     })();
 
     try {
-        return await syncAccountIdentityPromise;
-    } finally {
-        syncAccountIdentityPromise = null;
+        await initializingPromise;
+    } catch (error) {
+        logger.error('Initialization failed', error);
+        initializingPromise = null;
+        initialized = false;
+        throw error;
     }
 }
 
-/**
- * Merge and persist pending cloud-sync IDs into local storage.
- * This runs in content context so pending data survives browser close
- * even if runtime messaging is interrupted.
- * @param {string[]} videoIds
- * @returns {Promise<void>}
- */
+async function loadDeleteModeSetting() {
+    try {
+        const result = await chrome.storage.sync.get(['deleteVideosEnabled']);
+        deleteVideosEnabled = result.deleteVideosEnabled === true;
+        setDeleteVideosEnabled(deleteVideosEnabled);
+    } catch (error) {
+        logger.warn('Failed to load delete mode setting, using default', error);
+        deleteVideosEnabled = false;
+        setDeleteVideosEnabled(false);
+    }
+}
+
+async function hydrateWatchedIdCache() {
+    const db = getDb();
+    if (!db) {
+        throw new Error('Database not initialized');
+    }
+
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request =
+            typeof store.getAllKeys === 'function' ? store.getAllKeys() : store.getAll();
+
+        request.onsuccess = () => {
+            const raw = request.result || [];
+            let ids;
+            if (typeof store.getAllKeys === 'function') {
+                ids = raw;
+            } else {
+                ids = raw
+                    .map((entry) => entry?.videoId)
+                    .filter((videoId) => typeof videoId === 'string');
+            }
+            watchedIds = new Set(ids.filter((videoId) => isValidVideoId(videoId)));
+            setWatchedIds(watchedIds);
+            resolve();
+        };
+
+        request.onerror = () => {
+            reject(request.error || new Error('Failed to read watched IDs'));
+        };
+    });
+}
+
 async function persistPendingCloudSyncIds(videoIds) {
     const incoming = [];
     const seenIncoming = new Set();
@@ -224,12 +186,13 @@ async function persistPendingCloudSyncIds(videoIds) {
     try {
         const result = await chrome.storage.local.get([
             CLOUD_PENDING_QUEUE_KEY,
-            CLOUD_PENDING_BY_ACCOUNT_KEY
+            CLOUD_PENDING_BY_ACCOUNT_KEY,
         ]);
-        const pendingByAccount = result?.[CLOUD_PENDING_BY_ACCOUNT_KEY]
-            && typeof result[CLOUD_PENDING_BY_ACCOUNT_KEY] === 'object'
-            ? result[CLOUD_PENDING_BY_ACCOUNT_KEY]
-            : {};
+        const pendingByAccount =
+            result?.[CLOUD_PENDING_BY_ACCOUNT_KEY] &&
+            typeof result[CLOUD_PENDING_BY_ACCOUNT_KEY] === 'object'
+                ? result[CLOUD_PENDING_BY_ACCOUNT_KEY]
+                : {};
         const existingRaw = Array.isArray(pendingByAccount[syncAccountKey])
             ? pendingByAccount[syncAccountKey]
             : [];
@@ -258,21 +221,14 @@ async function persistPendingCloudSyncIds(videoIds) {
 
         await chrome.storage.local.set({
             [CLOUD_PENDING_BY_ACCOUNT_KEY]: pendingByAccount,
-            // Keep legacy mirrors updated for popup/backward compatibility.
             [CLOUD_PENDING_QUEUE_KEY]: merged,
-            [CLOUD_PENDING_COUNT_KEY]: merged.length
+            [CLOUD_PENDING_COUNT_KEY]: merged.length,
         });
     } catch (error) {
         logger.debug('Failed to persist pending cloud-sync IDs', error);
     }
 }
 
-/**
- * Notify background that watched history changed.
- * Returns false only when runtime messaging fails or background rejects.
- * @param {object} payload
- * @returns {Promise<boolean>}
- */
 async function notifyBackgroundHistoryUpdated(payload) {
     try {
         const response = await chrome.runtime.sendMessage(payload);
@@ -286,201 +242,9 @@ async function notifyBackgroundHistoryUpdated(payload) {
     }
 }
 
-/**
- * Initialize IndexedDB for watched history.
- * @returns {Promise<void>}
- */
-async function initDB() {
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-        request.onupgradeneeded = (event) => {
-            const upgradedDb = event.target.result;
-            if (!upgradedDb.objectStoreNames.contains(STORE_NAME)) {
-                upgradedDb.createObjectStore(STORE_NAME, { keyPath: 'videoId' });
-            }
-            if (!upgradedDb.objectStoreNames.contains(SYNC_QUEUE_STORE_NAME)) {
-                upgradedDb.createObjectStore(SYNC_QUEUE_STORE_NAME, { keyPath: 'videoId' });
-            }
-        };
-
-        request.onsuccess = () => {
-            db = request.result;
-
-            db.onclose = () => {
-                logger.warn('IndexedDB connection closed');
-                db = null;
-                initialized = false;
-            };
-
-            db.onerror = (event) => {
-                logger.error('IndexedDB runtime error', event.target?.error || event);
-            };
-
-            resolve();
-        };
-
-        request.onerror = () => {
-            reject(request.error || new Error('Failed to open watched history database'));
-        };
-    });
-}
-
-/**
- * Ensure initialization only runs once and is safe to call repeatedly.
- * @returns {Promise<void>}
- */
-async function ensureInitialized() {
-    if (initialized) {
-        return;
-    }
-
-    if (initializingPromise) {
-        return initializingPromise;
-    }
-
-    initializingPromise = (async () => {
-        logger.info('Initializing watched history');
-        const identity = await resolveSyncAccountIdentity();
-        syncAccountKey = identity.accountKey;
-        await initDB();
-        await loadDeleteModeSetting();
-        await hydrateWatchedIdCache();
-        injectStyles();
-        attachListeners();
-        startMutationObserver();
-
-        initialized = true;
-        fullScanRequested = true;
-
-        scheduleRender('init', true);
-        schedulePlaybackBinding();
-
-        logger.info('Watched history initialized', {
-            watchedCount: watchedIds.size,
-            syncAccountKey,
-            syncAccountSource: identity.source
-        });
-    })();
-
-    try {
-        await initializingPromise;
-    } catch (error) {
-        logger.error('Initialization failed', error);
-        initializingPromise = null;
-        initialized = false;
-        throw error;
-    }
-}
-
-/**
- * Load delete-videos mode from sync storage.
- * @returns {Promise<void>}
- */
-async function loadDeleteModeSetting() {
-    try {
-        const result = await chrome.storage.sync.get(['deleteVideosEnabled']);
-        deleteVideosEnabled = result.deleteVideosEnabled === true;
-    } catch (error) {
-        logger.warn('Failed to load delete mode setting, using default', error);
-        deleteVideosEnabled = false;
-    }
-}
-
-/**
- * Pull all watched IDs into in-memory cache for O(1) checks during rendering.
- * @returns {Promise<void>}
- */
-async function hydrateWatchedIdCache() {
-    if (!db) {
-        throw new Error('Database not initialized');
-    }
-
-    const ids = await new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-
-        const request = typeof store.getAllKeys === 'function' ? store.getAllKeys() : store.getAll();
-
-        request.onsuccess = () => {
-            const raw = request.result || [];
-            if (typeof store.getAllKeys === 'function') {
-                resolve(raw);
-                return;
-            }
-
-            const mapped = raw
-                .map((entry) => entry?.videoId)
-                .filter((videoId) => typeof videoId === 'string');
-            resolve(mapped);
-        };
-
-        request.onerror = () => {
-            reject(request.error || new Error('Failed to read watched IDs'));
-        };
-    });
-
-    watchedIds = new Set(ids.filter((videoId) => isValidVideoId(videoId)));
-}
-
-/**
- * Inject watched-marker and hidden-video styles once.
- */
-function injectStyles() {
-    if (document.getElementById('yt-commander-watched-history-styles')) {
-        return;
-    }
-
-    const style = document.createElement('style');
-    style.id = 'yt-commander-watched-history-styles';
-    style.textContent = `
-        .${HIDDEN_CLASS} {
-            display: none !important;
-        }
-
-        [${WATCHED_ATTR}='true'] {
-            position: relative !important;
-            display: block !important;
-        }
-
-        .${MARKER_CLASS} {
-            position: absolute !important;
-            inset: 0 !important;
-            pointer-events: none !important;
-            z-index: 12 !important;
-            background: rgba(0, 0, 0, 0.45) !important;
-            border-radius: 12px !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-        }
-
-        .${MARKER_CLASS}::after {
-            content: '\\2713' !important;
-            font-size: 20px !important;
-            font-weight: 700 !important;
-            letter-spacing: 0.3px !important;
-            color: #ffffff !important;
-            background: rgba(31, 165, 68, 0.95) !important;
-            border-radius: 999px !important;
-            width: 30px !important;
-            height: 30px !important;
-            display: inline-flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35) !important;
-        }
-    `;
-
-    document.head.appendChild(style);
-}
-
-/**
- * Attach runtime/storage/navigation listeners once.
- */
 function attachListeners() {
     if (!runtimeMessageListener) {
-        runtimeMessageListener = (message, sender, sendResponse) => {
+        runtimeMessageListener = (message, _sender, sendResponse) => {
             if (!message || !message.type) {
                 return undefined;
             }
@@ -503,15 +267,14 @@ function attachListeners() {
             }
 
             if (message.type === 'GET_PENDING_SYNC_VIDEO_IDS') {
-                const limit = Number.parseInt(message.limit, 10);
-                getPendingSyncVideoIds(limit)
+                getPendingSyncVideoIds(message.limit)
                     .then((videoIds) => sendResponse({ success: true, videoIds }))
                     .catch((error) => sendResponse({ success: false, error: error.message }));
                 return true;
             }
 
             if (message.type === 'ACK_SYNCED_VIDEO_IDS') {
-                ackSyncedVideoIds(message.videoIds)
+                dbAckSyncedVideoIds(message.videoIds)
                     .then((removedCount) => sendResponse({ success: true, removedCount }))
                     .catch((error) => sendResponse({ success: false, error: error.message }));
                 return true;
@@ -525,7 +288,7 @@ function attachListeners() {
             }
 
             if (message.type === 'GET_SYNC_ACCOUNT_IDENTITY') {
-                getSyncAccountIdentity()
+                resolveSyncAccountIdentity(logger)
                     .then((identity) => sendResponse({ success: true, ...identity }))
                     .catch((error) => sendResponse({ success: false, error: error.message }));
                 return true;
@@ -565,6 +328,7 @@ function attachListeners() {
 
             if (changes.deleteVideosEnabled) {
                 deleteVideosEnabled = changes.deleteVideosEnabled.newValue === true;
+                setDeleteVideosEnabled(deleteVideosEnabled);
                 scheduleRender('storage-change', true);
             }
         };
@@ -579,7 +343,7 @@ function attachListeners() {
 
         lastUrl = location.href;
         scheduleRender('navigate', true);
-        schedulePlaybackBinding();
+        schedulePlaybackBinding(playbackBindings, watchedIds, addToWatchedHistory);
     };
 
     const onVisibilityOrFocus = () => {
@@ -588,7 +352,7 @@ function attachListeners() {
         }
 
         scheduleRender('foreground-refresh', true);
-        schedulePlaybackBinding();
+        schedulePlaybackBinding(playbackBindings, watchedIds, addToWatchedHistory);
     };
 
     document.addEventListener('yt-navigate-finish', onNavigate);
@@ -598,520 +362,14 @@ function attachListeners() {
 
     teardownCallbacks.push(() => document.removeEventListener('yt-navigate-finish', onNavigate));
     teardownCallbacks.push(() => window.removeEventListener('popstate', onNavigate));
-    teardownCallbacks.push(() => document.removeEventListener('visibilitychange', onVisibilityOrFocus));
+    teardownCallbacks.push(() =>
+        document.removeEventListener('visibilitychange', onVisibilityOrFocus)
+    );
     teardownCallbacks.push(() => window.removeEventListener('focus', onVisibilityOrFocus));
 }
 
-/**
- * Start a single mutation observer for new feed nodes and URL changes.
- */
-function startMutationObserver() {
-    if (mutationObserver || !document.body) {
-        return;
-    }
-
-    mutationObserver = new MutationObserver((mutations) => {
-        if (!isEnabled) {
-            return;
-        }
-
-        if (location.href !== lastUrl) {
-            lastUrl = location.href;
-            fullScanRequested = true;
-            schedulePlaybackBinding();
-        }
-
-        let foundCandidate = false;
-
-        for (const mutation of mutations) {
-            if (mutation.type !== 'childList' || mutation.addedNodes.length === 0) {
-                continue;
-            }
-
-            for (const node of mutation.addedNodes) {
-                foundCandidate = collectCandidateContainers(node) || foundCandidate;
-            }
-        }
-
-        if (foundCandidate || fullScanRequested) {
-            scheduleRender('mutation');
-        }
-    });
-
-    mutationObserver.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
-}
-
-/**
- * Collect renderer containers from an added node.
- * @param {Node} node
- * @returns {boolean}
- */
-function collectCandidateContainers(node) {
-    if (!node || node.nodeType !== Node.ELEMENT_NODE) {
-        return false;
-    }
-
-    const element = /** @type {Element} */ (node);
-    let found = false;
-
-    if (element.matches(FEED_RENDERER_SELECTOR)) {
-        pendingContainers.add(element);
-        found = true;
-    }
-
-    if (typeof element.querySelectorAll === 'function') {
-        const matches = element.querySelectorAll(FEED_RENDERER_SELECTOR);
-        if (matches.length > 0) {
-            found = true;
-            for (const match of matches) {
-                pendingContainers.add(match);
-            }
-        }
-    }
-
-    if (pendingContainers.size > MAX_PENDING_NODES) {
-        pendingContainers.clear();
-        fullScanRequested = true;
-        found = true;
-    }
-
-    return found;
-}
-
-/**
- * Debounced render scheduler.
- * @param {string} reason
- * @param {boolean} [forceFullScan]
- */
-function scheduleRender(reason, forceFullScan = false) {
-    if (!isEnabled) {
-        return;
-    }
-
-    if (forceFullScan) {
-        fullScanRequested = true;
-    }
-
-    if (renderTimer) {
-        return;
-    }
-
-    renderTimer = setTimeout(() => {
-        renderTimer = null;
-        flushRenderQueue().catch((error) => {
-            logger.error(`Render flush failed (${reason})`, error);
-        });
-    }, RENDER_DEBOUNCE_MS);
-}
-
-/**
- * Flush pending/full render queue in chunks to avoid long main-thread blocks.
- * @returns {Promise<void>}
- */
-async function flushRenderQueue() {
-    if (!isEnabled) {
-        return;
-    }
-
-    if (flushing) {
-        flushAgain = true;
-        return;
-    }
-
-    flushing = true;
-
-    try {
-        const toProcess = new Set();
-
-        if (fullScanRequested) {
-            fullScanRequested = false;
-            const allContainers = document.querySelectorAll(FEED_RENDERER_SELECTOR);
-            for (const container of allContainers) {
-                toProcess.add(container);
-            }
-        }
-
-        if (pendingContainers.size > 0) {
-            for (const container of pendingContainers) {
-                toProcess.add(container);
-            }
-            pendingContainers.clear();
-        }
-
-        if (toProcess.size === 0) {
-            return;
-        }
-
-        const batch = Array.from(toProcess);
-        const chunkSize = 120;
-
-        for (let i = 0; i < batch.length; i += chunkSize) {
-            const slice = batch.slice(i, i + chunkSize);
-            for (const container of slice) {
-                decorateContainer(container);
-            }
-            await nextAnimationFrame();
-        }
-    } finally {
-        flushing = false;
-
-        if (flushAgain) {
-            flushAgain = false;
-            scheduleRender('flush-again');
-        }
-    }
-}
-
-/**
- * Decorate a renderer with marker/hide state based on cache and settings.
- * @param {Element} container
- */
-function decorateContainer(container) {
-    if (!container || !container.isConnected) {
-        return;
-    }
-
-    const link = container.querySelector(VIDEO_LINK_SELECTOR);
-    if (!link || !link.href) {
-        return;
-    }
-
-    const videoId = extractVideoId(link.href);
-    if (!isValidVideoId(videoId)) {
-        return;
-    }
-
-    const isWatched = watchedIds.has(videoId);
-
-    if (isWatched && deleteVideosEnabled) {
-        container.classList.add(HIDDEN_CLASS);
-    } else {
-        container.classList.remove(HIDDEN_CLASS);
-    }
-
-    const thumbnail = findThumbnailAnchor(container, link);
-    if (!thumbnail) {
-        return;
-    }
-
-    if (isWatched && !deleteVideosEnabled) {
-        thumbnail.setAttribute(WATCHED_ATTR, 'true');
-
-        if (!thumbnail.querySelector(`.${MARKER_CLASS}`)) {
-            const marker = document.createElement('div');
-            marker.className = MARKER_CLASS;
-            thumbnail.appendChild(marker);
-        }
-    } else {
-        thumbnail.removeAttribute(WATCHED_ATTR);
-        const marker = thumbnail.querySelector(`.${MARKER_CLASS}`);
-        if (marker) {
-            marker.remove();
-        }
-    }
-}
-
-/**
- * Find a thumbnail element where marker should be attached.
- * @param {Element} container
- * @param {HTMLAnchorElement} fallbackLink
- * @returns {Element|null}
- */
-function findThumbnailAnchor(container, fallbackLink) {
-    const ytThumb = container.querySelector('ytd-thumbnail, ytd-playlist-thumbnail, yt-thumbnail-view-model');
-    if (ytThumb) {
-        return ytThumb;
-    }
-    const direct = container.querySelector('a#thumbnail');
-    if (direct) {
-        return direct;
-    }
-    const richThumb = container.querySelector('#thumbnail');
-    if (richThumb) {
-        return richThumb;
-    }
-    return fallbackLink || null;
-}
-
-/**
- * Yield to the browser between render chunks.
- * @returns {Promise<void>}
- */
-function nextAnimationFrame() {
-    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
-}
-
-/**
- * Schedule retries to bind play handlers for current watch/shorts video.
- */
-function schedulePlaybackBinding() {
-    if (!isEnabled) {
-        return;
-    }
-
-    if (playbackTimer) {
-        clearTimeout(playbackTimer);
-    }
-
-    let attempt = 0;
-
-    const bind = () => {
-        if (!isEnabled) {
-            return;
-        }
-
-        const pageVideoId = getCurrentPageVideoId();
-        if (!pageVideoId) {
-            return;
-        }
-
-        const activeVideo = getActiveVideoElement();
-        if (!activeVideo) {
-            attempt += 1;
-            if (attempt < PLAYBACK_BIND_MAX_RETRIES) {
-                playbackTimer = setTimeout(bind, PLAYBACK_BIND_DELAY_MS);
-            }
-            return;
-        }
-
-        pruneDisconnectedPlaybackBindings();
-        bindPlayHandler(activeVideo, pageVideoId);
-    };
-
-    playbackTimer = setTimeout(bind, PLAYBACK_BIND_DELAY_MS);
-}
-
-/**
- * Remove listener bindings from disconnected video elements.
- */
-function pruneDisconnectedPlaybackBindings() {
-    for (const [video, binding] of playbackBindings.entries()) {
-        if (video.isConnected) {
-            continue;
-        }
-
-        video.removeEventListener('play', binding.onPlay);
-        video.removeEventListener('loadeddata', binding.onLoadedData);
-        playbackBindings.delete(video);
-    }
-}
-
-/**
- * Resolve the most accurate currently playing video id.
- * @param {HTMLVideoElement} video
- * @param {string|null} [fallbackVideoId]
- * @returns {string|null}
- */
-function resolvePlaybackVideoId(video, fallbackVideoId = null) {
-    if (isValidVideoId(fallbackVideoId)) {
-        return fallbackVideoId;
-    }
-
-    if (location.pathname.startsWith('/shorts/')) {
-        const renderer = video?.closest?.('ytd-reel-video-renderer');
-        if (renderer) {
-            const rendererLink = renderer.querySelector('a[href*="/shorts/"], a[href*="/watch?v="]');
-            if (rendererLink?.href) {
-                const rendererVideoId = extractVideoId(rendererLink.href);
-                if (isValidVideoId(rendererVideoId)) {
-                    return rendererVideoId;
-                }
-            }
-        }
-
-        const activeRenderer = getActiveShortsRenderer();
-        if (activeRenderer) {
-            const activeLink = activeRenderer.querySelector('a[href*="/shorts/"], a[href*="/watch?v="]');
-            if (activeLink?.href) {
-                const activeVideoId = extractVideoId(activeLink.href);
-                if (isValidVideoId(activeVideoId)) {
-                    return activeVideoId;
-                }
-            }
-        }
-    }
-
-    return getCurrentPageVideoId();
-}
-
-/**
- * Attach one play handler per video element.
- * @param {HTMLVideoElement} video
- * @param {string|null} currentVideoId
- */
-function bindPlayHandler(video, currentVideoId = null) {
-    const existing = playbackBindings.get(video);
-    if (existing) {
-        existing.markCurrent(currentVideoId);
-        return;
-    }
-
-    const binding = {
-        lastMarkedId: '',
-        onPlay: null,
-        onLoadedData: null,
-        markCurrent: (_seedVideoId) => {}
-    };
-
-    const markCurrent = (seedVideoId = null) => {
-        if (!isEnabled) {
-            return;
-        }
-
-        // Only mark videos on watch/shorts pages - skip feed page hover previews
-        const currentPageId = getCurrentPageVideoId();
-        if (!currentPageId) {
-            return;
-        }
-
-        const resolvedVideoId = resolvePlaybackVideoId(video, seedVideoId);
-        if (!isValidVideoId(resolvedVideoId)) {
-            return;
-        }
-
-        if (binding.lastMarkedId === resolvedVideoId && watchedIds.has(resolvedVideoId)) {
-            return;
-        }
-
-        binding.lastMarkedId = resolvedVideoId;
-        addToWatchedHistory(resolvedVideoId).catch((error) => {
-            logger.error('Failed to mark video on play event', error);
-        });
-    };
-
-    const onPlay = () => markCurrent();
-    const onLoadedData = () => {
-        if (!video.paused) {
-            markCurrent();
-        }
-    };
-
-    binding.onPlay = onPlay;
-    binding.onLoadedData = onLoadedData;
-    binding.markCurrent = markCurrent;
-
-    video.addEventListener('play', onPlay);
-    video.addEventListener('loadeddata', onLoadedData);
-    playbackBindings.set(video, binding);
-
-    if (!video.paused || isValidVideoId(currentVideoId)) {
-        markCurrent(currentVideoId);
-    }
-}
-
-/**
- * Resolve the current page video ID for /watch and /shorts pages.
- * @returns {string|null}
- */
-function getCurrentPageVideoId() {
-    if (location.pathname === '/watch') {
-        const watchId = getCurrentVideoId();
-        return isValidVideoId(watchId) ? watchId : null;
-    }
-
-    if (location.pathname.startsWith('/shorts/')) {
-        const parts = location.pathname.split('/shorts/');
-        const shortsId = parts[1] ? parts[1].split('/')[0] : null;
-        return isValidVideoId(shortsId) ? shortsId : null;
-    }
-
-    return null;
-}
-
-/**
- * Get the active HTML video element for watch/shorts pages.
- * @returns {HTMLVideoElement|null}
- */
-function getActiveVideoElement() {
-    if (location.pathname.startsWith('/shorts/')) {
-        const activeRenderer = getActiveShortsRenderer();
-        if (activeRenderer) {
-            const insideRenderer = activeRenderer.querySelector('video.html5-main-video');
-            if (insideRenderer) {
-                return insideRenderer;
-            }
-        }
-
-        return document.querySelector('ytd-shorts video.html5-main-video');
-    }
-
-    return document.querySelector('video.html5-main-video');
-}
-
-/**
- * Get the currently visible Shorts renderer.
- * @returns {Element|null}
- */
-function getActiveShortsRenderer() {
-    const explicitActive = document.querySelector('ytd-shorts ytd-reel-video-renderer[is-active]');
-    if (explicitActive) {
-        return explicitActive;
-    }
-
-    const renderers = document.querySelectorAll('ytd-shorts ytd-reel-video-renderer');
-    const midY = window.innerHeight / 2;
-
-    for (const renderer of renderers) {
-        const rect = renderer.getBoundingClientRect();
-        if (rect.top <= midY && rect.bottom >= midY) {
-            return renderer;
-        }
-    }
-
-    return null;
-}
-
-/**
- * Remove all bound video play handlers.
- */
-function clearPlaybackBindings() {
-    for (const [video, binding] of playbackBindings.entries()) {
-        video.removeEventListener('play', binding.onPlay);
-        video.removeEventListener('loadeddata', binding.onLoadedData);
-    }
-    playbackBindings.clear();
-}
-
-/**
- * Store watched ID in DB + cache and update visible markers.
- * @param {string} videoId
- * @returns {Promise<void>}
- */
-async function addToWatchedHistory(videoId) {
-    if (!isValidVideoId(videoId)) {
-        return;
-    }
-
-    await ensureInitialized();
-
-    if (watchedIds.has(videoId)) {
-        return;
-    }
-
-    await putWatchedRecordAndQueue(videoId, Date.now());
-    watchedIds.add(videoId);
-    const backgroundQueued = await notifyBackgroundHistoryUpdated({
-        type: 'HISTORY_UPDATED',
-        videoId,
-        accountKey: syncAccountKey || DEFAULT_SYNC_ACCOUNT_KEY
-    });
-    if (!backgroundQueued) {
-        await persistPendingCloudSyncIds([videoId]);
-    }
-
-    decorateMatchingVisibleContainers(videoId);
-}
-
-/**
- * Insert/update a watched record and queue it for cloud sync.
- * @param {string} videoId
- * @param {number} timestamp
- * @returns {Promise<void>}
- */
 async function putWatchedRecordAndQueue(videoId, timestamp) {
+    const db = getDb();
     if (!db) {
         throw new Error('Database not initialized');
     }
@@ -1125,20 +383,43 @@ async function putWatchedRecordAndQueue(videoId, timestamp) {
         queueStore.put({ videoId, queuedAt: Date.now() });
 
         transaction.oncomplete = () => resolve();
-        transaction.onerror = () => reject(transaction.error || new Error('Failed to write watched record'));
-        transaction.onabort = () => reject(transaction.error || new Error('Write transaction aborted'));
+        transaction.onerror = () =>
+            reject(transaction.error || new Error('Failed to write watched record'));
+        transaction.onabort = () =>
+            reject(transaction.error || new Error('Write transaction aborted'));
     });
 }
 
-/**
- * Re-render only containers currently showing the provided ID.
- * @param {string} videoId
- */
+async function addToWatchedHistory(videoId) {
+    if (!isValidVideoId(videoId)) {
+        return;
+    }
+
+    await ensureInitialized();
+
+    if (watchedIds.has(videoId)) {
+        return;
+    }
+
+    await putWatchedRecordAndQueue(videoId, Date.now());
+    watchedIds.add(videoId);
+    setWatchedIds(watchedIds);
+
+    const identity = getSyncAccountIdentityState();
+    const backgroundQueued = await notifyBackgroundHistoryUpdated({
+        type: 'HISTORY_UPDATED',
+        videoId,
+        accountKey: identity.accountKey || DEFAULT_SYNC_ACCOUNT_KEY,
+    });
+    if (!backgroundQueued) {
+        await persistPendingCloudSyncIds([videoId]);
+    }
+
+    decorateMatchingVisibleContainers(videoId);
+}
+
 function decorateMatchingVisibleContainers(videoId) {
-    const selectors = [
-        `a[href*="v=${videoId}"]`,
-        `a[href*="/shorts/${videoId}"]`
-    ];
+    const selectors = [`a[href*="v=${videoId}"]`, `a[href*="/shorts/${videoId}"]`];
 
     const links = document.querySelectorAll(selectors.join(', '));
     for (const link of links) {
@@ -1149,11 +430,6 @@ function decorateMatchingVisibleContainers(videoId) {
     }
 }
 
-/**
- * Check watched status for one ID.
- * @param {string} videoId
- * @returns {Promise<boolean>}
- */
 async function isVideoWatched(videoId) {
     if (!isValidVideoId(videoId)) {
         return false;
@@ -1163,86 +439,9 @@ async function isVideoWatched(videoId) {
     return watchedIds.has(videoId);
 }
 
-/**
- * Read all watched records.
- * @returns {Promise<Array<{videoId: string, timestamp: number}>>}
- */
-async function getAllWatchedVideos() {
-    await ensureInitialized();
-
-    if (!db) {
-        return [];
-    }
-
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.getAll();
-
-        request.onsuccess = () => {
-            const videos = (request.result || []).filter((entry) => isValidVideoId(entry?.videoId));
-            resolve(videos);
-        };
-
-        request.onerror = () => {
-            reject(request.error || new Error('Failed to read watched videos'));
-        };
-    });
-}
-
-/**
- * Read pending sync IDs from queue store.
- * @param {number} [rawLimit]
- * @returns {Promise<string[]>}
- */
-async function getPendingSyncVideoIds(rawLimit) {
-    await ensureInitialized();
-
-    if (!db) {
-        return [];
-    }
-
-    const parsedLimit = Number.parseInt(rawLimit, 10);
-    const limit = Number.isFinite(parsedLimit)
-        ? Math.max(1, Math.min(parsedLimit, 1000))
-        : 300;
-
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([SYNC_QUEUE_STORE_NAME], 'readonly');
-        const queueStore = transaction.objectStore(SYNC_QUEUE_STORE_NAME);
-        const ids = [];
-        const request = queueStore.openCursor();
-
-        request.onsuccess = (event) => {
-            const cursor = event.target.result;
-            if (!cursor || ids.length >= limit) {
-                resolve(ids);
-                return;
-            }
-
-            const videoId = cursor.value?.videoId;
-            if (isValidVideoId(videoId)) {
-                ids.push(videoId);
-            }
-
-            cursor.continue();
-        };
-
-        request.onerror = () => {
-            reject(request.error || new Error('Failed to read sync queue'));
-        };
-    });
-}
-
-/**
- * Remove synced IDs from queue store.
- * @param {string[]} videoIds
- * @returns {Promise<number>}
- */
 async function ackSyncedVideoIds(videoIds) {
     await ensureInitialized();
-
-    if (!db || !Array.isArray(videoIds) || videoIds.length === 0) {
+    if (!Array.isArray(videoIds) || videoIds.length === 0) {
         return 0;
     }
 
@@ -1262,48 +461,12 @@ async function ackSyncedVideoIds(videoIds) {
         return 0;
     }
 
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([SYNC_QUEUE_STORE_NAME], 'readwrite');
-        const queueStore = transaction.objectStore(SYNC_QUEUE_STORE_NAME);
-
-        unique.forEach((videoId) => {
-            queueStore.delete(videoId);
-        });
-
-        transaction.oncomplete = () => resolve(unique.length);
-        transaction.onerror = () => reject(transaction.error || new Error('Failed to ack sync queue IDs'));
-        transaction.onabort = () => reject(transaction.error || new Error('Ack transaction aborted'));
-    });
+    return dbAckSyncedVideoIds(unique);
 }
 
-/**
- * Count pending sync IDs.
- * @returns {Promise<number>}
- */
-async function getPendingSyncCount() {
-    await ensureInitialized();
-
-    if (!db) {
-        return 0;
-    }
-
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([SYNC_QUEUE_STORE_NAME], 'readonly');
-        const queueStore = transaction.objectStore(SYNC_QUEUE_STORE_NAME);
-        const request = queueStore.count();
-
-        request.onsuccess = () => resolve(Number(request.result) || 0);
-        request.onerror = () => reject(request.error || new Error('Failed to count sync queue IDs'));
-    });
-}
-
-/**
- * Seed sync queue from already watched IDs (one-time migration helper).
- * @returns {Promise<number>}
- */
 async function seedSyncQueueFromHistory() {
     await ensureInitialized();
-
+    const db = getDb();
     if (!db || watchedIds.size === 0) {
         return 0;
     }
@@ -1322,35 +485,25 @@ async function seedSyncQueueFromHistory() {
         });
 
         transaction.oncomplete = () => resolve(ids.length);
-        transaction.onerror = () => reject(transaction.error || new Error('Failed to seed sync queue'));
-        transaction.onabort = () => reject(transaction.error || new Error('Seed queue transaction aborted'));
+        transaction.onerror = () =>
+            reject(transaction.error || new Error('Failed to seed sync queue'));
+        transaction.onabort = () =>
+            reject(transaction.error || new Error('Seed queue transaction aborted'));
     });
 }
 
-/**
- * Count watched records from cache.
- * @returns {Promise<number>}
- */
 async function getWatchedVideoCount() {
     await ensureInitialized();
     return watchedIds.size;
 }
 
-/**
- * Alias used by content-isolated message bridge.
- * @returns {number}
- */
 function getWatchedCount() {
     return watchedIds.size;
 }
 
-/**
- * Clear watched history from DB and UI.
- * @returns {Promise<void>}
- */
 async function clearWatchedHistory() {
     await ensureInitialized();
-
+    const db = getDb();
     if (!db) {
         return;
     }
@@ -1363,35 +516,36 @@ async function clearWatchedHistory() {
         queueStore.clear();
 
         transaction.oncomplete = () => resolve();
-        transaction.onerror = () => reject(transaction.error || new Error('Failed to clear watched history'));
-        transaction.onabort = () => reject(transaction.error || new Error('Clear transaction aborted'));
+        transaction.onerror = () =>
+            reject(transaction.error || new Error('Failed to clear watched history'));
+        transaction.onabort = () =>
+            reject(transaction.error || new Error('Clear transaction aborted'));
     });
 
     watchedIds.clear();
+    setWatchedIds(watchedIds);
     resetVisualDecorations();
 
+    const identity = getSyncAccountIdentityState();
     try {
         const result = await chrome.storage.local.get([CLOUD_PENDING_BY_ACCOUNT_KEY]);
-        const pendingByAccount = result?.[CLOUD_PENDING_BY_ACCOUNT_KEY]
-            && typeof result[CLOUD_PENDING_BY_ACCOUNT_KEY] === 'object'
-            ? result[CLOUD_PENDING_BY_ACCOUNT_KEY]
-            : {};
-        delete pendingByAccount[syncAccountKey];
+        const pendingByAccount =
+            result?.[CLOUD_PENDING_BY_ACCOUNT_KEY] &&
+            typeof result[CLOUD_PENDING_BY_ACCOUNT_KEY] === 'object'
+                ? result[CLOUD_PENDING_BY_ACCOUNT_KEY]
+                : {};
+        delete pendingByAccount[identity.accountKey];
 
         await chrome.storage.local.set({
             [CLOUD_PENDING_BY_ACCOUNT_KEY]: pendingByAccount,
             [CLOUD_PENDING_QUEUE_KEY]: [],
-            [CLOUD_PENDING_COUNT_KEY]: 0
+            [CLOUD_PENDING_COUNT_KEY]: 0,
         });
     } catch (error) {
         logger.debug('Failed to clear pending cloud-sync queue from local storage', error);
     }
 }
 
-/**
- * Export watched history as tab-separated lines.
- * @returns {Promise<string>}
- */
 async function exportWatchedHistory() {
     const videos = await getAllWatchedVideos();
     return videos
@@ -1399,21 +553,14 @@ async function exportWatchedHistory() {
         .join('\n');
 }
 
-/**
- * Import watched IDs in batches and return newly added count.
- * @param {string[]} videoIds
- * @param {{skipSyncQueue?: boolean}} [options]
- * @returns {Promise<number>}
- */
 async function importWatchedHistory(videoIds, options = {}) {
     await ensureInitialized();
-
+    const db = getDb();
     if (!Array.isArray(videoIds) || videoIds.length === 0 || !db) {
         return 0;
     }
 
     const skipSyncQueue = options?.skipSyncQueue === true;
-
     const uniqueToAdd = [];
     const seenInBatch = new Set();
 
@@ -1438,14 +585,10 @@ async function importWatchedHistory(videoIds, options = {}) {
     const startTimestamp = Date.now();
 
     await new Promise((resolve, reject) => {
-        const storeNames = skipSyncQueue
-            ? [STORE_NAME]
-            : [STORE_NAME, SYNC_QUEUE_STORE_NAME];
+        const storeNames = skipSyncQueue ? [STORE_NAME] : [STORE_NAME, SYNC_QUEUE_STORE_NAME];
         const transaction = db.transaction(storeNames, 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
-        const queueStore = skipSyncQueue
-            ? null
-            : transaction.objectStore(SYNC_QUEUE_STORE_NAME);
+        const queueStore = skipSyncQueue ? null : transaction.objectStore(SYNC_QUEUE_STORE_NAME);
 
         uniqueToAdd.forEach((videoId, index) => {
             store.put({ videoId, timestamp: startTimestamp + index });
@@ -1455,19 +598,23 @@ async function importWatchedHistory(videoIds, options = {}) {
         });
 
         transaction.oncomplete = () => resolve();
-        transaction.onerror = () => reject(transaction.error || new Error('Import transaction failed'));
-        transaction.onabort = () => reject(transaction.error || new Error('Import transaction aborted'));
+        transaction.onerror = () =>
+            reject(transaction.error || new Error('Import transaction failed'));
+        transaction.onabort = () =>
+            reject(transaction.error || new Error('Import transaction aborted'));
     });
 
     uniqueToAdd.forEach((videoId) => watchedIds.add(videoId));
+    setWatchedIds(watchedIds);
 
+    const identity = getSyncAccountIdentityState();
     const historyUpdatedPayload = skipSyncQueue
         ? { type: 'HISTORY_UPDATED' }
         : {
-            type: 'HISTORY_UPDATED',
-            videoIds: uniqueToAdd,
-            accountKey: syncAccountKey || DEFAULT_SYNC_ACCOUNT_KEY
-        };
+              type: 'HISTORY_UPDATED',
+              videoIds: uniqueToAdd,
+              accountKey: identity.accountKey || DEFAULT_SYNC_ACCOUNT_KEY,
+          };
     const backgroundQueued = await notifyBackgroundHistoryUpdated(historyUpdatedPayload);
     if (!skipSyncQueue && !backgroundQueued) {
         await persistPendingCloudSyncIds(uniqueToAdd);
@@ -1478,11 +625,7 @@ async function importWatchedHistory(videoIds, options = {}) {
     return uniqueToAdd.length;
 }
 
-/**
- * Debounced cache refresh for cross-tab updates.
- * @param {string} reason
- */
-function scheduleCacheRefresh(reason) {
+async function scheduleCacheRefresh(reason) {
     if (cacheRefreshTimer) {
         return;
     }
@@ -1499,10 +642,6 @@ function scheduleCacheRefresh(reason) {
     }, CACHE_REFRESH_DEBOUNCE_MS);
 }
 
-/**
- * Update runtime settings relevant to watched-history visuals.
- * @param {object} settings
- */
 function updateSettings(settings) {
     if (!settings || typeof settings !== 'object') {
         return;
@@ -1512,22 +651,16 @@ function updateSettings(settings) {
         const nextDeleteMode = settings.deleteVideosEnabled === true;
         if (nextDeleteMode !== deleteVideosEnabled) {
             deleteVideosEnabled = nextDeleteMode;
+            setDeleteVideosEnabled(deleteVideosEnabled);
             scheduleRender('settings-update', true);
         }
     }
 }
 
-/**
- * Return account identity used for cloud-sync partitioning.
- * @returns {{accountKey: string, source: string, isPrimaryCandidate: boolean}}
- */
 async function getSyncAccountIdentity() {
-    return resolveSyncAccountIdentity();
+    return resolveSyncAccountIdentity(logger);
 }
 
-/**
- * Remove all watched decorations from currently rendered items.
- */
 function resetVisualDecorations() {
     const markers = document.querySelectorAll(`.${MARKER_CLASS}`);
     markers.forEach((marker) => marker.remove());
@@ -1539,37 +672,37 @@ function resetVisualDecorations() {
     hiddenContainers.forEach((container) => container.classList.remove(HIDDEN_CLASS));
 }
 
-/**
- * Initialize watched history module.
- * @returns {Promise<void>}
- */
+function clearPlaybackBindings() {
+    for (const [video, binding] of playbackBindings.entries()) {
+        video.removeEventListener('play', binding.onPlay);
+        video.removeEventListener('loadeddata', binding.onLoadedData);
+    }
+    playbackBindings.clear();
+}
+
 async function initWatchedHistory() {
     await ensureInitialized();
 }
 
-/**
- * Enable watched history rendering/tracking.
- */
 function enable() {
     if (isEnabled) {
         return;
     }
 
     isEnabled = true;
-    startMutationObserver();
+    setIsEnabled(true);
+    mutationObserver = startMutationObserver();
     scheduleRender('enable', true);
-    schedulePlaybackBinding();
+    schedulePlaybackBinding(playbackBindings, watchedIds, addToWatchedHistory);
 }
 
-/**
- * Disable watched history rendering/tracking.
- */
 function disable() {
     if (!isEnabled) {
         return;
     }
 
     isEnabled = false;
+    setIsEnabled(false);
 
     if (mutationObserver) {
         mutationObserver.disconnect();
@@ -1580,9 +713,6 @@ function disable() {
     resetVisualDecorations();
 }
 
-/**
- * Cleanup observers/listeners/timers.
- */
 function cleanup() {
     if (renderTimer) {
         clearTimeout(renderTimer);
@@ -1626,9 +756,7 @@ function cleanup() {
     }
 
     pendingContainers.clear();
-    flushAgain = false;
-    fullScanRequested = false;
-
+    setFullScanRequested(false);
     resetVisualDecorations();
 
     initialized = false;
@@ -1641,7 +769,7 @@ window.ytCommanderWatchedHistory = {
     clear: clearWatchedHistory,
     count: () => watchedIds.size,
     getPendingSyncCount,
-    getSyncAccountIdentity
+    getSyncAccountIdentity,
 };
 
 export {
@@ -1662,5 +790,5 @@ export {
     updateSettings,
     enable,
     disable,
-    cleanup
+    cleanup,
 };
