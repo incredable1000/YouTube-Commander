@@ -6,9 +6,6 @@
 import { createLogger } from './utils/logger.js';
 import { createThrottledObserver, addEventListenerWithCleanup } from './utils/events.js';
 import {
-    FEED_RENDERER_SELECTOR,
-    LABEL_CLASS,
-    LABEL_ATTR,
     RENDER_DEBOUNCE_MS,
     PROCESS_CHUNK_SIZE,
     RELATIVE_REFRESH_MS,
@@ -18,14 +15,16 @@ import {
     BRIDGE_ACTION_GET_SHORTS_UPLOAD_TIMESTAMPS,
     BRIDGE_TIMEOUT_MS
 } from './shorts-upload-age/constants.js';
-import {
-    collectShortCards,
-    findLabelHost,
-    resolveShortCardData
-} from './shorts-upload-age/pageContext.js';
-import { formatRelativeAge, extractRelativeFromText } from './shorts-upload-age/time.js';
+import { collectShortCards } from './shorts-upload-age/pageContext.js';
+import { formatRelativeAge } from './shorts-upload-age/time.js';
 import { createShortsUploadAgeResolver } from './shorts-upload-age/resolver.js';
 import { createBridgeClient } from './playlist-multi-select/bridge.js';
+import {
+    removeAllRenderedLabels,
+    cleanupStaleLabels,
+    refreshRenderedLabels,
+    renderCard
+} from './shorts-upload-age/render.js';
 
 const logger = createLogger('ShortsUploadAge');
 const bridgeClient = createBridgeClient({
@@ -39,36 +38,24 @@ const resolver = createShortsUploadAgeResolver({
     logger,
     batchResolveImpl: resolveBatchTimestampsViaBridge
 });
-const INLINE_HOST_CLASS = 'yt-commander-short-upload-age-inline-host';
 
 let initialized = false;
 let enabled = true;
-
 let observer = null;
 let pageListenerCleanups = [];
 let bridgeListenerCleanup = null;
-
 let renderTimer = null;
 let refreshTimer = null;
 let renderInProgress = false;
 let rerenderPending = false;
 let burstTimers = [];
 
-/**
- * Wait for next animation frame.
- * @returns {Promise<void>}
- */
 function waitForNextFrame() {
     return new Promise((resolve) => {
         window.requestAnimationFrame(() => resolve());
     });
 }
 
-/**
- * Resolve upload timestamps from main-world bridge in a single batch request.
- * @param {string[]} shortIds
- * @returns {Promise<Map<string, number|null>>}
- */
 async function resolveBatchTimestampsViaBridge(shortIds) {
     const uniqueIds = Array.from(
         new Set(
@@ -78,11 +65,9 @@ async function resolveBatchTimestampsViaBridge(shortIds) {
                 .filter((value) => value.length > 0)
         )
     );
-
     if (uniqueIds.length === 0) {
         return new Map();
     }
-
     try {
         const response = await bridgeClient.sendRequest(BRIDGE_ACTION_GET_SHORTS_UPLOAD_TIMESTAMPS, {
             videoIds: uniqueIds
@@ -91,7 +76,6 @@ async function resolveBatchTimestampsViaBridge(shortIds) {
         if (!payload || typeof payload !== 'object') {
             return new Map();
         }
-
         const map = new Map();
         uniqueIds.forEach((shortId) => {
             const value = payload[shortId];
@@ -107,304 +91,84 @@ async function resolveBatchTimestampsViaBridge(shortIds) {
     }
 }
 
-/**
- * Remove one existing render timer.
- */
 function clearRenderTimer() {
-    if (!renderTimer) {
-        return;
+    if (renderTimer) {
+        window.clearTimeout(renderTimer);
+        renderTimer = null;
     }
-
-    window.clearTimeout(renderTimer);
-    renderTimer = null;
 }
 
-/**
- * Remove one existing relative-refresh timer.
- */
 function clearRefreshTimer() {
-    if (!refreshTimer) {
-        return;
+    if (refreshTimer) {
+        window.clearInterval(refreshTimer);
+        refreshTimer = null;
     }
-
-    window.clearInterval(refreshTimer);
-    refreshTimer = null;
 }
 
-/**
- * Clear pending burst timers used for delayed rerenders.
- */
 function clearBurstTimers() {
-    if (burstTimers.length === 0) {
-        return;
-    }
-
-    burstTimers.forEach((timerId) => window.clearTimeout(timerId));
-    burstTimers = [];
-}
-
-/**
- * Remove all rendered labels from DOM.
- */
-function removeAllLabels() {
-    const labels = document.querySelectorAll(`.${LABEL_CLASS}`);
-    labels.forEach((label) => label.remove());
-    const inlineHosts = document.querySelectorAll(`.${INLINE_HOST_CLASS}`);
-    inlineHosts.forEach((host) => host.classList.remove(INLINE_HOST_CLASS));
-}
-
-/**
- * Remove labels that no longer map to a Shorts card.
- */
-function cleanupStaleLabels() {
-    const labels = document.querySelectorAll(`.${LABEL_CLASS}`);
-
-    for (const label of labels) {
-        const host = label.parentElement;
-        if (!host || !host.isConnected) {
-            label.remove();
-            continue;
-        }
-
-        const container = host.closest(FEED_RENDERER_SELECTOR);
-        if (!container) {
-            label.remove();
-            continue;
-        }
-
-        const resolved = resolveShortCardData(container);
-        const shortId = resolved?.shortId || '';
-        const labelShortId = label.getAttribute(LABEL_ATTR) || '';
-        if (!shortId || shortId !== labelShortId) {
-            label.remove();
-            host.classList.remove(INLINE_HOST_CLASS);
-        }
+    if (burstTimers.length > 0) {
+        burstTimers.forEach((timerId) => window.clearTimeout(timerId));
+        burstTimers = [];
     }
 }
 
-/**
- * Create or update label node for one card host.
- * @param {{host: Element, shortId: string, mode: 'inline'|'block'}} card
- * @returns {HTMLElement|null}
- */
-function ensureCardLabel(card) {
-    const { host, shortId, mode } = card;
-    if (!host || !host.isConnected) {
-        return null;
-    }
-
-    let label = host.querySelector(`.${LABEL_CLASS}`);
-    if (label && label.getAttribute(LABEL_ATTR) !== shortId) {
-        label.remove();
-        label = null;
-    }
-
-    if (!label) {
-        label = document.createElement('span');
-        label.className = LABEL_CLASS;
-        label.textContent = '';
-        host.appendChild(label);
-    }
-
-    label.setAttribute(LABEL_ATTR, shortId);
-    label.setAttribute('data-layout', mode);
-    label.setAttribute('title', 'Short upload age');
-
-    if (mode === 'inline') {
-        host.classList.add(INLINE_HOST_CLASS);
-    } else {
-        host.classList.remove(INLINE_HOST_CLASS);
-    }
-
-    return label;
-}
-
-/**
- * Set label text only when changed to reduce unnecessary layout churn.
- * @param {HTMLElement} label
- * @param {string} text
- */
-function setLabelText(label, text) {
-    if (!(label instanceof HTMLElement) || typeof text !== 'string') {
-        return;
-    }
-
-    if (label.textContent !== text) {
-        label.textContent = text;
-    }
-}
-
-/**
- * Enable loading state only when label is currently empty.
- * Keeps previously rendered value stable during background refreshes.
- * @param {HTMLElement} label
- */
-function setLoadingStateIfEmpty(label) {
-    if (!(label instanceof HTMLElement)) {
-        return;
-    }
-
-    const hasText = Boolean((label.textContent || '').trim());
-    if (!hasText) {
-        label.classList.add('is-loading');
-    }
-}
-
-/**
- * Derive an "x ago" value from visible card text when present.
- * @param {{container: Element, host: Element}} card
- * @returns {string}
- */
-function extractRelativeFromCard(card) {
-    const hostText = extractRelativeFromText(card.host?.textContent || '');
-    if (hostText) {
-        return hostText;
-    }
-
-    return extractRelativeFromText(card.container?.textContent || '');
-}
-
-/**
- * Apply cached relative value to all rendered labels.
- */
-function refreshRenderedLabels() {
-    if (!enabled) {
-        return;
-    }
-
-    const labels = document.querySelectorAll(`.${LABEL_CLASS}`);
-    if (labels.length === 0) {
-        return;
-    }
-
-    const nowMs = Date.now();
-    for (const label of labels) {
-        const shortId = label.getAttribute(LABEL_ATTR) || '';
-        const timestampMs = resolver.getCachedTimestamp(shortId);
-        if (!Number.isFinite(timestampMs)) {
-            continue;
-        }
-
-        const text = formatRelativeAge(timestampMs, nowMs);
-        if (text) {
-            setLabelText(label, text);
-            label.classList.remove('is-loading');
-        }
-    }
-}
-
-/**
- * Render one card with local/visible data and mark unresolved entries for batch lookup.
- * @param {{container: Element, host: Element, shortId: string, mode: 'inline'|'block'}} card
- * @param {number} nowMs
- * @returns {{shortId: string, label: HTMLElement, host: Element}|null}
- */
-function renderCard(card, nowMs) {
-    const label = ensureCardLabel(card);
-    if (!label) {
-        return null;
-    }
-
-    const visibleRelative = extractRelativeFromCard(card);
-    if (visibleRelative) {
-        setLabelText(label, visibleRelative);
-        label.classList.remove('is-loading');
-        return null;
-    }
-
-    const cachedTimestampMs = resolver.getCachedTimestamp(card.shortId);
-    if (Number.isFinite(cachedTimestampMs)) {
-        const cachedText = formatRelativeAge(cachedTimestampMs, nowMs);
-        if (cachedText) {
-            setLabelText(label, cachedText);
-            label.classList.remove('is-loading');
-            return null;
-        }
-    }
-
-    setLoadingStateIfEmpty(label);
-    return {
-        shortId: card.shortId,
-        label,
-        host: card.host
-    };
-}
-
-/**
- * Run full render pass with chunking.
- */
 async function runRenderPass() {
     if (!enabled || !document.body) {
         return;
     }
-
     if (renderInProgress) {
         rerenderPending = true;
         return;
     }
-
     renderInProgress = true;
-
     try {
         cleanupStaleLabels();
         const cards = collectShortCards(document);
         if (cards.length === 0) {
             return;
         }
-
         const nowMs = Date.now();
         const pendingCards = [];
-
         for (let index = 0; index < cards.length; index += PROCESS_CHUNK_SIZE) {
             if (!enabled) {
                 break;
             }
-
             const chunk = cards.slice(index, index + PROCESS_CHUNK_SIZE);
             chunk.forEach((card) => {
-                const pending = renderCard(card, nowMs);
+                const pending = renderCard(card, resolver, nowMs);
                 if (pending) {
                     pendingCards.push(pending);
                 }
             });
-
             if (index + PROCESS_CHUNK_SIZE < cards.length) {
                 await waitForNextFrame();
             }
         }
-
         if (enabled && pendingCards.length > 0) {
             const timestampsById = await resolver.resolveUploadTimestamps(
                 pendingCards.map((entry) => entry.shortId)
             );
-
             const renderNowMs = Date.now();
             pendingCards.forEach((entry) => {
                 if (!enabled || !entry.label.isConnected) {
                     return;
                 }
-
-                const attachedShortId = entry.label.getAttribute(LABEL_ATTR) || '';
+                const attachedShortId = entry.label.getAttribute('data-yt-commander-short-upload-age') || '';
                 if (attachedShortId !== entry.shortId) {
                     return;
                 }
-
                 const timestampMs = timestampsById.get(entry.shortId);
                 if (!Number.isFinite(timestampMs)) {
                     return;
                 }
-
                 const text = formatRelativeAge(timestampMs, renderNowMs);
-                if (!text) {
-                    return;
+                if (text) {
+                    entry.label.textContent = text;
+                    entry.label.classList.remove('is-loading');
                 }
-
-                setLabelText(entry.label, text);
-                entry.label.classList.remove('is-loading');
             });
         }
-
-        refreshRenderedLabels();
+        refreshRenderedLabels(resolver);
     } catch (error) {
         logger.error('Failed to render Shorts upload labels', error);
     } finally {
@@ -416,14 +180,10 @@ async function runRenderPass() {
     }
 }
 
-/**
- * Schedule one debounced render pass.
- */
 function scheduleRender() {
     if (!enabled) {
         return;
     }
-
     clearRenderTimer();
     renderTimer = window.setTimeout(() => {
         renderTimer = null;
@@ -431,14 +191,10 @@ function scheduleRender() {
     }, RENDER_DEBOUNCE_MS);
 }
 
-/**
- * Trigger multiple scheduled renders to catch delayed feed hydration.
- */
 function scheduleRenderBurst() {
     if (!enabled) {
         return;
     }
-
     scheduleRender();
     clearBurstTimers();
     const delays = [240, 720, 1600];
@@ -449,91 +205,60 @@ function scheduleRenderBurst() {
     }, delay));
 }
 
-/**
- * Start relative-time text refresh loop.
- */
 function startRelativeRefreshLoop() {
     if (refreshTimer) {
         return;
     }
-
     refreshTimer = window.setInterval(() => {
-        refreshRenderedLabels();
+        refreshRenderedLabels(resolver);
     }, RELATIVE_REFRESH_MS);
 }
 
-/**
- * Set up mutation observer.
- */
 function setupObserver() {
     if (observer || !document.body) {
         return;
     }
-
     observer = createThrottledObserver(
         () => {
             scheduleRender();
         },
         RENDER_DEBOUNCE_MS,
-        {
-            childList: true,
-            subtree: true
-        }
+        { childList: true, subtree: true }
     );
-
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
+    observer.observe(document.body, { childList: true, subtree: true });
 }
 
-/**
- * Tear down mutation observer.
- */
 function teardownObserver() {
-    if (!observer) {
-        return;
+    if (observer) {
+        observer.disconnect();
+        observer = null;
     }
-
-    observer.disconnect();
-    observer = null;
 }
 
-/**
- * Attach page-level listeners for SPA navigation and visibility.
- */
 function attachPageListeners() {
     if (pageListenerCleanups.length > 0) {
         return;
     }
-
     const onVisibilityChange = () => {
         if (!document.hidden) {
             scheduleRenderBurst();
         }
     };
-
     const onNavigateStart = () => {
-        removeAllLabels();
+        removeAllRenderedLabels();
         scheduleRenderBurst();
     };
-
     const onNavigateFinish = () => {
         scheduleRenderBurst();
     };
-
     const onLogoClick = (event) => {
         const target = event.target instanceof Element
             ? event.target.closest('a#logo, ytd-topbar-logo-renderer a, a[aria-label*="YouTube Home"]')
             : null;
-
-        if (!target) {
-            return;
+        if (target) {
+            scheduleRenderBurst();
         }
-
-        scheduleRenderBurst();
     };
-
     const listenerSpecs = [
         [document, 'yt-navigate-start', onNavigateStart],
         [document, 'yt-navigate-finish', onNavigateFinish],
@@ -545,49 +270,33 @@ function attachPageListeners() {
         [document, 'visibilitychange', onVisibilityChange],
         [document, 'click', onLogoClick, { capture: true }]
     ];
-
     listenerSpecs.forEach(([target, eventName, handler, options]) => {
         pageListenerCleanups.push(addEventListenerWithCleanup(target, eventName, handler, options || {}));
     });
 }
 
-/**
- * Detach page-level listeners.
- */
 function detachPageListeners() {
     pageListenerCleanups.forEach((cleanupFn) => cleanupFn());
     pageListenerCleanups = [];
 }
 
-/**
- * Attach bridge response listener for main-world API responses.
- */
 function attachBridgeListener() {
     if (bridgeListenerCleanup) {
         return;
     }
-
     bridgeListenerCleanup = addEventListenerWithCleanup(window, 'message', (event) => {
         bridgeClient.handleResponse(event);
     });
 }
 
-/**
- * Detach bridge response listener and reject pending requests.
- */
 function detachBridgeListener() {
-    if (!bridgeListenerCleanup) {
-        return;
+    if (bridgeListenerCleanup) {
+        bridgeListenerCleanup();
+        bridgeListenerCleanup = null;
+        bridgeClient.rejectAll('Shorts upload-age bridge stopped.');
     }
-
-    bridgeListenerCleanup();
-    bridgeListenerCleanup = null;
-    bridgeClient.rejectAll('Shorts upload-age bridge stopped.');
 }
 
-/**
- * Start runtime hooks while feature is enabled.
- */
 function startRuntime() {
     attachBridgeListener();
     setupObserver();
@@ -596,9 +305,6 @@ function startRuntime() {
     scheduleRenderBurst();
 }
 
-/**
- * Stop runtime hooks.
- */
 function stopRuntime() {
     detachBridgeListener();
     teardownObserver();
@@ -608,9 +314,6 @@ function stopRuntime() {
     clearBurstTimers();
 }
 
-/**
- * Initialize Shorts upload age feature.
- */
 async function initShortsUploadAge() {
     if (initialized) {
         if (enabled) {
@@ -618,7 +321,6 @@ async function initShortsUploadAge() {
         }
         return;
     }
-
     initialized = true;
     enabled = true;
     startRuntime();
@@ -626,39 +328,28 @@ async function initShortsUploadAge() {
     logger.info('Shorts upload age initialized');
 }
 
-/**
- * Enable feature.
- */
 function enable() {
     enabled = true;
-
     if (!initialized) {
         void initShortsUploadAge();
         return;
     }
-
     startRuntime();
     scheduleRenderBurst();
     logger.info('Shorts upload age enabled');
 }
 
-/**
- * Disable feature.
- */
 function disable() {
     enabled = false;
     stopRuntime();
-    removeAllLabels();
+    removeAllRenderedLabels();
     logger.info('Shorts upload age disabled');
 }
 
-/**
- * Full teardown.
- */
 function cleanup() {
     enabled = false;
     stopRuntime();
-    removeAllLabels();
+    removeAllRenderedLabels();
     resolver.clear();
     initialized = false;
     rerenderPending = false;
@@ -674,10 +365,4 @@ if (document.readyState === 'loading') {
     void initShortsUploadAge();
 }
 
-export {
-    initShortsUploadAge,
-    enable,
-    disable,
-    cleanup,
-    initShortsUploadAge as init
-};
+export { initShortsUploadAge, enable, disable, cleanup, initShortsUploadAge as init };

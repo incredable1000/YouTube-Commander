@@ -17,10 +17,10 @@ import { createRotationIndicator, showIndicatorOnPlayer } from './utils/ui.js';
 import { ICONS } from '../shared/constants.js';
 import { normalizeShortcutKey } from '../shared/shortcutKey.js';
 import { computeRotationFitScale } from './videoRotation/fitScale.js';
+import { ROTATION_ANGLES, normalizeAngle, isValidVideoId, isPlainObject } from './videoRotation/utils.js';
 
 const logger = createLogger('VideoRotation');
 
-const ROTATION_ANGLES = [0, 90, 180, 270];
 const STORAGE_KEY = 'ytCommanderVideoRotations';
 const STORAGE_WRITE_DEBOUNCE_MS = 280;
 const OBSERVER_THROTTLE_MS = 650;
@@ -584,34 +584,6 @@ function getActiveVideoId() {
     }
 
     return null;
-}
-
-/**
- * Normalize angle to 0/90/180/270.
- * @param {number} angle
- * @returns {number}
- */
-function normalizeAngle(angle) {
-    const rounded = Math.round(Number(angle) || 0);
-    return ROTATION_ANGLES.includes(rounded) ? rounded : 0;
-}
-
-/**
- * Validate YouTube-like id.
- * @param {string|null} value
- * @returns {boolean}
- */
-function isValidVideoId(value) {
-    return typeof value === 'string' && /^[A-Za-z0-9_-]{10,15}$/.test(value);
-}
-
-/**
- * Check plain object.
- * @param {any} value
- * @returns {boolean}
- */
-function isPlainObject(value) {
-    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 if (document.readyState === 'loading') {
