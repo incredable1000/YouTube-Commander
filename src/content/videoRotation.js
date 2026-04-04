@@ -8,7 +8,7 @@ import {
     getActivePlayer,
     getCurrentVideoId,
     isVideoPage,
-    isShortsPage
+    isShortsPage,
 } from './utils/youtube.js';
 
 import { createLogger } from './utils/logger.js';
@@ -17,7 +17,12 @@ import { createRotationIndicator, showIndicatorOnPlayer } from './utils/ui.js';
 import { ICONS } from '../shared/constants.js';
 import { normalizeShortcutKey } from '../shared/shortcutKey.js';
 import { computeRotationFitScale } from './videoRotation/fitScale.js';
-import { ROTATION_ANGLES, normalizeAngle, isValidVideoId, isPlainObject } from './videoRotation/utils.js';
+import {
+    ROTATION_ANGLES,
+    normalizeAngle,
+    isValidVideoId,
+    isPlainObject,
+} from './videoRotation/utils.js';
 
 const logger = createLogger('VideoRotation');
 
@@ -44,34 +49,25 @@ let activeVideoMetricsCleanup = null;
 let rotationMap = new Map();
 let storageWriteTimer = null;
 
-/**
- * Initialize rotation feature.
- */
 async function initVideoRotation() {
     if (isInitialized) {
         return;
     }
-
     if (initPromise) {
         return initPromise;
     }
-
     initPromise = (async () => {
         logger.info('Initializing video rotation');
-
         await loadRotationMap();
-
         if (isEnabled) {
             setupKeyboardShortcuts();
             startRuntimeTracking();
             await ensureRotationControls();
             syncActiveVideoContext();
         }
-
         isInitialized = true;
         logger.info('Video rotation initialized successfully');
     })();
-
     try {
         await initPromise;
     } catch (error) {
@@ -81,10 +77,6 @@ async function initVideoRotation() {
         initPromise = null;
     }
 }
-
-/**
- * Load stored per-video rotation state.
- */
 async function loadRotationMap() {
     try {
         const result = await new Promise((resolve) => {
@@ -118,10 +110,6 @@ async function loadRotationMap() {
         rotationMap = new Map();
     }
 }
-
-/**
- * Debounced write of rotation state to local storage.
- */
 function scheduleRotationMapPersist() {
     if (storageWriteTimer) {
         return;
@@ -237,7 +225,7 @@ function syncActiveVideoContext(forceReapply = false) {
         return;
     }
 
-    currentRotation = activeVideoId ? (rotationMap.get(activeVideoId) || 0) : 0;
+    currentRotation = activeVideoId ? rotationMap.get(activeVideoId) || 0 : 0;
     activeVideoMetricsCleanup = attachVideoMetricListeners(activeVideo);
     applyVideoRotation(activeVideo, currentRotation);
 }
@@ -391,22 +379,20 @@ function setupKeyboardShortcuts() {
     const resetKey = rotateKey.length === 1 ? rotateKey.toUpperCase() : rotateKey;
 
     keyboardShortcuts.push(
-        createKeyboardShortcut(
-            { key: rotateKey, ctrl: false, shift: false, alt: false },
-            () => rotateVideo()
+        createKeyboardShortcut({ key: rotateKey, ctrl: false, shift: false, alt: false }, () =>
+            rotateVideo()
         )
     );
 
     keyboardShortcuts.push(
-        createKeyboardShortcut(
-            { key: resetKey, ctrl: false, shift: true, alt: false },
-            () => resetRotation()
+        createKeyboardShortcut({ key: resetKey, ctrl: false, shift: true, alt: false }, () =>
+            resetRotation()
         )
     );
 
     logger.debug('Rotation shortcuts updated', {
         rotateKey,
-        resetKey
+        resetKey,
     });
 }
 
@@ -433,11 +419,21 @@ function startRuntimeTracking() {
     window.addEventListener('resize', handlePotentialPlayerChange, { passive: true });
     document.addEventListener('fullscreenchange', handlePotentialPlayerChange);
 
-    runtimeCleanupCallbacks.push(() => document.removeEventListener('yt-navigate-finish', handlePotentialPlayerChange));
-    runtimeCleanupCallbacks.push(() => window.removeEventListener('popstate', handlePotentialPlayerChange));
-    runtimeCleanupCallbacks.push(() => window.removeEventListener('focus', handlePotentialPlayerChange));
-    runtimeCleanupCallbacks.push(() => window.removeEventListener('resize', handlePotentialPlayerChange));
-    runtimeCleanupCallbacks.push(() => document.removeEventListener('fullscreenchange', handlePotentialPlayerChange));
+    runtimeCleanupCallbacks.push(() =>
+        document.removeEventListener('yt-navigate-finish', handlePotentialPlayerChange)
+    );
+    runtimeCleanupCallbacks.push(() =>
+        window.removeEventListener('popstate', handlePotentialPlayerChange)
+    );
+    runtimeCleanupCallbacks.push(() =>
+        window.removeEventListener('focus', handlePotentialPlayerChange)
+    );
+    runtimeCleanupCallbacks.push(() =>
+        window.removeEventListener('resize', handlePotentialPlayerChange)
+    );
+    runtimeCleanupCallbacks.push(() =>
+        document.removeEventListener('fullscreenchange', handlePotentialPlayerChange)
+    );
 
     domObserver = createThrottledObserver(() => {
         if (!isEnabled) {
@@ -453,7 +449,7 @@ function startRuntimeTracking() {
 
     domObserver.observe(document.body, {
         childList: true,
-        subtree: true
+        subtree: true,
     });
 }
 
@@ -598,13 +594,4 @@ if (document.readyState === 'loading') {
     });
 }
 
-export {
-    initVideoRotation,
-    rotateVideo,
-    resetRotation,
-    updateSettings,
-    enable,
-    disable,
-    cleanup
-};
-
+export { initVideoRotation, rotateVideo, resetRotation, updateSettings, enable, disable, cleanup };
