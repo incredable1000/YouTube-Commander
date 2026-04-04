@@ -23,17 +23,32 @@ import {
     RESTORE_RETRY_DELAY_MS,
     RESTORE_RETRY_MAX_ATTEMPTS,
     ROOT_LOCK_CLASS,
-    WINDOWED_ICON_PATH
 } from './windowed-fullscreen/constants.js';
 import {
     ensureOverlayHost as createWindowedOverlayHost,
     findFallbackPlayerMount,
     forcePlayerRelayout as triggerPlayerRelayout,
-    getCurrentWatchVideoId,
     getRootPlayerHost,
-    isUsableMountParent
+    isUsableMountParent,
 } from './windowed-fullscreen/dom.js';
 import { isPlainObject } from './windowed-fullscreen/utils.js';
+import {
+    findRootPlayers,
+    getLiveRootPlayer,
+    getLivePlayerElement,
+    getMountedPlayerElement,
+} from './windowed-fullscreen/player-resolve.js';
+import {
+    createRestoreAnchor,
+    ensureRestoreAnchorFallback,
+    restoreMountedRootPlayer,
+    scheduleDeferredRestore,
+} from './windowed-fullscreen/restore.js';
+import {
+    createWindowedButton,
+    updateButtonState,
+    removeButton as destroyButton,
+} from './windowed-fullscreen/ui.js';
 
 const logger = createLogger('WindowedFullscreen');
 
@@ -71,57 +86,12 @@ function ensureOverlayHost() {
     return overlayHost;
 }
 
-/**
- * Resolve the currently mounted windowed player element when available.
- * @returns {HTMLElement|null}
- */
-function getMountedPlayerElement() {
-    const mountedPlayer = resolvePlayerFromRoot(mountedRootPlayer);
-    return mountedPlayer instanceof HTMLElement ? mountedPlayer : null;
-}
-
-/**
- * Resolve the current watch-page root player from YouTube's live player mount.
- * @returns {Element|null}
- */
-function getLiveRootPlayer() {
-    const fallbackParent = findFallbackPlayerMount();
-    if (fallbackParent instanceof Element) {
-        const root = fallbackParent.querySelector('#movie_player');
-        if (root instanceof Element) {
-            return root;
-        }
-    }
-
-    if (mountedRootPlayer instanceof Element && mountedRootPlayer.isConnected) {
-        return mountedRootPlayer;
-    }
-
-    return getRootPlayerHost(getActivePlayer());
-}
-
-/**
- * Resolve the current live player element, preferring the watch-page mount.
- * @returns {HTMLElement|null}
- */
-function getLivePlayerElement() {
-    const liveRoot = getLiveRootPlayer();
-    const livePlayer = resolvePlayerFromRoot(liveRoot);
-    return livePlayer instanceof HTMLElement
-        ? livePlayer
-        : (getMountedPlayerElement() || getActivePlayer());
-}
-
-/**
- * Remove stale duplicated player roots left behind after YouTube rebuilds the player.
- * @param {Element|null} rootToKeep
- */
 function cleanupStaleOverlayRoots(rootToKeep = mountedRootPlayer) {
     if (
-        !(overlayHost instanceof Element)
-        || !overlayHost.isConnected
-        || !(rootToKeep instanceof Element)
-        || !overlayHost.contains(rootToKeep)
+        !(overlayHost instanceof Element) ||
+        !overlayHost.isConnected ||
+        !(rootToKeep instanceof Element) ||
+        !overlayHost.contains(rootToKeep)
     ) {
         return;
     }
@@ -146,10 +116,6 @@ function cleanupStaleOverlayRoots(rootToKeep = mountedRootPlayer) {
     }
 }
 
-/**
- * Remove duplicate watch-page movie_player roots while preserving the currently mounted one.
- * @param {Element|null} rootToKeep
- */
 function removeDuplicateRootPlayers(rootToKeep = mountedRootPlayer) {
     if (!(rootToKeep instanceof Element)) {
         return;
@@ -165,9 +131,6 @@ function removeDuplicateRootPlayers(rootToKeep = mountedRootPlayer) {
     });
 }
 
-/**
- * Initialize module.
- */
 async function initWindowedFullscreen() {
     if (isInitialized) {
         return;
@@ -199,32 +162,25 @@ async function initWindowedFullscreen() {
     }
 }
 
-/**
- * Whether this route supports player-bar controls for watch videos.
- * @returns {boolean}
- */
 function isEligiblePage() {
     return isVideoPage() && !isShortsPage();
 }
 
-/**
- * Ensure button is attached to current player controls.
- */
 function ensureButton() {
     if (!isEnabled || !isEligiblePage()) {
-        removeButton();
+        windowedButton = destroyButton(windowedButton);
         return;
     }
 
     const controls = findControlsHost();
     if (!controls) {
-        removeButton();
+        windowedButton = destroyButton(windowedButton);
         return;
     }
 
     const player = controls.closest('.html5-video-player');
     if (!player) {
-        removeButton();
+        windowedButton = destroyButton(windowedButton);
         return;
     }
 
@@ -245,10 +201,7 @@ function ensureButton() {
         controls.insertBefore(windowedButton, preferredAnchor.nextSibling);
     } else if (!preferredAnchor && windowedButton.parentElement !== controls) {
         controls.appendChild(windowedButton);
-    } else if (
-        preferredAnchor
-        && windowedButton.previousElementSibling !== preferredAnchor
-    ) {
+    } else if (preferredAnchor && windowedButton.previousElementSibling !== preferredAnchor) {
         controls.insertBefore(windowedButton, preferredAnchor.nextSibling);
     }
 
@@ -256,60 +209,13 @@ function ensureButton() {
         activePlayer = player;
     }
 
-    updateButtonState();
+    updateButtonState(windowedButton, isWindowed);
 }
 
-/**
- * Build player-bar windowed mode button.
- * @returns {HTMLButtonElement}
- */
-function createWindowedButton() {
-    const button = document.createElement('button');
-    button.id = BUTTON_ID;
-    button.type = 'button';
-    button.className = BUTTON_CLASS;
-    button.setAttribute('aria-label', 'Windowed fullscreen');
-    button.setAttribute('aria-pressed', 'false');
-    button.title = 'Windowed fullscreen';
-    button.style.display = 'inline-flex';
-    button.style.alignItems = 'center';
-    button.style.justifyContent = 'center';
-    button.style.minWidth = '40px';
-    button.style.opacity = '1';
-    button.style.visibility = 'visible';
-
-    const svgIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svgIcon.setAttribute('viewBox', '0 0 24 24');
-    svgIcon.setAttribute('width', '24');
-    svgIcon.setAttribute('height', '24');
-
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', WINDOWED_ICON_PATH);
-
-    svgIcon.appendChild(path);
-    button.appendChild(svgIcon);
-
-    button.addEventListener('mousedown', (event) => {
-        // Keep keyboard focus on player so native arrow-key controls continue to work.
-        event.preventDefault();
-    });
-
-    button.addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        toggleWindowedMode();
-        focusPlayerForKeyboardControls();
-    });
-
-    return button;
-}
-
-/**
- * Restore keyboard focus to the YouTube player after interacting with custom controls.
- */
 function focusPlayerForKeyboardControls() {
-    const player = getLivePlayerElement()
-        || (activePlayer instanceof HTMLElement ? activePlayer : null);
+    const player =
+        getLivePlayerElement(getLiveRootPlayer(mountedRootPlayer), mountedRootPlayer) ||
+        (activePlayer instanceof HTMLElement ? activePlayer : null);
     if (player instanceof HTMLElement) {
         try {
             player.focus({ preventScroll: true });
@@ -329,9 +235,6 @@ function focusPlayerForKeyboardControls() {
     }
 }
 
-/**
- * Toggle windowed fullscreen.
- */
 function toggleWindowedMode() {
     if (!isEnabled) {
         return;
@@ -345,9 +248,6 @@ function toggleWindowedMode() {
     }
 }
 
-/**
- * Enter windowed fullscreen mode.
- */
 function enterWindowedMode() {
     if (!isEligiblePage()) {
         return;
@@ -358,8 +258,8 @@ function enterWindowedMode() {
         return;
     }
 
-    const rootPlayer = getLiveRootPlayer();
-    const player = resolvePlayerFromRoot(rootPlayer) || getActivePlayer();
+    const rootPlayer = getLiveRootPlayer(mountedRootPlayer);
+    const player = getActivePlayer();
     if (!player || !rootPlayer) {
         return;
     }
@@ -384,67 +284,8 @@ function enterWindowedMode() {
     document.body.classList.add(ROOT_LOCK_CLASS);
 
     isWindowed = true;
-    updateButtonState();
+    updateButtonState(windowedButton, isWindowed);
     forcePlayerRelayout(rootPlayer);
-}
-
-function findRootPlayers() {
-    return Array.from(document.querySelectorAll('#movie_player'));
-}
-
-function findExternalRootPlayer() {
-    const roots = findRootPlayers();
-    if (roots.length === 0) {
-        return null;
-    }
-    if (!overlayHost || !overlayHost.isConnected) {
-        return roots[0];
-    }
-    return roots.find((root) => (
-        !overlayHost.contains(root)
-        && isStableRootPlayer(root)
-    )) || null;
-}
-
-function resolvePlayerFromRoot(rootPlayer) {
-    if (!(rootPlayer instanceof Element)) {
-        return null;
-    }
-    if (rootPlayer.matches('.html5-video-player')) {
-        return rootPlayer;
-    }
-    const player = rootPlayer.querySelector('.html5-video-player');
-    return player instanceof Element ? player : null;
-}
-
-/**
- * Determine whether a rebuilt root player is ready to replace the mounted overlay player.
- * @param {Element|null} rootPlayer
- * @returns {boolean}
- */
-function isStableRootPlayer(rootPlayer) {
-    if (!(rootPlayer instanceof Element) || !rootPlayer.isConnected) {
-        return false;
-    }
-
-    if (!isUsableMountParent(rootPlayer.parentNode)) {
-        return false;
-    }
-
-    const player = resolvePlayerFromRoot(rootPlayer);
-    if (!(player instanceof HTMLElement)) {
-        return false;
-    }
-
-    const video = rootPlayer.querySelector('video.html5-main-video, .html5-video-container video');
-    const controls = player.querySelector('.ytp-right-controls, .ytp-left-controls, .ytp-chrome-bottom');
-    const rect = rootPlayer.getBoundingClientRect();
-
-    return (
-        video instanceof HTMLVideoElement
-        || controls instanceof Element
-        || (rect.width > 0 && rect.height > 0 && player.childElementCount > 0)
-    );
 }
 
 function remountWindowedRoot(nextRoot) {
@@ -463,7 +304,7 @@ function remountWindowedRoot(nextRoot) {
 
     nextRoot.classList.add(PLAYER_ACTIVE_CLASS);
     mountedRootPlayer = nextRoot;
-    activePlayer = resolvePlayerFromRoot(nextRoot) || activePlayer;
+    activePlayer = getMountedPlayerElement(nextRoot) || activePlayer;
     originalRootParent = null;
     originalRootNextSibling = null;
     restoreAnchor = null;
@@ -471,45 +312,10 @@ function remountWindowedRoot(nextRoot) {
     document.documentElement.classList.add(ROOT_LOCK_CLASS);
     document.body.classList.add(ROOT_LOCK_CLASS);
     isWindowed = true;
-    updateButtonState();
+    updateButtonState(windowedButton, isWindowed);
     forcePlayerRelayout(nextRoot);
 }
 
-function createRestoreAnchorInParent(parent) {
-    if (!isUsableMountParent(parent)) {
-        return null;
-    }
-
-    const anchor = document.createElement('div');
-    anchor.className = RESTORE_ANCHOR_CLASS;
-    anchor.setAttribute('aria-hidden', 'true');
-    anchor.style.display = 'none';
-    parent.appendChild(anchor);
-    return anchor;
-}
-
-function ensureRestoreAnchorFallback() {
-    if (restoreAnchor && restoreAnchor.isConnected) {
-        return;
-    }
-
-    const fallbackParent = findFallbackPlayerMount();
-    if (!fallbackParent) {
-        return;
-    }
-
-    if (restoreAnchor && restoreAnchor.parentNode) {
-        restoreAnchor.remove();
-    }
-
-    restoreAnchor = createRestoreAnchorInParent(fallbackParent);
-    originalRootParent = fallbackParent;
-    originalRootNextSibling = null;
-}
-
-/**
- * Exit windowed fullscreen mode.
- */
 function exitWindowedMode() {
     if (mountedRootPlayer) {
         mountedRootPlayer.classList.remove(PLAYER_ACTIVE_CLASS);
@@ -526,7 +332,10 @@ function exitWindowedMode() {
     document.documentElement.classList.remove(ROOT_LOCK_CLASS);
     document.body.classList.remove(ROOT_LOCK_CLASS);
 
-    const relayoutTarget = getLiveRootPlayer() || mountedRootPlayer || getRootPlayerHost(getActivePlayer());
+    const relayoutTarget =
+        getLiveRootPlayer(mountedRootPlayer) ||
+        mountedRootPlayer ||
+        getRootPlayerHost(getActivePlayer());
 
     activePlayer = null;
     mountedRootPlayer = null;
@@ -535,110 +344,10 @@ function exitWindowedMode() {
     restoreAnchor = null;
     overlayHost = null;
     isWindowed = false;
-    updateButtonState();
+    updateButtonState(windowedButton, isWindowed);
     forcePlayerRelayout(relayoutTarget);
 }
 
-/**
- * Insert an invisible anchor before moving player so we can restore to the exact slot.
- * @param {Element} rootPlayer
- * @returns {HTMLDivElement|null}
- */
-function createRestoreAnchor(rootPlayer) {
-    if (!(rootPlayer instanceof Element) || !(rootPlayer.parentNode instanceof Node)) {
-        return null;
-    }
-
-    const anchor = document.createElement('div');
-    anchor.className = RESTORE_ANCHOR_CLASS;
-    anchor.setAttribute('aria-hidden', 'true');
-    anchor.style.display = 'none';
-    rootPlayer.parentNode.insertBefore(anchor, rootPlayer);
-    return anchor;
-}
-
-/**
- * Restore moved player root to original location or a safe fallback mount point.
- * @returns {boolean}
- */
-function restoreMountedRootPlayer() {
-    if (!(mountedRootPlayer instanceof Element)) {
-        return false;
-    }
-
-    const fallbackParent = findFallbackPlayerMount();
-    if (fallbackParent) {
-        removeDuplicateRootPlayers(mountedRootPlayer);
-
-        if (restoreAnchor && restoreAnchor.parentNode === fallbackParent) {
-            fallbackParent.insertBefore(mountedRootPlayer, restoreAnchor);
-        } else {
-            fallbackParent.appendChild(mountedRootPlayer);
-        }
-
-        return true;
-    }
-
-    if (restoreAnchor && restoreAnchor.parentNode instanceof Node) {
-        restoreAnchor.parentNode.insertBefore(mountedRootPlayer, restoreAnchor);
-        return true;
-    }
-
-    if (isUsableMountParent(originalRootParent)) {
-        if (
-            originalRootNextSibling instanceof Node
-            && originalRootNextSibling.parentNode === originalRootParent
-        ) {
-            originalRootParent.insertBefore(mountedRootPlayer, originalRootNextSibling);
-        } else {
-            originalRootParent.appendChild(mountedRootPlayer);
-        }
-        return true;
-    }
-
-    return false;
-}
-
-/**
- * Retry restoring detached player root when page containers are still rebuilding.
- * @param {Element} rootPlayer
- */
-function scheduleDeferredRestore(rootPlayer) {
-    if (!(rootPlayer instanceof Element)) {
-        return;
-    }
-
-    let attempt = 0;
-    const tryRestore = () => {
-        if (rootPlayer.isConnected) {
-            forcePlayerRelayout(rootPlayer);
-            return;
-        }
-
-        const fallbackParent = findFallbackPlayerMount();
-        if (fallbackParent) {
-            fallbackParent.appendChild(rootPlayer);
-            forcePlayerRelayout(rootPlayer);
-            return;
-        }
-
-        attempt += 1;
-        if (attempt >= RESTORE_RETRY_MAX_ATTEMPTS) {
-            logger.warn('Unable to restore player root after retries');
-            return;
-        }
-
-        setTimeout(tryRestore, RESTORE_RETRY_DELAY_MS);
-    };
-
-    setTimeout(tryRestore, RESTORE_RETRY_DELAY_MS);
-}
-
-/**
- * Ensure auto mode waits until player shell is stable before moving player root.
- * @param {string} watchVideoId
- * @returns {boolean}
- */
 function isAutoWindowedReady(watchVideoId) {
     if (watchVideoId !== autoWarmupVideoId) {
         autoWarmupVideoId = watchVideoId;
@@ -646,7 +355,7 @@ function isAutoWindowedReady(watchVideoId) {
         return false;
     }
 
-    if ((Date.now() - autoWarmupStartedAt) < AUTO_WINDOWED_WARMUP_MS) {
+    if (Date.now() - autoWarmupStartedAt < AUTO_WINDOWED_WARMUP_MS) {
         return false;
     }
 
@@ -669,34 +378,11 @@ function isAutoWindowedReady(watchVideoId) {
     return true;
 }
 
-/**
- * Reset auto-windowed warmup state.
- */
 function resetAutoWarmup() {
     autoWarmupVideoId = null;
     autoWarmupStartedAt = 0;
 }
 
-/**
- * Refresh button pressed/title state.
- */
-function updateButtonState() {
-    if (!windowedButton) {
-        return;
-    }
-
-    windowedButton.classList.toggle(BUTTON_ACTIVE_CLASS, isWindowed);
-    windowedButton.setAttribute('aria-pressed', isWindowed ? 'true' : 'false');
-    windowedButton.setAttribute(
-        'aria-label',
-        isWindowed ? 'Exit windowed fullscreen' : 'Windowed fullscreen'
-    );
-    windowedButton.title = isWindowed ? 'Exit windowed fullscreen' : 'Windowed fullscreen';
-}
-
-/**
- * Runtime state sync after navigation/player rebuilds.
- */
 function syncUiState() {
     if (!isEnabled) {
         return;
@@ -706,15 +392,15 @@ function syncUiState() {
         if (isWindowed) {
             exitWindowedMode();
         }
-        removeButton();
+        windowedButton = destroyButton(windowedButton);
         lastAutoWindowedVideoId = null;
         resetAutoWarmup();
         return;
     }
 
     if (isWindowed) {
-        const rootPlayer = getLiveRootPlayer();
-        const player = resolvePlayerFromRoot(rootPlayer) || getLivePlayerElement();
+        const rootPlayer = getLiveRootPlayer(mountedRootPlayer);
+        const player = getLivePlayerElement(rootPlayer, mountedRootPlayer);
         if (!player || !rootPlayer) {
             exitWindowedMode();
         } else if (mountedRootPlayer && rootPlayer !== mountedRootPlayer) {
@@ -732,10 +418,6 @@ function syncUiState() {
     applyAutoWindowedMode();
 }
 
-/**
- * Handle Escape key to exit windowed mode.
- * @param {KeyboardEvent} event
- */
 function handleKeydown(event) {
     if (event.key === 'Escape' && isWindowed) {
         event.preventDefault();
@@ -758,15 +440,12 @@ function handleKeydown(event) {
     focusPlayerForKeyboardControls();
 }
 
-/**
- * Apply auto-windowed mode once per watch video id.
- */
 function applyAutoWindowedMode() {
     if (!autoWindowedEnabled || document.fullscreenElement) {
         return;
     }
 
-    const watchVideoId = getCurrentWatchVideoId();
+    const watchVideoId = new URL(location.href).searchParams.get('v');
     if (!watchVideoId) {
         return;
     }
@@ -795,11 +474,6 @@ function applyAutoWindowedMode() {
     }
 }
 
-/**
- * Check whether the configured shortcut key is pressed.
- * @param {KeyboardEvent} event
- * @returns {boolean}
- */
 function matchesWindowedShortcut(event) {
     if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) {
         return false;
@@ -815,9 +489,6 @@ function matchesWindowedShortcut(event) {
     return shortcutKeyEquals(eventKey, expectedKey);
 }
 
-/**
- * Handle native fullscreen transitions.
- */
 function handleFullscreenChange() {
     if (!isWindowed) {
         return;
@@ -828,24 +499,18 @@ function handleFullscreenChange() {
     }
 }
 
-/**
- * Mark current watch video as manually handled so auto mode does not immediately re-enter.
- */
 function markCurrentVideoAsAutoHandled() {
     if (!autoWindowedEnabled) {
         return;
     }
 
-    const watchVideoId = getCurrentWatchVideoId();
+    const watchVideoId = new URL(location.href).searchParams.get('v');
     if (watchVideoId) {
         lastAutoWindowedVideoId = watchVideoId;
     }
     resetAutoWarmup();
 }
 
-/**
- * Start listeners + observer.
- */
 function startRuntimeTracking() {
     if (observer || !document.body) {
         return;
@@ -862,12 +527,24 @@ function startRuntimeTracking() {
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('keydown', handleKeydown, true);
 
-    runtimeCleanupCallbacks.push(() => document.removeEventListener('yt-navigate-finish', handleRouteOrPlayerChange));
-    runtimeCleanupCallbacks.push(() => document.removeEventListener('yt-page-data-updated', handleRouteOrPlayerChange));
-    runtimeCleanupCallbacks.push(() => window.removeEventListener('popstate', handleRouteOrPlayerChange));
-    runtimeCleanupCallbacks.push(() => window.removeEventListener('resize', handleRouteOrPlayerChange));
-    runtimeCleanupCallbacks.push(() => document.removeEventListener('fullscreenchange', handleFullscreenChange));
-    runtimeCleanupCallbacks.push(() => document.removeEventListener('keydown', handleKeydown, true));
+    runtimeCleanupCallbacks.push(() =>
+        document.removeEventListener('yt-navigate-finish', handleRouteOrPlayerChange)
+    );
+    runtimeCleanupCallbacks.push(() =>
+        document.removeEventListener('yt-page-data-updated', handleRouteOrPlayerChange)
+    );
+    runtimeCleanupCallbacks.push(() =>
+        window.removeEventListener('popstate', handleRouteOrPlayerChange)
+    );
+    runtimeCleanupCallbacks.push(() =>
+        window.removeEventListener('resize', handleRouteOrPlayerChange)
+    );
+    runtimeCleanupCallbacks.push(() =>
+        document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    );
+    runtimeCleanupCallbacks.push(() =>
+        document.removeEventListener('keydown', handleKeydown, true)
+    );
 
     observer = createThrottledObserver(() => {
         syncUiState();
@@ -875,7 +552,7 @@ function startRuntimeTracking() {
 
     observer.observe(document.body, {
         childList: true,
-        subtree: true
+        subtree: true,
     });
 
     if (!ensureTimer) {
@@ -888,9 +565,6 @@ function startRuntimeTracking() {
     }
 }
 
-/**
- * Stop runtime listeners + observer.
- */
 function stopRuntimeTracking() {
     if (observer) {
         observer.disconnect();
@@ -908,27 +582,13 @@ function stopRuntimeTracking() {
     }
 }
 
-/**
- * Remove button from DOM.
- */
-function removeButton() {
-    if (windowedButton) {
-        windowedButton.remove();
-        windowedButton = null;
-    }
-}
-
-/**
- * Resolve controls host from the active watch player only.
- * @returns {Element|null}
- */
 function findControlsHost() {
     const rotationButton = document.querySelector('.custom-rotation-button');
     if (rotationButton instanceof Element && rotationButton.parentElement) {
         return rotationButton.parentElement;
     }
 
-    const player = getLivePlayerElement();
+    const player = getLivePlayerElement(getLiveRootPlayer(mountedRootPlayer), mountedRootPlayer);
     if (!player) {
         return null;
     }
@@ -941,11 +601,6 @@ function findControlsHost() {
     return player.querySelector('.ytp-left-controls');
 }
 
-/**
- * Determine whether configured shortcut should toggle windowed mode.
- * @param {KeyboardEvent} event
- * @returns {boolean}
- */
 function shouldHandleWindowedShortcut(event) {
     if (!isEnabled || !isEligiblePage() || event.repeat) {
         return false;
@@ -957,8 +612,8 @@ function shouldHandleWindowedShortcut(event) {
     }
 
     if (
-        active.matches('input, textarea, select, [contenteditable="true"]')
-        || active.closest('input, textarea, select, [contenteditable="true"]')
+        active.matches('input, textarea, select, [contenteditable="true"]') ||
+        active.closest('input, textarea, select, [contenteditable="true"]')
     ) {
         return false;
     }
@@ -968,8 +623,8 @@ function shouldHandleWindowedShortcut(event) {
     }
 
     if (
-        active.matches('button, a, [role="button"]')
-        || active.closest('button, a, [role="button"]')
+        active.matches('button, a, [role="button"]') ||
+        active.closest('button, a, [role="button"]')
     ) {
         return false;
     }
@@ -977,10 +632,6 @@ function shouldHandleWindowedShortcut(event) {
     return true;
 }
 
-/**
- * Update module settings from popup.
- * @param {object} newSettings
- */
 function updateSettings(newSettings) {
     if (!isPlainObject(newSettings)) {
         return;
@@ -1010,7 +661,7 @@ function updateSettings(newSettings) {
 
     logger.debug('Windowed fullscreen settings updated', {
         windowedShortcut,
-        autoWindowedEnabled
+        autoWindowedEnabled,
     });
 
     if (isEnabled) {
@@ -1018,9 +669,6 @@ function updateSettings(newSettings) {
     }
 }
 
-/**
- * Enable module.
- */
 function enable() {
     isEnabled = true;
 
@@ -1033,21 +681,15 @@ function enable() {
     syncUiState();
 }
 
-/**
- * Disable module and reset UI.
- */
 function disable() {
     isEnabled = false;
     stopRuntimeTracking();
     exitWindowedMode();
-    removeButton();
+    windowedButton = destroyButton(windowedButton);
     lastAutoWindowedVideoId = null;
     resetAutoWarmup();
 }
 
-/**
- * Cleanup module state.
- */
 function cleanup() {
     disable();
     isInitialized = false;
@@ -1067,10 +709,4 @@ if (document.readyState === 'loading') {
     });
 }
 
-export {
-    initWindowedFullscreen,
-    updateSettings,
-    enable,
-    disable,
-    cleanup
-};
+export { initWindowedFullscreen, updateSettings, enable, disable, cleanup };
