@@ -22,6 +22,18 @@ import {
     WATCHED_ATTR
 } from './watched-history/constants.js';
 import { extractVideoId, isValidVideoId } from './watched-history/videoId.js';
+import {
+    CLOUD_PENDING_QUEUE_KEY,
+    CLOUD_PENDING_COUNT_KEY,
+    CLOUD_PENDING_BY_ACCOUNT_KEY,
+    DEFAULT_SYNC_ACCOUNT_KEY,
+    SUBSCRIPTION_IDENTITY_BRIDGE_SOURCE,
+    SUBSCRIPTION_IDENTITY_REQUEST_TYPE,
+    SUBSCRIPTION_IDENTITY_RESPONSE_TYPE,
+    SUBSCRIPTION_IDENTITY_ACTION,
+    SUBSCRIPTION_IDENTITY_TIMEOUT_MS,
+    isChannelAccountKey
+} from './watched-history/cloudSync.js';
 
 const logger = createLogger('WatchedHistory');
 
@@ -49,16 +61,6 @@ let runtimeMessageListener = null;
 let storageListener = null;
 
 const teardownCallbacks = [];
-const CLOUD_PENDING_QUEUE_KEY = 'cloudflareSyncPendingVideoIds';
-const CLOUD_PENDING_COUNT_KEY = 'cloudflareSyncPendingCount';
-const CLOUD_PENDING_BY_ACCOUNT_KEY = 'cloudflareSyncPendingByAccount';
-const DEFAULT_SYNC_ACCOUNT_KEY = 'default';
-const SUBSCRIPTION_IDENTITY_BRIDGE_SOURCE = 'yt-commander';
-const SUBSCRIPTION_IDENTITY_REQUEST_TYPE = 'YT_COMMANDER_SUBSCRIPTION_ACCOUNT_REQUEST';
-const SUBSCRIPTION_IDENTITY_RESPONSE_TYPE = 'YT_COMMANDER_SUBSCRIPTION_ACCOUNT_RESPONSE';
-const SUBSCRIPTION_IDENTITY_ACTION = 'GET_ACTIVE_CHANNEL_IDENTITY';
-const SUBSCRIPTION_IDENTITY_TIMEOUT_MS = 20000;
-const CHANNEL_ACCOUNT_KEY_PATTERN = /^ytch:UC[A-Za-z0-9_-]{20,}$/;
 
 let syncAccountKey = DEFAULT_SYNC_ACCOUNT_KEY;
 let syncAccountSource = 'fallback';
@@ -67,16 +69,6 @@ let syncAccountIdentityPromise = null;
 let subscriptionIdentityRequestCounter = 0;
 const pendingSubscriptionIdentityRequests = new Map();
 let subscriptionIdentityResponseListenerAttached = false;
-
-/**
- * Check whether a key is a portable YouTube channel account key.
- * @param {any} rawAccountKey
- * @returns {boolean}
- */
-function isChannelAccountKey(rawAccountKey) {
-    const value = typeof rawAccountKey === 'string' ? rawAccountKey.trim() : '';
-    return CHANNEL_ACCOUNT_KEY_PATTERN.test(value);
-}
 
 /**
  * Handle channel identity bridge responses from main world.
