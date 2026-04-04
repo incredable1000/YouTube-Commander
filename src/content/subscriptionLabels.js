@@ -22,6 +22,8 @@ import {
     CACHE_TTL_MS
 } from './subscription-labels/constants.js';
 import { isCardElement } from './subscription-labels/utils.js';
+import { setDebugState, setDebugAttribute, setDebugMeta, isElementHidden } from './subscription-labels/debug.js';
+import { parseJsonSafe, extractInitialDataFromHtml, extractYtCfgFromHtml } from './subscription-labels/html-parse.js';
 
 const logger = createLogger('SubscriptionLabels');
 
@@ -52,7 +54,6 @@ let dataInitialized = false;
 let mutationObserver = null;
 let renderScheduled = false;
 let pendingCards = new Set();
-let debugState = null;
 let ytcfgFallback = null;
 let renderedCount = 0;
 let continuationRetryScheduled = false;
@@ -63,48 +64,6 @@ let shortsLookupFailures = new Map();
 let shortsLookupCards = new Map();
 let homeBootstrapped = false;
 let scanIntervalId = null;
-
-function setDebugState(key, value) {
-    try {
-        if (!debugState) {
-            debugState = { loadedAt: Date.now() };
-        }
-        debugState[key] = value;
-        window.__YT_COMMANDER_SUBS_LABELS__ = debugState;
-    } catch (_error) {
-        // Ignore debug state errors.
-    }
-}
-
-function setDebugAttribute(value) {
-    try {
-        document.documentElement.setAttribute('data-yt-commander-subs-labels', value);
-    } catch (_error) {
-        // Ignore DOM errors.
-    }
-}
-
-function setDebugMeta(key, value) {
-    try {
-        const safeValue = typeof value === 'string' ? value.slice(0, 180) : String(value);
-        document.documentElement.setAttribute(`data-yt-commander-subs-${key}`, safeValue);
-    } catch (_error) {
-        // Ignore DOM errors.
-    }
-}
-
-function isElementHidden(element) {
-    if (!element) {
-        return true;
-    }
-    if (element.hasAttribute('hidden')) {
-        return true;
-    }
-    if (element.getAttribute('aria-hidden') === 'true') {
-        return true;
-    }
-    return false;
-}
 
 function getHomeBrowseRoot() {
     const roots = document.querySelectorAll(HOME_BROWSE_SELECTOR);
@@ -329,23 +288,6 @@ async function getInnertubeConfig() {
 }
 
 /**
- * Parse JSON safely.
- * @param {string} text
- * @returns {any|null}
- */
-function parseJsonSafe(text) {
-    if (!text || typeof text !== 'string') {
-        return null;
-    }
-
-    try {
-        return JSON.parse(text);
-    } catch (_error) {
-        return null;
-    }
-}
-
-/**
  * Read readable API error from response payload.
  * @param {string} responseText
  * @returns {string}
@@ -527,103 +469,7 @@ function getShortsVideoId(card) {
     return extractVideoIdFromHref(href);
 }
 
-/**
- * Extract ytInitialData JSON from HTML page.
- * @param {string} html
- * @returns {any|null}
- */
-function extractInitialDataFromHtml(html) {
-    if (!html || typeof html !== 'string') {
-        return null;
-    }
 
-    const markers = [
-        'var ytInitialData =',
-        'window["ytInitialData"] =',
-        'ytInitialData ='
-    ];
-
-    for (const marker of markers) {
-        const index = html.indexOf(marker);
-        if (index === -1) {
-            continue;
-        }
-
-        const start = html.indexOf('{', index);
-        if (start === -1) {
-            continue;
-        }
-
-        let depth = 0;
-        for (let i = start; i < html.length; i += 1) {
-            const char = html[i];
-            if (char === '{') {
-                depth += 1;
-            } else if (char === '}') {
-                depth -= 1;
-                if (depth === 0) {
-                    const jsonText = html.slice(start, i + 1);
-                    const parsed = parseJsonSafe(jsonText);
-                    if (parsed) {
-                        return parsed;
-                    }
-                    break;
-                }
-            }
-        }
-    }
-
-    return null;
-}
-
-/**
- * Parse a CSV line into columns (handles basic quoted values).
- * @param {string} line
- * @returns {string[]}
- */
-// CSV export approach removed for simplicity.
-
-/**
- * Extract ytcfg.set JSON from HTML page.
- * @param {string} html
- * @returns {any|null}
- */
-function extractYtCfgFromHtml(html) {
-    if (!html || typeof html !== 'string') {
-        return null;
-    }
-
-    const marker = 'ytcfg.set(';
-    const index = html.indexOf(marker);
-    if (index === -1) {
-        return null;
-    }
-
-    const start = html.indexOf('{', index);
-    if (start === -1) {
-        return null;
-    }
-
-    let depth = 0;
-    for (let i = start; i < html.length; i += 1) {
-        const char = html[i];
-        if (char === '{') {
-            depth += 1;
-        } else if (char === '}') {
-            depth -= 1;
-            if (depth === 0) {
-                const jsonText = html.slice(start, i + 1);
-                const parsed = parseJsonSafe(jsonText);
-                if (parsed) {
-                    return parsed;
-                }
-                break;
-            }
-        }
-    }
-
-    return null;
-}
 
 /**
  * Recursively collect channel ids and canonical paths from data tree.

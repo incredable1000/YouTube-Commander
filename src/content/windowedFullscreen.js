@@ -33,6 +33,7 @@ import {
     getRootPlayerHost,
     isUsableMountParent
 } from './windowed-fullscreen/dom.js';
+import { isPlainObject } from './windowed-fullscreen/utils.js';
 
 const logger = createLogger('WindowedFullscreen');
 
@@ -1015,15 +1016,6 @@ function updateSettings(newSettings) {
     if (isEnabled) {
         syncUiState();
     }
-}
-
-/**
- * Check plain object.
- * @param {any} value
- * @returns {boolean}
- */
-function isPlainObject(value) {
-    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 /**
