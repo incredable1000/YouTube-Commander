@@ -19,11 +19,27 @@ import {
     SHORTS_LOOKUP_CONCURRENCY,
     SHORTS_LOOKUP_FAIL_TTL_MS,
     LOCAL_STORAGE_KEY,
-    CACHE_TTL_MS
+    CACHE_TTL_MS,
 } from './subscription-labels/constants.js';
 import { isCardElement } from './subscription-labels/utils.js';
-import { setDebugState, setDebugAttribute, setDebugMeta, isElementHidden } from './subscription-labels/debug.js';
-import { parseJsonSafe, extractInitialDataFromHtml, extractYtCfgFromHtml } from './subscription-labels/html-parse.js';
+import {
+    setDebugState,
+    setDebugAttribute,
+    setDebugMeta,
+    isElementHidden,
+} from './subscription-labels/debug.js';
+import {
+    parseJsonSafe,
+    extractInitialDataFromHtml,
+    extractYtCfgFromHtml,
+} from './subscription-labels/html-parse.js';
+import {
+    isChannelPath,
+    extractChannelIdFromPath,
+    normalizeChannelPath,
+    extractVideoIdFromHref,
+    getShortsVideoIdFromCard,
+} from './subscription-labels/channel-utils.js';
 
 const logger = createLogger('SubscriptionLabels');
 
@@ -109,7 +125,11 @@ function loadShortsChannelCache() {
             return;
         }
         Object.entries(parsed).forEach(([videoId, channelId]) => {
-            if (typeof videoId === 'string' && typeof channelId === 'string' && channelId.startsWith('UC')) {
+            if (
+                typeof videoId === 'string' &&
+                typeof channelId === 'string' &&
+                channelId.startsWith('UC')
+            ) {
                 shortsChannelCache.set(videoId, channelId);
             }
         });
@@ -237,25 +257,28 @@ async function getInnertubeConfig() {
     }
 
     const rawContext = getYtCfgValue('INNERTUBE_CONTEXT');
-    const context = rawContext && typeof rawContext === 'object'
-        ? JSON.parse(JSON.stringify(rawContext))
-        : {
-            client: {
-                hl: getYtCfgValue('HL') || 'en',
-                gl: getYtCfgValue('GL') || 'US',
-                clientName: getYtCfgValue('INNERTUBE_CLIENT_NAME') || 'WEB',
-                clientVersion: getYtCfgValue('INNERTUBE_CLIENT_VERSION') || ''
-            }
-        };
+    const context =
+        rawContext && typeof rawContext === 'object'
+            ? JSON.parse(JSON.stringify(rawContext))
+            : {
+                  client: {
+                      hl: getYtCfgValue('HL') || 'en',
+                      gl: getYtCfgValue('GL') || 'US',
+                      clientName: getYtCfgValue('INNERTUBE_CLIENT_NAME') || 'WEB',
+                      clientVersion: getYtCfgValue('INNERTUBE_CLIENT_VERSION') || '',
+                  },
+              };
 
-    const clientName = getYtCfgValue('INNERTUBE_CONTEXT_CLIENT_NAME')
-        || context?.client?.clientName
-        || getYtCfgValue('INNERTUBE_CLIENT_NAME')
-        || '1';
-    const clientVersion = getYtCfgValue('INNERTUBE_CONTEXT_CLIENT_VERSION')
-        || context?.client?.clientVersion
-        || getYtCfgValue('INNERTUBE_CLIENT_VERSION')
-        || '';
+    const clientName =
+        getYtCfgValue('INNERTUBE_CONTEXT_CLIENT_NAME') ||
+        context?.client?.clientName ||
+        getYtCfgValue('INNERTUBE_CLIENT_NAME') ||
+        '1';
+    const clientVersion =
+        getYtCfgValue('INNERTUBE_CONTEXT_CLIENT_VERSION') ||
+        context?.client?.clientVersion ||
+        getYtCfgValue('INNERTUBE_CLIENT_VERSION') ||
+        '';
     const visitorData = getYtCfgValue('VISITOR_DATA') || context?.client?.visitorData;
     const sessionIndex = getYtCfgValue('SESSION_INDEX') ?? 0;
     const identityToken = getYtCfgValue('ID_TOKEN') || getYtCfgValue('DELEGATED_SESSION_ID');
@@ -265,7 +288,7 @@ async function getInnertubeConfig() {
         'Content-Type': 'application/json',
         'X-Youtube-Client-Name': String(clientName),
         'X-Youtube-Client-Version': String(clientVersion),
-        'X-Origin': location.origin
+        'X-Origin': location.origin,
     };
 
     if (sessionIndex !== null && sessionIndex !== undefined) {
@@ -298,9 +321,10 @@ function readApiError(responseText) {
     }
 
     const payload = parseJsonSafe(responseText);
-    const parsedError = payload?.error?.message
-        || payload?.error?.errors?.[0]?.message
-        || payload?.alerts?.[0]?.alertRenderer?.text?.simpleText;
+    const parsedError =
+        payload?.error?.message ||
+        payload?.error?.errors?.[0]?.message ||
+        payload?.alerts?.[0]?.alertRenderer?.text?.simpleText;
     if (parsedError) {
         return String(parsedError);
     }
@@ -322,7 +346,7 @@ async function postInnertube(path, payload) {
     const response = await fetch(endpoint, {
         method: 'POST',
         headers: config.headers,
-        body
+        body,
     });
 
     const responseText = await response.text().catch(() => '');
@@ -340,9 +364,10 @@ async function fetchChannelIdForVideo(videoId) {
     }
     try {
         const response = await postInnertube('player', { videoId });
-        const channelId = response?.videoDetails?.channelId
-            || response?.microformat?.playerMicroformatRenderer?.ownerChannelId
-            || '';
+        const channelId =
+            response?.videoDetails?.channelId ||
+            response?.microformat?.playerMicroformatRenderer?.ownerChannelId ||
+            '';
         return typeof channelId === 'string' ? channelId : '';
     } catch (error) {
         logger.debug('Failed to resolve video channel id', { videoId, error });
@@ -402,75 +427,6 @@ function processShortsLookupQueue() {
 }
 
 /**
- * Return true if path indicates a channel path.
- * @param {string} path
- * @returns {boolean}
- */
-function isChannelPath(path) {
-    return path.startsWith('/channel/') || path.startsWith('/@') || path.startsWith('/c/') || path.startsWith('/user/');
-}
-
-/**
- * Extract channel ID from a raw path (preserve case).
- * @param {string} path
- * @returns {string|null}
- */
-function extractChannelIdFromPath(path) {
-    if (!path) {
-        return null;
-    }
-    const match = path.match(/\/channel\/([^/?#]+)/i);
-    if (!match) {
-        return null;
-    }
-    return match[1] || null;
-}
-
-/**
- * Normalize channel path.
- * @param {string} path
- * @returns {string}
- */
-function normalizeChannelPath(path) {
-    if (!path) {
-        return '';
-    }
-    let trimmed = path;
-    try {
-        if (trimmed.startsWith('http')) {
-            const url = new URL(trimmed);
-            trimmed = url.pathname;
-        }
-    } catch (_error) {
-        // Ignore URL parsing errors.
-    }
-    trimmed = trimmed.split('?')[0].split('#')[0];
-    return trimmed.trim().toLowerCase();
-}
-
-function extractVideoIdFromHref(href) {
-    if (!href) {
-        return '';
-    }
-    const shortsMatch = href.match(/\/shorts\/([A-Za-z0-9_-]{8,})/);
-    if (shortsMatch) {
-        return shortsMatch[1];
-    }
-    const queryMatch = href.match(/[?&]v=([A-Za-z0-9_-]{8,})/);
-    if (queryMatch) {
-        return queryMatch[1];
-    }
-    return '';
-}
-
-function getShortsVideoId(card) {
-    const anchor = card.querySelector('a[href*="/shorts/"]') || card.querySelector('a[href*="shorts/"]');
-    const href = anchor?.getAttribute?.('href') || '';
-    return extractVideoIdFromHref(href);
-}
-
-
-
 /**
  * Recursively collect channel ids and canonical paths from data tree.
  * @param {any} node
@@ -490,14 +446,16 @@ function collectChannelData(node, channelIds, channelPaths, continuations) {
         }
     }
 
-    const browseId = node?.browseEndpoint?.browseId || node?.navigationEndpoint?.browseEndpoint?.browseId;
+    const browseId =
+        node?.browseEndpoint?.browseId || node?.navigationEndpoint?.browseEndpoint?.browseId;
     if (typeof browseId === 'string' && browseId.startsWith('UC')) {
         channelIds.add(browseId);
     }
 
-    const canonicalBaseUrl = node?.browseEndpoint?.canonicalBaseUrl
-        || node?.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl
-        || node?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url;
+    const canonicalBaseUrl =
+        node?.browseEndpoint?.canonicalBaseUrl ||
+        node?.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl ||
+        node?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url;
 
     if (typeof canonicalBaseUrl === 'string' && canonicalBaseUrl) {
         const normalized = normalizeChannelPath(canonicalBaseUrl);
@@ -506,15 +464,17 @@ function collectChannelData(node, channelIds, channelPaths, continuations) {
         }
     }
 
-    const continuationToken = node?.continuationCommand?.token
-        || node?.continuationEndpoint?.continuationCommand?.token;
+    const continuationToken =
+        node?.continuationCommand?.token || node?.continuationEndpoint?.continuationCommand?.token;
     if (typeof continuationToken === 'string') {
         continuations.add(continuationToken);
     }
 
     for (const value of Object.values(node)) {
         if (Array.isArray(value)) {
-            value.forEach((item) => collectChannelData(item, channelIds, channelPaths, continuations));
+            value.forEach((item) =>
+                collectChannelData(item, channelIds, channelPaths, continuations)
+            );
         } else if (value && typeof value === 'object') {
             collectChannelData(value, channelIds, channelPaths, continuations);
         }
@@ -526,12 +486,8 @@ function collectChannelData(node, channelIds, channelPaths, continuations) {
  * @returns {Promise<{channelIds: Set<string>, channelPaths: Set<string>}>}
  */
 async function fetchSubscribedChannels(seed = null) {
-    const channelIds = seed?.channelIds instanceof Set
-        ? new Set(seed.channelIds)
-        : new Set();
-    const channelPaths = seed?.channelPaths instanceof Set
-        ? new Set(seed.channelPaths)
-        : new Set();
+    const channelIds = seed?.channelIds instanceof Set ? new Set(seed.channelIds) : new Set();
+    const channelPaths = seed?.channelPaths instanceof Set ? new Set(seed.channelPaths) : new Set();
     const continuations = new Set(Array.isArray(seed?.continuations) ? seed.continuations : []);
     let hasSeedData = channelIds.size > 0 || channelPaths.size > 0 || continuations.size > 0;
     let htmlPayload = '';
@@ -610,7 +566,13 @@ async function fetchSubscribedChannels(seed = null) {
     }
 
     const remaining = continuationQueue.filter((token) => token && !visited.has(token));
-    return { channelIds, channelPaths, continuations: remaining, complete: remaining.length === 0, source: BROWSE_SOURCE };
+    return {
+        channelIds,
+        channelPaths,
+        continuations: remaining,
+        complete: remaining.length === 0,
+        source: BROWSE_SOURCE,
+    };
 }
 
 /**
@@ -644,7 +606,10 @@ async function loadSubscriptionCache() {
 
     const fresh = fetchedAt > 0 && now - fetchedAt < CACHE_TTL_MS;
     setDebugMeta('cache-fresh', fresh);
-    setDebugMeta('cache-counts', `ids:${subscribedChannelIds.size};paths:${subscribedChannelPaths.size}`);
+    setDebugMeta(
+        'cache-counts',
+        `ids:${subscribedChannelIds.size};paths:${subscribedChannelPaths.size}`
+    );
     return { fresh, hasData: dataReady, continuations, complete, source };
 }
 
@@ -653,14 +618,20 @@ async function loadSubscriptionCache() {
  * @param {Set<string>} channelIds
  * @param {Set<string>} channelPaths
  */
-async function saveSubscriptionCache(channelIds, channelPaths, continuations = [], complete = false, source = null) {
+async function saveSubscriptionCache(
+    channelIds,
+    channelPaths,
+    continuations = [],
+    complete = false,
+    source = null
+) {
     const payload = {
         channelIds: Array.from(channelIds),
         channelPaths: Array.from(channelPaths),
         continuations: Array.isArray(continuations) ? continuations : [],
         complete: complete === true,
         source: typeof source === 'string' ? source : null,
-        fetchedAt: Date.now()
+        fetchedAt: Date.now(),
     };
 
     try {
@@ -675,8 +646,14 @@ async function saveSubscriptionCache(channelIds, channelPaths, continuations = [
  */
 async function ensureSubscriptionIndex() {
     const cacheState = await loadSubscriptionCache();
-    const hasContinuations = Array.isArray(cacheState.continuations) && cacheState.continuations.length > 0;
-    if (cacheState.fresh && cacheState.complete && cacheState.source === CSV_SOURCE && !hasContinuations) {
+    const hasContinuations =
+        Array.isArray(cacheState.continuations) && cacheState.continuations.length > 0;
+    if (
+        cacheState.fresh &&
+        cacheState.complete &&
+        cacheState.source === CSV_SOURCE &&
+        !hasContinuations
+    ) {
         dataInitialized = true;
         setDebugMeta('data-ready', dataReady);
         scanVisibleCards();
@@ -686,10 +663,10 @@ async function ensureSubscriptionIndex() {
     try {
         const seed = cacheState.hasData
             ? {
-                channelIds: subscribedChannelIds,
-                channelPaths: subscribedChannelPaths,
-                continuations: cacheState.continuations
-            }
+                  channelIds: subscribedChannelIds,
+                  channelPaths: subscribedChannelPaths,
+                  continuations: cacheState.continuations,
+              }
             : null;
         const result = await fetchSubscribedChannels(seed);
         subscribedChannelIds = result.channelIds;
@@ -704,8 +681,14 @@ async function ensureSubscriptionIndex() {
         );
         dataInitialized = true;
         setDebugMeta('data-ready', dataReady);
-        setDebugMeta('data-counts', `ids:${subscribedChannelIds.size};paths:${subscribedChannelPaths.size};remaining:${(result.continuations || []).length}`);
-        logger.info('Subscribed channels loaded', { ids: subscribedChannelIds.size, paths: subscribedChannelPaths.size });
+        setDebugMeta(
+            'data-counts',
+            `ids:${subscribedChannelIds.size};paths:${subscribedChannelPaths.size};remaining:${(result.continuations || []).length}`
+        );
+        logger.info('Subscribed channels loaded', {
+            ids: subscribedChannelIds.size,
+            paths: subscribedChannelPaths.size,
+        });
         scanVisibleCards();
 
         if (!continuationRetryScheduled && (result.continuations || []).length > 0) {
@@ -815,10 +798,12 @@ function isChannelLink(href) {
     } catch (_error) {
         // Ignore URL parsing errors.
     }
-    return path.startsWith('/channel/')
-        || path.startsWith('/@')
-        || path.startsWith('/c/')
-        || path.startsWith('/user/');
+    return (
+        path.startsWith('/channel/') ||
+        path.startsWith('/@') ||
+        path.startsWith('/c/') ||
+        path.startsWith('/user/')
+    );
 }
 
 /**
@@ -832,7 +817,7 @@ function findChannelAnchor(card) {
         'ytd-channel-name a[href]',
         'ytd-video-owner-renderer a[href]',
         '#metadata #channel-name a[href]',
-        'yt-content-metadata-view-model .yt-content-metadata-view-model__metadata-row a[href]'
+        'yt-content-metadata-view-model .yt-content-metadata-view-model__metadata-row a[href]',
     ];
 
     for (const selector of scopedSelectors) {
@@ -871,7 +856,7 @@ function getDataRoots(card) {
         card?.__data?.data?.shortsLockupViewModel,
         card?.__dataHost,
         card?.__dataHost?.__data,
-        card?.__dataHost?.data
+        card?.__dataHost?.data,
     ];
 
     candidates.forEach((candidate) => {
@@ -903,7 +888,8 @@ function extractChannelInfoFromData(card) {
             }
         }
 
-        const browseId = node?.browseEndpoint?.browseId || node?.navigationEndpoint?.browseEndpoint?.browseId;
+        const browseId =
+            node?.browseEndpoint?.browseId || node?.navigationEndpoint?.browseEndpoint?.browseId;
         if (typeof browseId === 'string' && browseId.startsWith('UC')) {
             return { channelId: browseId, channelPath: null };
         }
@@ -912,7 +898,7 @@ function extractChannelInfoFromData(card) {
             node?.shortBylineText?.runs,
             node?.longBylineText?.runs,
             node?.ownerText?.runs,
-            node?.title?.runs
+            node?.title?.runs,
         ];
         for (const runs of possibleRuns) {
             if (!Array.isArray(runs)) {
@@ -933,9 +919,10 @@ function extractChannelInfoFromData(card) {
             }
         }
 
-        const canonicalBaseUrl = node?.browseEndpoint?.canonicalBaseUrl
-            || node?.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl
-            || node?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url;
+        const canonicalBaseUrl =
+            node?.browseEndpoint?.canonicalBaseUrl ||
+            node?.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl ||
+            node?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url;
         if (typeof canonicalBaseUrl === 'string') {
             const normalized = normalizeChannelPath(canonicalBaseUrl);
             if (normalized && isChannelPath(normalized)) {
@@ -990,10 +977,11 @@ function extractChannelInfo(card) {
 
         const normalizedPath = normalizeChannelPath(path);
         let channelId = extractChannelIdFromPath(path);
-        host = anchor.closest(`.${ROW_CLASS}`)
-            || anchor.closest('ytd-channel-name, #channel-name, ytd-video-owner-renderer')
-            || anchor.parentElement
-            || anchor;
+        host =
+            anchor.closest(`.${ROW_CLASS}`) ||
+            anchor.closest('ytd-channel-name, #channel-name, ytd-video-owner-renderer') ||
+            anchor.parentElement ||
+            anchor;
         return { channelId, channelPath: normalizedPath, anchor, host };
     }
 
@@ -1003,7 +991,7 @@ function extractChannelInfo(card) {
         channelId: fallback.channelId,
         channelPath: fallback.channelPath,
         anchor: null,
-        host
+        host,
     };
 }
 
@@ -1013,11 +1001,12 @@ function extractChannelInfo(card) {
  * @returns {HTMLElement}
  */
 function ensureLabel(anchor, hostOverride = null) {
-    const host = hostOverride
-        || anchor?.closest(`.${ROW_CLASS}`)
-        || anchor?.closest('ytd-channel-name, #channel-name, ytd-video-owner-renderer')
-        || anchor?.parentElement
-        || anchor;
+    const host =
+        hostOverride ||
+        anchor?.closest(`.${ROW_CLASS}`) ||
+        anchor?.closest('ytd-channel-name, #channel-name, ytd-video-owner-renderer') ||
+        anchor?.parentElement ||
+        anchor;
     if (!host) {
         return null;
     }
@@ -1064,7 +1053,7 @@ function decorateCard(card) {
         if (existing) {
             existing.remove();
         }
-        const shortsVideoId = getShortsVideoId(card);
+        const shortsVideoId = getShortsVideoIdFromCard(card);
         if (shortsVideoId) {
             const cachedChannelId = shortsChannelCache.get(shortsVideoId);
             if (cachedChannelId) {
@@ -1083,15 +1072,16 @@ function decorateCard(card) {
         return;
     }
 
-    const isSubscribed = (channelId && subscribedChannelIds.has(channelId))
-        || (channelPath && subscribedChannelPaths.has(channelPath));
+    const isSubscribed =
+        (channelId && subscribedChannelIds.has(channelId)) ||
+        (channelPath && subscribedChannelPaths.has(channelPath));
 
     if (!isSubscribed) {
         const existing = card.querySelector(`.${LABEL_CLASS}`);
         if (existing) {
             existing.remove();
         }
-        const shortsVideoId = getShortsVideoId(card);
+        const shortsVideoId = getShortsVideoIdFromCard(card);
         if (shortsVideoId && !shortsChannelCache.has(shortsVideoId)) {
             enqueueShortsLookup(shortsVideoId, card);
         }
@@ -1106,7 +1096,10 @@ function decorateCard(card) {
     label.textContent = 'Subscribed';
     renderedCount += 1;
     try {
-        document.documentElement.setAttribute('data-yt-commander-subs-rendered', String(renderedCount));
+        document.documentElement.setAttribute(
+            'data-yt-commander-subs-rendered',
+            String(renderedCount)
+        );
     } catch (_error) {
         // Ignore DOM errors.
     }
@@ -1159,23 +1152,31 @@ function scanVisibleCards() {
     }
     if (!homeBootstrapped) {
         homeBootstrapped = true;
-        ensureSubscriptionIndex().then(() => {
-            setDebugState('dataReady', dataReady);
-            setDebugState('subscriptionCounts', {
-                ids: subscribedChannelIds.size,
-                paths: subscribedChannelPaths.size
+        ensureSubscriptionIndex()
+            .then(() => {
+                setDebugState('dataReady', dataReady);
+                setDebugState('subscriptionCounts', {
+                    ids: subscribedChannelIds.size,
+                    paths: subscribedChannelPaths.size,
+                });
+                setDebugMeta(
+                    'data-counts',
+                    `ids:${subscribedChannelIds.size};paths:${subscribedChannelPaths.size}`
+                );
+                scanVisibleCards();
+            })
+            .catch((error) => {
+                logger.warn('Failed to load subscribed channels', error);
             });
-            setDebugMeta('data-counts', `ids:${subscribedChannelIds.size};paths:${subscribedChannelPaths.size}`);
-            scanVisibleCards();
-        }).catch((error) => {
-            logger.warn('Failed to load subscribed channels', error);
-        });
     }
 
     const cards = homeRoot.querySelectorAll(CARD_SELECTOR);
     if (cards.length > 0) {
         try {
-            document.documentElement.setAttribute('data-yt-commander-subs-cards', String(cards.length));
+            document.documentElement.setAttribute(
+                'data-yt-commander-subs-cards',
+                String(cards.length)
+            );
         } catch (_error) {
             // Ignore DOM errors.
         }
@@ -1185,7 +1186,9 @@ function scanVisibleCards() {
 
 function clearLabels() {
     document.querySelectorAll(`.${LABEL_CLASS}`).forEach((label) => label.remove());
-    document.querySelectorAll(`.${HOST_CLASS}`).forEach((host) => host.classList.remove(HOST_CLASS));
+    document
+        .querySelectorAll(`.${HOST_CLASS}`)
+        .forEach((host) => host.classList.remove(HOST_CLASS));
     try {
         document.documentElement.removeAttribute('data-yt-commander-subs-cards');
         document.documentElement.removeAttribute('data-yt-commander-subs-rendered');
@@ -1255,7 +1258,7 @@ async function init() {
     dataInitialized = true;
     setDebugState('initializedAt', Date.now());
     setDebugAttribute('initialized');
-    
+
     startObserver();
     startScanLoop();
     scanVisibleCards();
@@ -1263,20 +1266,24 @@ async function init() {
     document.addEventListener('yt-navigate-finish', scanVisibleCards);
     window.addEventListener('yt-page-data-updated', scanVisibleCards);
     document.addEventListener('yt-page-data-updated', scanVisibleCards);
-     
+
     let lastHoverCheck = 0;
-    document.addEventListener('mousemove', (e) => {
-        const now = Date.now();
-        if (now - lastHoverCheck < 100) return;
-        lastHoverCheck = now;
-        
-        if (isCardElement(e.target)) {
-            onHoverStart();
-        } else {
-            onHoverEnd();
-        }
-    }, { passive: true });
-    
+    document.addEventListener(
+        'mousemove',
+        (e) => {
+            const now = Date.now();
+            if (now - lastHoverCheck < 100) return;
+            lastHoverCheck = now;
+
+            if (isCardElement(e.target)) {
+                onHoverStart();
+            } else {
+                onHoverEnd();
+            }
+        },
+        { passive: true }
+    );
+
     document.addEventListener('mouseleave', onHoverEnd);
 }
 
