@@ -1,11 +1,29 @@
 // Subscription labels for Home/Feed (Isolated World)
 import { createLogger } from './utils/logger.js';
+import {
+    LABEL_CLASS,
+    LABEL_KIND_ATTR,
+    LABEL_KIND_SUBSCRIBED,
+    HOST_CLASS,
+    CARD_SELECTOR,
+    ROW_CLASS,
+    METADATA_ROW_SELECTORS,
+    SUBSCRIBE_PAGE_URL,
+    HOME_BROWSE_SELECTOR,
+    MAX_CONTINUATION_PAGES,
+    CONTINUATION_FETCH_DELAY_MS,
+    CONTINUATION_RETRY_DELAY_MS,
+    BROWSE_SOURCE,
+    SHORTS_CHANNEL_CACHE_KEY,
+    SHORTS_CHANNEL_CACHE_LIMIT,
+    SHORTS_LOOKUP_CONCURRENCY,
+    SHORTS_LOOKUP_FAIL_TTL_MS,
+    LOCAL_STORAGE_KEY,
+    CACHE_TTL_MS
+} from './subscription-labels/constants.js';
+import { isCardElement } from './subscription-labels/utils.js';
 
 const logger = createLogger('SubscriptionLabels');
-
-const LOCAL_STORAGE_KEY = 'ytCommanderSubscribedChannelsCache';
-
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 let isHovering = false;
 let hoverResumeTimer = null;
@@ -26,38 +44,6 @@ function onHoverEnd() {
         hoverResumeTimer = null;
     }, 600);
 }
-
-function isCardElement(target) {
-    if (!target) return false;
-    return target.matches?.('ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer')
-        || target.closest?.('ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-rich-section-renderer');
-}
-const LABEL_CLASS = 'yt-commander-subscription-label';
-const LABEL_KIND_ATTR = 'data-yt-commander-subscription-kind';
-const LABEL_KIND_SUBSCRIBED = 'subscribed';
-const HOST_CLASS = 'yt-commander-subscription-host';
-const CARD_SELECTOR = 'ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer';
-const ROW_CLASS = 'yt-content-metadata-view-model__metadata-row';
-const METADATA_ROW_SELECTORS = [
-    `.${ROW_CLASS}`,
-    '.yt-content-metadata-view-model__metadata-row',
-    '.yt-lockup-metadata-view-model__metadata-row',
-    '.yt-lockup-metadata-view-model__metadata',
-    '.shortsLockupViewModelHostOutsideMetadataSubhead',
-    '.shortsLockupViewModelHostMetadataSubhead',
-    '.shortsLockupViewModelHostInlineMetadata',
-    '.shortsLockupViewModelHostOutsideMetadata'
-];
-const SUBSCRIBE_PAGE_URL = 'https://www.youtube.com/feed/channels';
-const HOME_BROWSE_SELECTOR = 'ytd-browse[page-subtype="home"], ytd-browse[browse-id="FEwhat_to_watch"]';
-const MAX_CONTINUATION_PAGES = 500;
-const CONTINUATION_FETCH_DELAY_MS = 120;
-const CONTINUATION_RETRY_DELAY_MS = 4000;
-const BROWSE_SOURCE = 'browse';
-const SHORTS_CHANNEL_CACHE_KEY = 'ytCommanderShortsChannelCache';
-const SHORTS_CHANNEL_CACHE_LIMIT = 3000;
-const SHORTS_LOOKUP_CONCURRENCY = 3;
-const SHORTS_LOOKUP_FAIL_TTL_MS = 10 * 60 * 1000;
 
 let subscribedChannelIds = new Set();
 let subscribedChannelPaths = new Set();
