@@ -2,84 +2,52 @@ import { createLogger } from './utils/logger.js';
 import { createBridgeClient } from './playlist-multi-select/bridge.js';
 import { resolveMastheadMountPoint, isEligiblePage } from './playlist-multi-select/pageContext.js';
 import { MASTHEAD_SLOT_CLASS, MASTHEAD_BUTTON_CLASS } from './playlist-multi-select/constants.js';
+import {
+    BRIDGE_SOURCE,
+    REQUEST_TYPE,
+    RESPONSE_TYPE,
+    ACTIONS,
+    STORAGE_KEYS,
+    SUBSCRIPTION_BUTTON_CLASS,
+    QUICK_ADD_PAGES,
+    QUICK_ADD_CONTEXT_SELECTOR,
+    QUICK_ADD_HOST_SELECTOR,
+    SUBSCRIBE_RENDERER_SELECTOR,
+    DEFAULT_QUICK_ADD_LABEL,
+    OVERLAY_CLASS,
+    MODAL_CLASS,
+    CARDS_CLASS,
+    BADGE_CLASS,
+    BADGE_REMOVE_CLASS,
+    STATUS_CLASS,
+    PICKER_CLASS,
+    FILTER_ITEM_CLASS,
+    FILTER_DOT_CLASS,
+    FILTER_COUNT_CLASS,
+    QUICK_ADD_CLASS,
+    CARD_ROW_HEIGHT_ESTIMATE,
+    CARD_MIN_WIDTH,
+    CARD_GAP,
+    VIRTUAL_OVERSCAN,
+    SNAPSHOT_TTL_MS,
+    ICONS,
+} from './subscription-manager/constants.js';
+import { setTooltip, clearTooltip } from './subscription-manager/tooltip-utils.js';
+import { storageGet, storageSet } from './subscription-manager/storage-utils.js';
+import {
+    createIcon,
+    createSubscriptionIcon,
+    createQuickAddIcon,
+} from './subscription-manager/icon-utils.js';
+
 const logger = createLogger('SubscriptionManager');
 
-const BRIDGE_SOURCE = 'yt-commander';
-const REQUEST_TYPE = 'YT_COMMANDER_PLAYLIST_BRIDGE_REQUEST';
-const RESPONSE_TYPE = 'YT_COMMANDER_PLAYLIST_BRIDGE_RESPONSE';
-
-const ACTIONS = {
-    GET_SUBSCRIPTIONS: 'GET_SUBSCRIPTIONS',
-    UNSUBSCRIBE_CHANNELS: 'UNSUBSCRIBE_CHANNELS'
-};
-
-const STORAGE_KEYS = {
-    CATEGORIES: 'subscriptionManagerCategories',
-    ASSIGNMENTS: 'subscriptionManagerAssignments',
-    SNAPSHOT: 'subscriptionManagerSnapshot',
-    FILTER: 'subscriptionManagerFilter',
-    SORT: 'subscriptionManagerSort',
-    SIDEBAR_COLLAPSED: 'subscriptionManagerSidebarCollapsed',
-    PENDING_KEYS: 'subscriptionSyncPendingKeys',
-    PENDING_COUNT: 'subscriptionSyncPendingCount'
-};
-
-const SUBSCRIPTION_BUTTON_CLASS = 'yt-commander-subscription-masthead-button';
-const QUICK_ADD_PAGES = [
-    /^https?:\/\/(www\.)?youtube\.com\/watch/i,
-    /^https?:\/\/(www\.)?youtube\.com\/shorts/i,
-    /^https?:\/\/(www\.)?youtube\.com\/@/i,
-    /^https?:\/\/(www\.)?youtube\.com\/channel\//i,
-    /^https?:\/\/(www\.)?youtube\.com\/c\//i,
-    /^https?:\/\/(www\.)?youtube\.com\/user\//i
-];
-const QUICK_ADD_CONTEXT_SELECTOR = [
-    'ytd-video-owner-renderer',
-    'ytd-watch-metadata',
-    'ytd-reel-player-header-renderer',
-    'ytd-reel-player-overlay-renderer',
-    'ytd-reel-channel-renderer',
-    'ytd-channel-header-renderer',
-    'ytd-channel-tagline-renderer',
-    'ytd-channel-metadata',
-    'ytd-channel-name',
-    'ytd-channel-renderer',
-    'ytd-c4-tabbed-header-renderer',
-    'yt-flexible-actions-view-model',
-    '#subscribe-button',
-    '.ytReelChannelBarViewModelReelSubscribeButton'
-].join(', ');
-const QUICK_ADD_HOST_SELECTOR = [
-    '.ytReelChannelBarViewModelReelSubscribeButton',
-    '#subscribe-button',
-    '.ytFlexibleActionsViewModelAction'
-].join(', ');
-const SUBSCRIBE_RENDERER_SELECTOR = 'ytd-subscribe-button-renderer, yt-subscribe-button-view-model, ytd-subscribe-button-view-model';
-const DEFAULT_QUICK_ADD_LABEL = 'Add';
-const OVERLAY_CLASS = 'yt-commander-sub-manager-overlay';
-const MODAL_CLASS = 'yt-commander-sub-manager-modal';
-const CARDS_CLASS = 'yt-commander-sub-manager-cards';
-const BADGE_CLASS = 'yt-commander-sub-manager-badge';
-const BADGE_REMOVE_CLASS = 'yt-commander-sub-manager-badge-remove';
-const STATUS_CLASS = 'yt-commander-sub-manager-status';
-const PICKER_CLASS = 'yt-commander-sub-manager-picker';
-const FILTER_ITEM_CLASS = 'yt-commander-sub-manager-filter-item';
-const FILTER_DOT_CLASS = 'yt-commander-sub-manager-filter-dot';
-const FILTER_COUNT_CLASS = 'yt-commander-sub-manager-filter-count';
-const QUICK_ADD_CLASS = 'yt-commander-sub-manager-quick-add';
-const MODAL_VERSION = '2026-03-20-1';
-
-const CARD_ROW_HEIGHT_ESTIMATE = 312;
-const CARD_MIN_WIDTH = 260;
-const CARD_GAP = 14;
-const VIRTUAL_OVERSCAN = 6;
-const SNAPSHOT_TTL_MS = 30 * 60 * 1000;
 const bridgeClient = createBridgeClient({
     source: BRIDGE_SOURCE,
     requestType: REQUEST_TYPE,
     responseType: RESPONSE_TYPE,
     timeoutMs: 30000,
-    requestPrefix: 'ytc-subscription'
+    requestPrefix: 'ytc-subscription',
 });
 
 let isInitialized = false;
@@ -174,35 +142,6 @@ let virtualScrollRaf = 0;
 let pendingVirtualForce = false;
 
 /**
- * Tooltip helper.
- * @param {HTMLElement} el
- * @param {string} label
- */
-function setTooltip(el, label) {
-    if (!el || !label) {
-        return;
-    }
-    el.setAttribute('aria-label', label);
-    el.setAttribute('title', label);
-    el.setAttribute('data-tooltip', label);
-    el.classList.add('yt-commander-sub-manager-tooltip');
-}
-
-/**
- * Clear tooltip from element.
- * @param {HTMLElement} el
- */
-function clearTooltip(el) {
-    if (!el) {
-        return;
-    }
-    el.removeAttribute('aria-label');
-    el.removeAttribute('title');
-    el.removeAttribute('data-tooltip');
-    el.classList.remove('yt-commander-sub-manager-tooltip');
-}
-
-/**
  * Apply sidebar tooltip when collapsed or in chipbar mode.
  * @param {HTMLElement} el
  * @param {string} label
@@ -212,9 +151,8 @@ function applySidebarTooltip(el, label, options = {}) {
     if (!el) {
         return;
     }
-    const tooltipText = typeof options.tooltip === 'string' && options.tooltip.trim()
-        ? options.tooltip
-        : label;
+    const tooltipText =
+        typeof options.tooltip === 'string' && options.tooltip.trim() ? options.tooltip : label;
     if (sidebar?.classList.contains('yt-commander-sub-manager-chipbar')) {
         setTooltip(el, tooltipText);
         return;
@@ -362,81 +300,6 @@ function resetModalElements() {
 }
 
 /**
- * Storage helper.
- * @param {string[]} keys
- * @returns {Promise<object>}
- */
-function storageGet(keys) {
-    return new Promise((resolve) => {
-        chrome.storage.local.get(keys, (result) => resolve(result || {}));
-    });
-}
-
-/**
- * Storage helper.
- * @param {object} values
- * @returns {Promise<void>}
- */
-function storageSet(values) {
-    return new Promise((resolve, reject) => {
-        chrome.storage.local.set(values, () => {
-            if (chrome.runtime.lastError) {
-                reject(new Error(chrome.runtime.lastError.message || 'Failed to save subscription manager data'));
-                return;
-            }
-            resolve();
-        });
-    });
-}
-
-/**
- * Build SVG icon.
- * @param {string} path
- * @returns {SVGSVGElement}
- */
-function createIcon(path) {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    p.setAttribute('d', path);
-    svg.appendChild(p);
-    return svg;
-}
-
-/**
- * Subscription manager icon.
- * @returns {SVGSVGElement}
- */
-function createSubscriptionIcon() {
-    return createIcon('M4 5h11v2H4V5zm0 4h11v2H4V9zm0 4h11v2H4v-2zm13-7h3v9h-3V6zm-1 10H4v2h12v-2z');
-}
-/**
- * Quick add icon.
- * @returns {SVGSVGElement}
- */
-function createQuickAddIcon() {
-    return createIcon('M12 5v14M5 12h14');
-}
-
-const ICONS = {
-    plus: 'M11 5h2v14h-2zM5 11h14v2H5z',
-    minus: 'M5 11h14v2H5z',
-    categoryAdd: 'M17.63 5.84 11.63 1.84C11.43 1.73 11.22 1.67 11 1.67H4C2.9 1.67 2 2.57 2 3.67v7c0 .53.21 1.04.59 1.41l6 6c.39.39.9.59 1.41.59s1.02-.2 1.41-.59l8.59-8.59c.38-.38.59-.9.59-1.41 0-.53-.21-1.04-.59-1.41l-2.38-2.34zM7 7.5C6.17 7.5 5.5 6.83 5.5 6S6.17 4.5 7 4.5 8.5 5.17 8.5 6 7.83 7.5 7 7.5zM15 10h2v2h2v2h-2v2h-2v-2h-2v-2h2z',
-    categoryMove: 'M17.63 5.84 11.63 1.84C11.43 1.73 11.22 1.67 11 1.67H4C2.9 1.67 2 2.57 2 3.67v7c0 .53.21 1.04.59 1.41l6 6c.39.39.9.59 1.41.59s1.02-.2 1.41-.59l8.59-8.59c.38-.38.59-.9.59-1.41 0-.53-.21-1.04-.59-1.41l-2.38-2.34zM7 7.5C6.17 7.5 5.5 6.83 5.5 6S6.17 4.5 7 4.5 8.5 5.17 8.5 6 7.83 7.5 7 7.5zM14 11h4.17l-1.59-1.59L18 8l4 4-4 4-1.41-1.41 1.59-1.59H14v-2z',
-    check: 'M9 16.2 4.8 12 3.4 13.4 9 19 21 7 19.6 5.6z',
-    close: 'M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.29 19.71 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29 10.59 10.6 16.89 4.29z',
-    trash: 'M6 7h12v2H6V7zm2 3h8v9H8v-9zm3-7h2l1 2H10l1-2z',
-    sort: 'M3 6h10v2H3V6zm0 5h7v2H3v-2zm0 5h4v2H3v-2zm15-8v8h2V8h-2zm-3 3v5h2v-5h-2z',
-    openNewTab: 'M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z',
-    collapse: 'M15.41 7.41 14 6 8 12 14 18 15.41 16.59 10.83 12z',
-    expand: 'M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z',
-    prev: 'M15.41 7.41 14 6 8 12 14 18 15.41 16.59 10.83 12z',
-    next: 'M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z',
-    chevronDown: 'M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z',
-    refresh: 'M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7a5 5 0 1 1-5 5H5a7 7 0 1 0 12.65-5.65z'
-};
-
-/**
  * Apply icon-only button styling and tooltips.
  * @param {HTMLButtonElement} button
  * @param {string} iconPath
@@ -572,7 +435,7 @@ function normalizeCategories(raw) {
             return {
                 id,
                 name,
-                color: color || pickCategoryColor(name)
+                color: color || pickCategoryColor(name),
             };
         })
         .filter(Boolean);
@@ -610,7 +473,7 @@ function normalizeAssignments(raw) {
 function pickCategoryColor(name) {
     let hash = 0;
     for (let i = 0; i < name.length; i += 1) {
-        hash = ((hash << 5) - hash) + name.charCodeAt(i);
+        hash = (hash << 5) - hash + name.charCodeAt(i);
         hash |= 0;
     }
     const hue = Math.abs(hash) % 360;
@@ -634,7 +497,7 @@ function parseHexColor(hex) {
     return {
         r: (value >> 16) & 255,
         g: (value >> 8) & 255,
-        b: value & 255
+        b: value & 255,
     };
 }
 
@@ -653,7 +516,7 @@ function computeLuminance(rgb) {
     const r = toLinear(rgb.r);
     const g = toLinear(rgb.g);
     const b = toLinear(rgb.b);
-    return (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 /**
@@ -668,7 +531,7 @@ function computeCategoryContrast(color) {
         return {
             text: '#e8edf5',
             pillBg: 'rgba(255, 255, 255, 0.18)',
-            pillBorder: 'rgba(255, 255, 255, 0.32)'
+            pillBorder: 'rgba(255, 255, 255, 0.32)',
         };
     }
     const luminance = computeLuminance(rgb);
@@ -676,7 +539,7 @@ function computeCategoryContrast(color) {
     return {
         text: isLight ? '#0f141d' : '#f7f9ff',
         pillBg: isLight ? 'rgba(15, 20, 29, 0.2)' : 'rgba(255, 255, 255, 0.22)',
-        pillBorder: isLight ? 'rgba(15, 20, 29, 0.32)' : 'rgba(255, 255, 255, 0.38)'
+        pillBorder: isLight ? 'rgba(15, 20, 29, 0.32)' : 'rgba(255, 255, 255, 0.38)',
     };
 }
 
@@ -795,8 +658,14 @@ function rebuildChannelIndexes(list) {
         }
         const normalizedHandle = normalizeHandle(handle);
         if (normalizedHandle) {
-            channelsByHandle.set(normalizedHandle, channelId || channelsByHandle.get(normalizedHandle) || '');
-            channelsByHandle.set(normalizedHandle.replace(/^@/, ''), channelId || channelsByHandle.get(normalizedHandle.replace(/^@/, '')) || '');
+            channelsByHandle.set(
+                normalizedHandle,
+                channelId || channelsByHandle.get(normalizedHandle) || ''
+            );
+            channelsByHandle.set(
+                normalizedHandle.replace(/^@/, ''),
+                channelId || channelsByHandle.get(normalizedHandle.replace(/^@/, '')) || ''
+            );
         }
         const normalizedUrl = normalizeChannelUrl(url);
         if (normalizedUrl) {
@@ -872,14 +741,15 @@ async function loadLocalState() {
         STORAGE_KEYS.ASSIGNMENTS,
         STORAGE_KEYS.FILTER,
         STORAGE_KEYS.SORT,
-        STORAGE_KEYS.SIDEBAR_COLLAPSED
+        STORAGE_KEYS.SIDEBAR_COLLAPSED,
     ]);
 
     categories = normalizeCategories(result[STORAGE_KEYS.CATEGORIES]);
     assignments = normalizeAssignments(result[STORAGE_KEYS.ASSIGNMENTS]);
     markCategoriesDirty();
     markAssignmentsDirty();
-    filterMode = typeof result[STORAGE_KEYS.FILTER] === 'string' ? result[STORAGE_KEYS.FILTER] : 'all';
+    filterMode =
+        typeof result[STORAGE_KEYS.FILTER] === 'string' ? result[STORAGE_KEYS.FILTER] : 'all';
     sortMode = result[STORAGE_KEYS.SORT] === 'subscribers' ? 'subscribers' : 'name';
     sidebarCollapsed = result[STORAGE_KEYS.SIDEBAR_COLLAPSED] === true;
 }
@@ -891,7 +761,7 @@ async function loadLocalState() {
 async function persistLocalState() {
     await storageSet({
         [STORAGE_KEYS.CATEGORIES]: categories,
-        [STORAGE_KEYS.ASSIGNMENTS]: assignments
+        [STORAGE_KEYS.ASSIGNMENTS]: assignments,
     });
 }
 
@@ -902,7 +772,7 @@ async function persistLocalState() {
 async function persistViewState() {
     await storageSet({
         [STORAGE_KEYS.FILTER]: filterMode,
-        [STORAGE_KEYS.SORT]: sortMode
+        [STORAGE_KEYS.SORT]: sortMode,
     });
 }
 
@@ -973,8 +843,8 @@ async function persistSnapshot(list, hash) {
         [STORAGE_KEYS.SNAPSHOT]: {
             channels: list,
             fetchedAt: Date.now(),
-            hash
-        }
+            hash,
+        },
     });
 }
 /**
@@ -995,7 +865,8 @@ async function hydrateSnapshotFromStorage() {
 
     channels = snapshot.channels;
     channelsFetchedAt = fetchedAt;
-    lastSnapshotHash = typeof snapshot.hash === 'string' ? snapshot.hash : computeSnapshotHash(channels);
+    lastSnapshotHash =
+        typeof snapshot.hash === 'string' ? snapshot.hash : computeSnapshotHash(channels);
     rebuildChannelIndexes(channels);
     refreshQuickAddButtons();
     return true;
@@ -1023,17 +894,20 @@ async function markPending(keys) {
     const next = Array.from(set);
     await storageSet({
         [STORAGE_KEYS.PENDING_KEYS]: next,
-        [STORAGE_KEYS.PENDING_COUNT]: next.length
+        [STORAGE_KEYS.PENDING_COUNT]: next.length,
     });
 
-    chrome.runtime.sendMessage({
-        type: 'SUBSCRIPTION_MANAGER_UPDATED',
-        pendingCount: next.length
-    }, () => {
-        if (chrome.runtime.lastError) {
-            return;
+    chrome.runtime.sendMessage(
+        {
+            type: 'SUBSCRIPTION_MANAGER_UPDATED',
+            pendingCount: next.length,
+        },
+        () => {
+            if (chrome.runtime.lastError) {
+                return;
+            }
         }
-    });
+    );
 }
 
 /**
@@ -1140,13 +1014,15 @@ function readChannelIdFromElement(element) {
     if (!element) {
         return '';
     }
-    return element.getAttribute('channel-external-id')
-        || element.getAttribute('channel-id')
-        || element.getAttribute('data-channel-external-id')
-        || element.getAttribute('data-channel-id')
-        || element.dataset?.channelExternalId
-        || element.dataset?.channelId
-        || '';
+    return (
+        element.getAttribute('channel-external-id') ||
+        element.getAttribute('channel-id') ||
+        element.getAttribute('data-channel-external-id') ||
+        element.getAttribute('data-channel-id') ||
+        element.dataset?.channelExternalId ||
+        element.dataset?.channelId ||
+        ''
+    );
 }
 
 function resolveChannelIdentityFromContext(renderer) {
@@ -1169,17 +1045,23 @@ function resolveChannelIdentityFromContext(renderer) {
     }
 
     if (!channelId) {
-        const reel = document.querySelector('ytd-reel-video-renderer[is-active], ytd-reel-video-renderer[active]');
+        const reel = document.querySelector(
+            'ytd-reel-video-renderer[is-active], ytd-reel-video-renderer[active]'
+        );
         channelId = readChannelIdFromElement(reel);
     }
 
     if (!channelId) {
-        const reelHeader = document.querySelector('ytd-reel-player-header-renderer, ytd-reel-player-overlay-renderer');
+        const reelHeader = document.querySelector(
+            'ytd-reel-player-header-renderer, ytd-reel-player-overlay-renderer'
+        );
         channelId = readChannelIdFromElement(reelHeader);
     }
 
     if (!channelId) {
-        const owner = document.querySelector('ytd-video-owner-renderer, ytd-channel-name, ytd-channel-header-renderer');
+        const owner = document.querySelector(
+            'ytd-video-owner-renderer, ytd-channel-name, ytd-channel-header-renderer'
+        );
         channelId = readChannelIdFromElement(owner);
     }
 
@@ -1195,23 +1077,29 @@ function resolveChannelIdentityFromContext(renderer) {
     }
 
     if (!url) {
-        const ownerLink = document.querySelector('ytd-video-owner-renderer a[href^="/channel/"], ytd-video-owner-renderer a[href^="/@"], ytd-channel-name a[href^="/channel/"], ytd-channel-name a[href^="/@"]');
+        const ownerLink = document.querySelector(
+            'ytd-video-owner-renderer a[href^="/channel/"], ytd-video-owner-renderer a[href^="/@"], ytd-channel-name a[href^="/channel/"], ytd-channel-name a[href^="/@"]'
+        );
         url = ownerLink?.getAttribute('href') || '';
     }
 
     if (!url) {
-        const reelLink = document.querySelector('ytd-reel-player-header-renderer a[href^="/channel/"], ytd-reel-player-header-renderer a[href^="/@"], ytd-reel-player-overlay-renderer a[href^="/channel/"], ytd-reel-player-overlay-renderer a[href^="/@"]');
+        const reelLink = document.querySelector(
+            'ytd-reel-player-header-renderer a[href^="/channel/"], ytd-reel-player-header-renderer a[href^="/@"], ytd-reel-player-overlay-renderer a[href^="/channel/"], ytd-reel-player-overlay-renderer a[href^="/@"]'
+        );
         url = reelLink?.getAttribute('href') || '';
     }
 
     if (!url) {
-        const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || '';
+        const canonical =
+            document.querySelector('link[rel="canonical"]')?.getAttribute('href') || '';
         url = canonical;
     }
 
     handle = extractHandleFromUrl(url) || '';
     if (!handle && renderer) {
-        const labelText = renderer.querySelector('button[aria-label]')?.getAttribute('aria-label') || '';
+        const labelText =
+            renderer.querySelector('button[aria-label]')?.getAttribute('aria-label') || '';
         const handleMatch = labelText.match(/@[\w.-]+/i);
         handle = handleMatch ? handleMatch[0] : '';
     }
@@ -1359,7 +1247,7 @@ function getQuickAddIdentityFromButton(button) {
     return {
         channelId: button.getAttribute('data-channel-id') || '',
         handle: button.getAttribute('data-channel-handle') || '',
-        url: button.getAttribute('data-channel-url') || ''
+        url: button.getAttribute('data-channel-url') || '',
     };
 }
 
@@ -1554,7 +1442,10 @@ async function handleQuickAddClick(event) {
         button.setAttribute('data-channel-url', identity.url);
     }
 
-    const assignmentKey = resolveAssignmentKeyForWrite({ channelId, handle: identity.handle, url: identity.url }, channelId);
+    const assignmentKey = resolveAssignmentKeyForWrite(
+        { channelId, handle: identity.handle, url: identity.url },
+        channelId
+    );
     if (!assignmentKey) {
         if (isQuickAddPage()) {
             setStatus('Select a category to retry channel lookup.', 'info');
@@ -1679,10 +1570,8 @@ function ensureModal() {
     headerActions.appendChild(headerDivider);
     headerActions.appendChild(actionGroup);
 
-
     header.appendChild(titleWrap);
     header.appendChild(headerActions);
-
 
     const content = document.createElement('div');
     content.className = 'yt-commander-sub-manager-content';
@@ -1824,7 +1713,8 @@ function renderPicker() {
 
     picker.innerHTML = '';
 
-    const contextId = pickerContextChannelId || (pickerTargetIds.length === 1 ? pickerTargetIds[0] : '');
+    const contextId =
+        pickerContextChannelId || (pickerTargetIds.length === 1 ? pickerTargetIds[0] : '');
     const channelForPicker = contextId
         ? channels.find((channel) => channel.channelId === contextId)
         : null;
@@ -1834,11 +1724,12 @@ function renderPicker() {
 
     const title = document.createElement('div');
     title.className = 'yt-commander-sub-manager-picker-title';
-    title.textContent = pickerMode === 'remove'
-        ? 'Remove from category'
-        : pickerMode === 'add'
-            ? 'Add to category'
-            : pickerMode === 'move'
+    title.textContent =
+        pickerMode === 'remove'
+            ? 'Remove from category'
+            : pickerMode === 'add'
+              ? 'Add to category'
+              : pickerMode === 'move'
                 ? 'Move to category'
                 : 'Set category';
 
@@ -1878,7 +1769,7 @@ function renderPicker() {
             label: 'Uncategorized',
             color: '#7c8698',
             isActive: activeCategoryId === 'uncategorized',
-            isUncategorized: true
+            isUncategorized: true,
         });
     }
 
@@ -1894,7 +1785,7 @@ function renderPicker() {
                 label: category.name,
                 color: category.color,
                 isActive: activeCategoryId === category.id,
-                isUncategorized: false
+                isUncategorized: false,
             });
         });
     }
@@ -1998,7 +1889,8 @@ function ensureTooltipPortal() {
         if (!tooltipTarget || !modal?.contains(tooltipTarget)) {
             return;
         }
-        const label = tooltipTarget.getAttribute('data-tooltip') || tooltipTarget.getAttribute('title') || '';
+        const label =
+            tooltipTarget.getAttribute('data-tooltip') || tooltipTarget.getAttribute('title') || '';
         if (!label) {
             return;
         }
@@ -2050,7 +1942,10 @@ function positionTooltipPortal() {
         placement = 'bottom';
         tooltipPortal.style.transform = 'translate(-50%, 0)';
     }
-    left = Math.max(padding + tooltipRect.width / 2, Math.min(window.innerWidth - padding - tooltipRect.width / 2, left));
+    left = Math.max(
+        padding + tooltipRect.width / 2,
+        Math.min(window.innerWidth - padding - tooltipRect.width / 2, left)
+    );
     tooltipPortal.style.left = `${left}px`;
     tooltipPortal.style.top = `${top}px`;
     tooltipPortal.setAttribute('data-placement', placement);
@@ -2211,9 +2106,7 @@ function positionPicker() {
         list.style.maxHeight = `${maxListHeight}px`;
     }
     const pickerRect = picker.getBoundingClientRect();
-    let top = openAbove
-        ? rect.top - pickerRect.height - padding
-        : rect.bottom + padding;
+    let top = openAbove ? rect.top - pickerRect.height - padding : rect.bottom + padding;
     let left = rect.left;
 
     if (left + pickerRect.width > window.innerWidth - padding) {
@@ -2233,13 +2126,14 @@ function positionPicker() {
 function createCategory(name, colorOverride = '') {
     const trimmed = name.trim();
     const id = `cat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    const color = typeof colorOverride === 'string' && colorOverride.trim()
-        ? colorOverride.trim()
-        : generateRandomCategoryColor();
+    const color =
+        typeof colorOverride === 'string' && colorOverride.trim()
+            ? colorOverride.trim()
+            : generateRandomCategoryColor();
     return {
         id,
         name: trimmed,
-        color
+        color,
     };
 }
 
@@ -2249,7 +2143,7 @@ function createCategory(name, colorOverride = '') {
  */
 async function persistSidebarState() {
     await storageSet({
-        [STORAGE_KEYS.SIDEBAR_COLLAPSED]: sidebarCollapsed
+        [STORAGE_KEYS.SIDEBAR_COLLAPSED]: sidebarCollapsed,
     });
 }
 
@@ -2317,9 +2211,8 @@ function attachChipbarWheelScroll() {
         if (sidebarList.scrollWidth <= sidebarList.clientWidth) {
             return;
         }
-        const dominantDelta = Math.abs(event.deltaY) >= Math.abs(event.deltaX)
-            ? event.deltaY
-            : event.deltaX;
+        const dominantDelta =
+            Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
         if (!dominantDelta) {
             return;
         }
@@ -2475,7 +2368,11 @@ async function commitSidebarRename(categoryId, name) {
         focusSidebarInput();
         return false;
     }
-    if (categories.some((item) => item.id !== categoryId && item.name.toLowerCase() === trimmed.toLowerCase())) {
+    if (
+        categories.some(
+            (item) => item.id !== categoryId && item.name.toLowerCase() === trimmed.toLowerCase()
+        )
+    ) {
         setStatus('Category already exists.', 'error');
         focusSidebarInput();
         return false;
@@ -2535,15 +2432,20 @@ function renderSidebarCategories() {
         return;
     }
     const previousScrollTop = sidebarList.scrollTop;
-    const wasAtBottom = sidebarList.scrollHeight > sidebarList.clientHeight
-        && (sidebarList.scrollHeight - sidebarList.scrollTop - sidebarList.clientHeight) < 4;
+    const wasAtBottom =
+        sidebarList.scrollHeight > sidebarList.clientHeight &&
+        sidebarList.scrollHeight - sidebarList.scrollTop - sidebarList.clientHeight < 4;
 
     if (sidebarCountEl) {
         sidebarCountEl.textContent = String(categories.length);
     }
 
     const counts = getCategoryCounts();
-    const validIds = new Set(['all', 'uncategorized', ...categories.map((category) => category.id)]);
+    const validIds = new Set([
+        'all',
+        'uncategorized',
+        ...categories.map((category) => category.id),
+    ]);
     if (!validIds.has(filterMode)) {
         filterMode = 'all';
         persistViewState().catch(() => undefined);
@@ -2583,7 +2485,7 @@ function renderSidebarCategories() {
             item.classList.add('active');
         }
         applySidebarTooltip(item, label, {
-            tooltip: `${label} (${countValue})`
+            tooltip: `${label} (${countValue})`,
         });
 
         const left = document.createElement('span');
@@ -2634,7 +2536,10 @@ function renderSidebarCategories() {
         const left = document.createElement('span');
         left.className = 'yt-commander-sub-manager-filter-left';
 
-        const color = buildColorInput(category.color, { categoryId: category.id, tooltip: 'Change color' });
+        const color = buildColorInput(category.color, {
+            categoryId: category.id,
+            tooltip: 'Change color',
+        });
         const input = document.createElement('input');
         input.type = 'text';
         input.className = 'yt-commander-sub-manager-sidebar-input';
@@ -2657,7 +2562,8 @@ function renderSidebarCategories() {
         const left = document.createElement('span');
         left.className = 'yt-commander-sub-manager-filter-left';
 
-        const colorValue = sidebarDraftColor || pickCategoryColor(sidebarDraftName || 'New category');
+        const colorValue =
+            sidebarDraftColor || pickCategoryColor(sidebarDraftName || 'New category');
         const color = buildColorInput(colorValue, { mode: 'create', tooltip: 'Pick color' });
         const input = document.createElement('input');
         input.type = 'text';
@@ -2691,7 +2597,7 @@ function renderSidebarCategories() {
             item.classList.add('active');
         }
         applySidebarTooltip(item, category.name, {
-            tooltip: `${category.name} (${countValue})`
+            tooltip: `${category.name} (${countValue})`,
         });
 
         const left = document.createElement('span');
@@ -2988,9 +2894,8 @@ function applyChannelSelection(channelId, shouldSelect) {
  * @param {boolean} [nextState]
  */
 function toggleChannelSelection(channelId, nextState) {
-    const shouldSelect = typeof nextState === 'boolean'
-        ? nextState
-        : !selectedChannelIds.has(channelId);
+    const shouldSelect =
+        typeof nextState === 'boolean' ? nextState : !selectedChannelIds.has(channelId);
     applyChannelSelection(channelId, shouldSelect);
     updateSelectionSummary();
 }
@@ -3009,9 +2914,8 @@ function handleChannelSelectionInteraction(channelId, options = {}) {
         const startIndex = currentPageIds.indexOf(selectionAnchorId);
         const endIndex = currentPageIds.indexOf(channelId);
         if (startIndex !== -1 && endIndex !== -1) {
-            const [from, to] = startIndex < endIndex
-                ? [startIndex, endIndex]
-                : [endIndex, startIndex];
+            const [from, to] =
+                startIndex < endIndex ? [startIndex, endIndex] : [endIndex, startIndex];
             const range = currentPageIds.slice(from, to + 1);
             range.forEach((id) => {
                 if (!selectedChannelIds.has(id)) {
@@ -3041,7 +2945,9 @@ async function applyCategoryUpdate(channelIds, categoryId, mode) {
     const categoryLabel = getCategoryLabel(categoryId);
     const categoryDisplay = isUncategorized
         ? 'Uncategorized'
-        : (categoryLabel === 'category' ? 'selected category' : `"${categoryLabel}"`);
+        : categoryLabel === 'category'
+          ? 'selected category'
+          : `"${categoryLabel}"`;
 
     const ids = (channelIds || []).filter((id) => typeof id === 'string' && id);
     if (ids.length === 0) {
@@ -3071,7 +2977,7 @@ async function applyCategoryUpdate(channelIds, categoryId, mode) {
                 next = [];
                 changed = true;
             } else if (mode === 'toggle') {
-                next = isUncategorized ? [] : (hasCategory ? [] : [categoryId]);
+                next = isUncategorized ? [] : hasCategory ? [] : [categoryId];
                 changed = true;
             }
 
@@ -3090,11 +2996,11 @@ async function applyCategoryUpdate(channelIds, categoryId, mode) {
         if (total > batchSize) {
             const label = isUncategorized
                 ? 'Clearing category'
-                : (mode === 'remove'
-                    ? `Removing ${categoryDisplay}`
-                    : mode === 'add'
-                        ? `Assigning ${categoryDisplay}`
-                        : `Updating ${categoryDisplay}`);
+                : mode === 'remove'
+                  ? `Removing ${categoryDisplay}`
+                  : mode === 'add'
+                    ? `Assigning ${categoryDisplay}`
+                    : `Updating ${categoryDisplay}`;
             setStatus(`${label} ${processed}/${total}...`, 'info');
             await new Promise((resolve) => setTimeout(resolve, 0));
         }
@@ -3153,13 +3059,13 @@ function handleDocumentClick(event) {
     const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
     if (picker && picker.style.display === 'block') {
         const inPicker = (target && picker.contains(target)) || path.includes(picker);
-        const inAnchor = (target && pickerAnchorEl && pickerAnchorEl.contains(target))
-            || (pickerAnchorEl && path.includes(pickerAnchorEl));
+        const inAnchor =
+            (target && pickerAnchorEl && pickerAnchorEl.contains(target)) ||
+            (pickerAnchorEl && path.includes(pickerAnchorEl));
         if (!inPicker && !inAnchor) {
             closePicker();
         }
     }
-
 }
 
 /**
@@ -3189,11 +3095,13 @@ function handleModalClick(event) {
         }
 
         if (action === 'refresh-subscriptions') {
-            loadSubscriptions({ force: true }).then(() => {
-                renderList();
-            }).catch((error) => {
-                setStatus(error?.message || 'Failed to refresh subscriptions', 'error');
-            });
+            loadSubscriptions({ force: true })
+                .then(() => {
+                    renderList();
+                })
+                .catch((error) => {
+                    setStatus(error?.message || 'Failed to refresh subscriptions', 'error');
+                });
             return;
         }
 
@@ -3204,12 +3112,12 @@ function handleModalClick(event) {
             return;
         }
 
-    if (action === 'clear-selection') {
-        selectedChannelIds = new Set();
-        selectionAnchorId = '';
-        renderList();
-        return;
-    }
+        if (action === 'clear-selection') {
+            selectedChannelIds = new Set();
+            selectionAnchorId = '';
+            renderList();
+            return;
+        }
 
         if (action === 'new-category') {
             startSidebarCreate();
@@ -3294,10 +3202,11 @@ function handleModalClick(event) {
  */
 function handleModalMouseDown(event) {
     const now = Date.now();
-    const ctrlActive = event.ctrlKey
-        || isCtrlPressed
-        || event.getModifierState?.('Control') === true
-        || (lastCtrlDownAt && (now - lastCtrlDownAt) < 400);
+    const ctrlActive =
+        event.ctrlKey ||
+        isCtrlPressed ||
+        event.getModifierState?.('Control') === true ||
+        (lastCtrlDownAt && now - lastCtrlDownAt < 400);
     if (!ctrlActive || (event.button !== 2 && event.button !== 0)) {
         return;
     }
@@ -3380,10 +3289,11 @@ function handleModalContextMenu(event) {
     }
 
     const now = Date.now();
-    const ctrlActive = event.ctrlKey
-        || isCtrlPressed
-        || event.getModifierState?.('Control') === true
-        || (lastCtrlDownAt && (now - lastCtrlDownAt) < 400);
+    const ctrlActive =
+        event.ctrlKey ||
+        isCtrlPressed ||
+        event.getModifierState?.('Control') === true ||
+        (lastCtrlDownAt && now - lastCtrlDownAt < 400);
     const ctrlCard = ctrlActive ? target.closest('.yt-commander-sub-manager-card') : null;
     if (ctrlCard) {
         event.preventDefault();
@@ -3518,8 +3428,9 @@ function handleModalInput(event) {
  */
 function handleModalKeydown(event) {
     const target = event.target;
-    const isSidebarInput = target instanceof HTMLInputElement
-        && target.classList.contains('yt-commander-sub-manager-sidebar-input');
+    const isSidebarInput =
+        target instanceof HTMLInputElement &&
+        target.classList.contains('yt-commander-sub-manager-sidebar-input');
 
     if (event.key === 'Escape' && (sidebarCreating || sidebarEditingId)) {
         event.preventDefault();
@@ -3562,9 +3473,11 @@ async function handlePickerClick(event) {
             const anchorIdentity = anchor?.classList.contains(QUICK_ADD_CLASS)
                 ? getQuickAddIdentityFromButton(anchor)
                 : null;
-            const identity = anchorIdentity && (anchorIdentity.channelId || anchorIdentity.handle || anchorIdentity.url)
-                ? anchorIdentity
-                : resolveChannelIdentityFromContext(renderer);
+            const identity =
+                anchorIdentity &&
+                (anchorIdentity.channelId || anchorIdentity.handle || anchorIdentity.url)
+                    ? anchorIdentity
+                    : resolveChannelIdentityFromContext(renderer);
             let channelId = resolveChannelIdFromIdentity(identity);
             if (!channelId && (identity.handle || identity.url)) {
                 await loadSubscriptions({ force: true, background: true });
@@ -3596,7 +3509,8 @@ async function handlePickerClick(event) {
 
     const action = baseTarget?.closest('[data-action]')?.getAttribute('data-action');
     if (action === 'open-channel') {
-        const url = baseTarget?.closest('[data-channel-url]')?.getAttribute('data-channel-url') || '';
+        const url =
+            baseTarget?.closest('[data-channel-url]')?.getAttribute('data-channel-url') || '';
         openUrlInBackground(url);
         closePicker();
         return;
@@ -3613,7 +3527,7 @@ async function handlePickerClick(event) {
  * @returns {Promise<{status: 'skipped' | 'fetched' | 'error'}>}
  */
 async function loadSubscriptions(options = {}) {
-    const resolved = typeof options === 'boolean' ? { force: options } : (options || {});
+    const resolved = typeof options === 'boolean' ? { force: options } : options || {};
     const force = Boolean(resolved.force);
     const background = Boolean(resolved.background);
     const now = Date.now();
@@ -3622,7 +3536,7 @@ async function loadSubscriptions(options = {}) {
     const lastSnapshotAt = Number(prevSnapshot?.fetchedAt) || 0;
     const lastCallAt = Math.max(channelsFetchedAt, lastSnapshotAt, lastFetchAttemptAt);
 
-    if (!force && channels.length > 0 && (now - lastCallAt) < SNAPSHOT_TTL_MS) {
+    if (!force && channels.length > 0 && now - lastCallAt < SNAPSHOT_TTL_MS) {
         return { status: 'skipped' };
     }
 
@@ -3633,9 +3547,13 @@ async function loadSubscriptions(options = {}) {
     }
 
     try {
-        const response = await bridgeClient.sendRequest(ACTIONS.GET_SUBSCRIPTIONS, { limit: 60000 });
+        const response = await bridgeClient.sendRequest(ACTIONS.GET_SUBSCRIPTIONS, {
+            limit: 60000,
+        });
         const list = Array.isArray(response?.channels) ? response.channels : [];
-        list.sort((a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }));
+        list.sort((a, b) =>
+            (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' })
+        );
 
         channels = list;
         channelsFetchedAt = Date.now();
@@ -3693,7 +3611,10 @@ function parseCountValue(value) {
     if (!text || text === '-' || text.startsWith('@')) {
         return 0;
     }
-    const cleaned = text.replace(/,/g, '').replace(/subscribers?/i, '').trim();
+    const cleaned = text
+        .replace(/,/g, '')
+        .replace(/subscribers?/i, '')
+        .trim();
     const match = cleaned.match(/([\d.]+)\s*([kmb])?/i);
     if (!match) {
         return 0;
@@ -3776,7 +3697,8 @@ function formatCountLabel(value, kind) {
  * @returns {{subscribers: string, videos: string}}
  */
 function resolveChannelCounts(channel) {
-    const subRaw = typeof channel?.subscriberCount === 'string' ? channel.subscriberCount.trim() : '';
+    const subRaw =
+        typeof channel?.subscriberCount === 'string' ? channel.subscriberCount.trim() : '';
     const vidRaw = typeof channel?.videoCount === 'string' ? channel.videoCount.trim() : '';
     const subHasHandle = subRaw.startsWith('@');
     const subHasSubscribers = /subscribers?/i.test(subRaw);
@@ -3809,7 +3731,7 @@ function resolveChannelCounts(channel) {
 
     return {
         subscribers: formatCountLabel(subscriberValue, 'subscribers'),
-        videos: formatCountLabel(videoValue, 'videos')
+        videos: formatCountLabel(videoValue, 'videos'),
     };
 }
 
@@ -3935,7 +3857,9 @@ function renderCards(pageItems, options = {}) {
     cardById.clear();
     const totalCount = Number.isFinite(options.totalCount) ? options.totalCount : pageItems.length;
     const topSpacerHeight = Number.isFinite(options.topSpacerHeight) ? options.topSpacerHeight : 0;
-    const bottomSpacerHeight = Number.isFinite(options.bottomSpacerHeight) ? options.bottomSpacerHeight : 0;
+    const bottomSpacerHeight = Number.isFinite(options.bottomSpacerHeight)
+        ? options.bottomSpacerHeight
+        : 0;
 
     if (totalCount === 0) {
         const empty = document.createElement('div');
@@ -3974,7 +3898,9 @@ function filterChannels() {
     } else if (filterMode === 'uncategorized') {
         list = channels.filter((channel) => readChannelAssignments(channel.channelId).length === 0);
     } else {
-        list = channels.filter((channel) => readChannelAssignments(channel.channelId).includes(filterMode));
+        list = channels.filter((channel) =>
+            readChannelAssignments(channel.channelId).includes(filterMode)
+        );
     }
     return sortChannels(list);
 }
@@ -3997,7 +3923,7 @@ function computeCardRange(totalCount) {
             topSpacerHeight: 0,
             bottomSpacerHeight: 0,
             totalCount,
-            columns
+            columns,
         };
     }
     const columns = resolveCardColumns();
@@ -4027,7 +3953,7 @@ function computeCardRange(totalCount) {
         topSpacerHeight,
         bottomSpacerHeight,
         totalCount,
-        columns
+        columns,
     };
 }
 
@@ -4035,12 +3961,14 @@ function isSameRange(nextRange, prevRange) {
     if (!prevRange) {
         return false;
     }
-    return nextRange.startIndex === prevRange.startIndex
-        && nextRange.endIndex === prevRange.endIndex
-        && nextRange.topSpacerHeight === prevRange.topSpacerHeight
-        && nextRange.bottomSpacerHeight === prevRange.bottomSpacerHeight
-        && nextRange.totalCount === prevRange.totalCount
-        && (nextRange.columns || 0) === (prevRange.columns || 0);
+    return (
+        nextRange.startIndex === prevRange.startIndex &&
+        nextRange.endIndex === prevRange.endIndex &&
+        nextRange.topSpacerHeight === prevRange.topSpacerHeight &&
+        nextRange.bottomSpacerHeight === prevRange.bottomSpacerHeight &&
+        nextRange.totalCount === prevRange.totalCount &&
+        (nextRange.columns || 0) === (prevRange.columns || 0)
+    );
 }
 
 function measureCardMetrics() {
@@ -4086,7 +4014,7 @@ function renderVirtualizedList(force = false) {
     renderCards(pageItems, {
         totalCount,
         topSpacerHeight: range.topSpacerHeight,
-        bottomSpacerHeight: range.bottomSpacerHeight
+        bottomSpacerHeight: range.bottomSpacerHeight,
     });
     if (measureCardMetrics()) {
         queueVirtualRender(true);
@@ -4198,14 +4126,16 @@ async function unsubscribeSelected() {
         title: 'Unsubscribe selected channels?',
         message: `Unsubscribe from ${ids.length} channel(s)? This action cannot be undone.`,
         confirmLabel: 'Unsubscribe',
-        cancelLabel: 'Cancel'
+        cancelLabel: 'Cancel',
     });
     if (!confirmed) {
         return;
     }
 
     setStatus('Unsubscribing...', 'info');
-    const result = await bridgeClient.sendRequest(ACTIONS.UNSUBSCRIBE_CHANNELS, { channelIds: ids });
+    const result = await bridgeClient.sendRequest(ACTIONS.UNSUBSCRIBE_CHANNELS, {
+        channelIds: ids,
+    });
     const removed = Number(result?.unsubscribedCount) || 0;
 
     channels = channels.filter((item) => !selectedChannelIds.has(item.channelId));
@@ -4291,7 +4221,7 @@ export async function getSubscriptionSnapshot() {
     const stored = await storageGet([STORAGE_KEYS.SNAPSHOT]);
     const snapshot = stored?.[STORAGE_KEYS.SNAPSHOT];
     const fetchedAt = Number(snapshot?.fetchedAt) || 0;
-    if (snapshot && Array.isArray(snapshot.channels) && (now - fetchedAt) < SNAPSHOT_TTL_MS) {
+    if (snapshot && Array.isArray(snapshot.channels) && now - fetchedAt < SNAPSHOT_TTL_MS) {
         return snapshot;
     }
 
@@ -4299,9 +4229,3 @@ export async function getSubscriptionSnapshot() {
     const nextStored = await storageGet([STORAGE_KEYS.SNAPSHOT]);
     return nextStored?.[STORAGE_KEYS.SNAPSHOT] || { channels: [], fetchedAt: Date.now(), hash: '' };
 }
-
-
-
-
-
-
