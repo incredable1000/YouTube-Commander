@@ -82,405 +82,75 @@ const selectionRangeController = createSelectionRangeController();
 const WATCH_LATER_PLAYLIST_ID = 'WL';
 
 export const state = {
-    get isInitialized() {
-        return _isInitialized;
-    },
-    set isInitialized(v) {
-        _isInitialized = v;
-    },
-    get isEnabled() {
-        return _isEnabled;
-    },
-    set isEnabled(v) {
-        _isEnabled = v;
-    },
-    get selectionMode() {
-        return _selectionMode;
-    },
-    set selectionMode(v) {
-        _selectionMode = v;
-    },
-    get playlistPanelVisible() {
-        return _playlistPanelVisible;
-    },
-    set playlistPanelVisible(v) {
-        _playlistPanelVisible = v;
-    },
-    get createModalVisible() {
-        return _createModalVisible;
-    },
-    set createModalVisible(v) {
-        _createModalVisible = v;
-    },
-    get createVisibilityMenuVisible() {
-        return _createVisibilityMenuVisible;
-    },
-    set createVisibilityMenuVisible(v) {
-        _createVisibilityMenuVisible = v;
-    },
-    get loadingPlaylists() {
-        return _loadingPlaylists;
-    },
-    set loadingPlaylists(v) {
-        _loadingPlaylists = v;
-    },
-    get submitting() {
-        return _submitting;
-    },
-    set submitting(v) {
-        _submitting = v;
-    },
-    get createSubmitting() {
-        return _createSubmitting;
-    },
-    set createSubmitting(v) {
-        _createSubmitting = v;
-    },
-    get mastheadSlot() {
-        return _mastheadSlot;
-    },
-    set mastheadSlot(v) {
-        _mastheadSlot = v;
-    },
-    get mastheadButton() {
-        return _mastheadButton;
-    },
-    set mastheadButton(v) {
-        _mastheadButton = v;
-    },
-    get mastheadBadge() {
-        return _mastheadBadge;
-    },
-    set mastheadBadge(v) {
-        _mastheadBadge = v;
-    },
-    get actionBar() {
-        return _actionBar;
-    },
-    set actionBar(v) {
-        _actionBar = v;
-    },
-    get actionCount() {
-        return _actionCount;
-    },
-    set actionCount(v) {
-        _actionCount = v;
-    },
-    get actionTotalCount() {
-        return _actionTotalCount;
-    },
-    set actionTotalCount(v) {
-        _actionTotalCount = v;
-    },
-    get actionWatchLaterButton() {
-        return _actionWatchLaterButton;
-    },
-    set actionWatchLaterButton(v) {
-        _actionWatchLaterButton = v;
-    },
-    get actionSaveButton() {
-        return _actionSaveButton;
-    },
-    set actionSaveButton(v) {
-        _actionSaveButton = v;
-    },
-    get actionQuickCreateButton() {
-        return _actionQuickCreateButton;
-    },
-    set actionQuickCreateButton(v) {
-        _actionQuickCreateButton = v;
-    },
-    get actionSplitButton() {
-        return _actionSplitButton;
-    },
-    set actionSplitButton(v) {
-        _actionSplitButton = v;
-    },
-    get actionRemoveButton() {
-        return _actionRemoveButton;
-    },
-    set actionRemoveButton(v) {
-        _actionRemoveButton = v;
-    },
-    get actionRemoveWatchedButton() {
-        return _actionRemoveWatchedButton;
-    },
-    set actionRemoveWatchedButton(v) {
-        _actionRemoveWatchedButton = v;
-    },
-    get actionDeletePlaylistsButton() {
-        return _actionDeletePlaylistsButton;
-    },
-    set actionDeletePlaylistsButton(v) {
-        _actionDeletePlaylistsButton = v;
-    },
-    get actionSelectAllButton() {
-        return _actionSelectAllButton;
-    },
-    set actionSelectAllButton(v) {
-        _actionSelectAllButton = v;
-    },
-    get actionUnselectAllButton() {
-        return _actionUnselectAllButton;
-    },
-    set actionUnselectAllButton(v) {
-        _actionUnselectAllButton = v;
-    },
-    get actionOpenAllButton() {
-        return _actionOpenAllButton;
-    },
-    set actionOpenAllButton(v) {
-        _actionOpenAllButton = v;
-    },
-    get actionExitButton() {
-        return _actionExitButton;
-    },
-    set actionExitButton(v) {
-        _actionExitButton = v;
-    },
-    get progressBar() {
-        return _progressBar;
-    },
-    set progressBar(v) {
-        _progressBar = v;
-    },
-    get progressBarLabel() {
-        return _progressBarLabel;
-    },
-    set progressBarLabel(v) {
-        _progressBarLabel = v;
-    },
-    get progressBarElement() {
-        return _progressBarElement;
-    },
-    set progressBarElement(v) {
-        _progressBarElement = v;
-    },
-    get progressBarFill() {
-        return _progressBarFill;
-    },
-    set progressBarFill(v) {
-        _progressBarFill = v;
-    },
-    get progressBarCount() {
-        return _progressBarCount;
-    },
-    set progressBarCount(v) {
-        _progressBarCount = v;
-    },
-    get playlistPanel() {
-        return _playlistPanel;
-    },
-    set playlistPanel(v) {
-        _playlistPanel = v;
-    },
-    get playlistPanelCount() {
-        return _playlistPanelCount;
-    },
-    set playlistPanelCount(v) {
-        _playlistPanelCount = v;
-    },
-    get playlistPanelList() {
-        return _playlistPanelList;
-    },
-    set playlistPanelList(v) {
-        _playlistPanelList = v;
-    },
-    get playlistPanelStatus() {
-        return _playlistPanelStatus;
-    },
-    set playlistPanelStatus(v) {
-        _playlistPanelStatus = v;
-    },
-    get playlistPanelCloseButton() {
-        return _playlistPanelCloseButton;
-    },
-    set playlistPanelCloseButton(v) {
-        _playlistPanelCloseButton = v;
-    },
-    get playlistPanelNewButton() {
-        return _playlistPanelNewButton;
-    },
-    set playlistPanelNewButton(v) {
-        _playlistPanelNewButton = v;
-    },
-    get createBackdrop() {
-        return _createBackdrop;
-    },
-    set createBackdrop(v) {
-        _createBackdrop = v;
-    },
-    get createModal() {
-        return _createModal;
-    },
-    set createModal(v) {
-        _createModal = v;
-    },
-    get splitBackdrop() {
-        return _splitBackdrop;
-    },
-    set splitBackdrop(v) {
-        _splitBackdrop = v;
-    },
-    get splitModal() {
-        return _splitModal;
-    },
-    set splitModal(v) {
-        _splitModal = v;
-    },
-    get splitCountInput() {
-        return _splitCountInput;
-    },
-    set splitCountInput(v) {
-        _splitCountInput = v;
-    },
-    get splitStatus() {
-        return _splitStatus;
-    },
-    set splitStatus(v) {
-        _splitStatus = v;
-    },
-    get splitSubmitting() {
-        return _splitSubmitting;
-    },
-    set splitSubmitting(v) {
-        _splitSubmitting = v;
-    },
-    get createTitleInput() {
-        return _createTitleInput;
-    },
-    set createTitleInput(v) {
-        _createTitleInput = v;
-    },
-    get createVisibilityButton() {
-        return _createVisibilityButton;
-    },
-    set createVisibilityButton(v) {
-        _createVisibilityButton = v;
-    },
-    get createVisibilityValue() {
-        return _createVisibilityValue;
-    },
-    set createVisibilityValue(v) {
-        _createVisibilityValue = v;
-    },
-    get createVisibilityMenu() {
-        return _createVisibilityMenu;
-    },
-    set createVisibilityMenu(v) {
-        _createVisibilityMenu = v;
-    },
-    get createCollaborateInput() {
-        return _createCollaborateInput;
-    },
-    set createCollaborateInput(v) {
-        _createCollaborateInput = v;
-    },
-    get createCancelButton() {
-        return _createCancelButton;
-    },
-    set createCancelButton(v) {
-        _createCancelButton = v;
-    },
-    get createCreateButton() {
-        return _createCreateButton;
-    },
-    set createCreateButton(v) {
-        _createCreateButton = v;
-    },
-    get createStatus() {
-        return _createStatus;
-    },
-    set createStatus(v) {
-        _createStatus = v;
-    },
-    get observer() {
-        return _observer;
-    },
-    set observer(v) {
-        _observer = v;
-    },
+    get isInitialized() { return _isInitialized; }, set isInitialized(v) { _isInitialized = v; },
+    get isEnabled() { return _isEnabled; }, set isEnabled(v) { _isEnabled = v; },
+    get selectionMode() { return _selectionMode; }, set selectionMode(v) { _selectionMode = v; },
+    get playlistPanelVisible() { return _playlistPanelVisible; }, set playlistPanelVisible(v) { _playlistPanelVisible = v; },
+    get createModalVisible() { return _createModalVisible; }, set createModalVisible(v) { _createModalVisible = v; },
+    get createVisibilityMenuVisible() { return _createVisibilityMenuVisible; }, set createVisibilityMenuVisible(v) { _createVisibilityMenuVisible = v; },
+    get loadingPlaylists() { return _loadingPlaylists; }, set loadingPlaylists(v) { _loadingPlaylists = v; },
+    get submitting() { return _submitting; }, set submitting(v) { _submitting = v; },
+    get createSubmitting() { return _createSubmitting; }, set createSubmitting(v) { _createSubmitting = v; },
+    get mastheadSlot() { return _mastheadSlot; }, set mastheadSlot(v) { _mastheadSlot = v; },
+    get mastheadButton() { return _mastheadButton; }, set mastheadButton(v) { _mastheadButton = v; },
+    get mastheadBadge() { return _mastheadBadge; }, set mastheadBadge(v) { _mastheadBadge = v; },
+    get actionBar() { return _actionBar; }, set actionBar(v) { _actionBar = v; },
+    get actionCount() { return _actionCount; }, set actionCount(v) { _actionCount = v; },
+    get actionTotalCount() { return _actionTotalCount; }, set actionTotalCount(v) { _actionTotalCount = v; },
+    get actionWatchLaterButton() { return _actionWatchLaterButton; }, set actionWatchLaterButton(v) { _actionWatchLaterButton = v; },
+    get actionSaveButton() { return _actionSaveButton; }, set actionSaveButton(v) { _actionSaveButton = v; },
+    get actionQuickCreateButton() { return _actionQuickCreateButton; }, set actionQuickCreateButton(v) { _actionQuickCreateButton = v; },
+    get actionSplitButton() { return _actionSplitButton; }, set actionSplitButton(v) { _actionSplitButton = v; },
+    get actionRemoveButton() { return _actionRemoveButton; }, set actionRemoveButton(v) { _actionRemoveButton = v; },
+    get actionRemoveWatchedButton() { return _actionRemoveWatchedButton; }, set actionRemoveWatchedButton(v) { _actionRemoveWatchedButton = v; },
+    get actionDeletePlaylistsButton() { return _actionDeletePlaylistsButton; }, set actionDeletePlaylistsButton(v) { _actionDeletePlaylistsButton = v; },
+    get actionSelectAllButton() { return _actionSelectAllButton; }, set actionSelectAllButton(v) { _actionSelectAllButton = v; },
+    get actionUnselectAllButton() { return _actionUnselectAllButton; }, set actionUnselectAllButton(v) { _actionUnselectAllButton = v; },
+    get actionOpenAllButton() { return _actionOpenAllButton; }, set actionOpenAllButton(v) { _actionOpenAllButton = v; },
+    get actionExitButton() { return _actionExitButton; }, set actionExitButton(v) { _actionExitButton = v; },
+    get progressBar() { return _progressBar; }, set progressBar(v) { _progressBar = v; },
+    get progressBarLabel() { return _progressBarLabel; }, set progressBarLabel(v) { _progressBarLabel = v; },
+    get progressBarElement() { return _progressBarElement; }, set progressBarElement(v) { _progressBarElement = v; },
+    get progressBarFill() { return _progressBarFill; }, set progressBarFill(v) { _progressBarFill = v; },
+    get progressBarCount() { return _progressBarCount; }, set progressBarCount(v) { _progressBarCount = v; },
+    get playlistPanel() { return _playlistPanel; }, set playlistPanel(v) { _playlistPanel = v; },
+    get playlistPanelCount() { return _playlistPanelCount; }, set playlistPanelCount(v) { _playlistPanelCount = v; },
+    get playlistPanelList() { return _playlistPanelList; }, set playlistPanelList(v) { _playlistPanelList = v; },
+    get playlistPanelStatus() { return _playlistPanelStatus; }, set playlistPanelStatus(v) { _playlistPanelStatus = v; },
+    get playlistPanelCloseButton() { return _playlistPanelCloseButton; }, set playlistPanelCloseButton(v) { _playlistPanelCloseButton = v; },
+    get playlistPanelNewButton() { return _playlistPanelNewButton; }, set playlistPanelNewButton(v) { _playlistPanelNewButton = v; },
+    get createBackdrop() { return _createBackdrop; }, set createBackdrop(v) { _createBackdrop = v; },
+    get createModal() { return _createModal; }, set createModal(v) { _createModal = v; },
+    get splitBackdrop() { return _splitBackdrop; }, set splitBackdrop(v) { _splitBackdrop = v; },
+    get splitModal() { return _splitModal; }, set splitModal(v) { _splitModal = v; },
+    get splitCountInput() { return _splitCountInput; }, set splitCountInput(v) { _splitCountInput = v; },
+    get splitStatus() { return _splitStatus; }, set splitStatus(v) { _splitStatus = v; },
+    get splitSubmitting() { return _splitSubmitting; }, set splitSubmitting(v) { _splitSubmitting = v; },
+    get createTitleInput() { return _createTitleInput; }, set createTitleInput(v) { _createTitleInput = v; },
+    get createVisibilityButton() { return _createVisibilityButton; }, set createVisibilityButton(v) { _createVisibilityButton = v; },
+    get createVisibilityValue() { return _createVisibilityValue; }, set createVisibilityValue(v) { _createVisibilityValue = v; },
+    get createVisibilityMenu() { return _createVisibilityMenu; }, set createVisibilityMenu(v) { _createVisibilityMenu = v; },
+    get createCollaborateInput() { return _createCollaborateInput; }, set createCollaborateInput(v) { _createCollaborateInput = v; },
+    get createCancelButton() { return _createCancelButton; }, set createCancelButton(v) { _createCancelButton = v; },
+    get createCreateButton() { return _createCreateButton; }, set createCreateButton(v) { _createCreateButton = v; },
+    get createStatus() { return _createStatus; }, set createStatus(v) { _createStatus = v; },
+    get observer() { return _observer; }, set observer(v) { _observer = v; },
     get pendingContainers() {
         return _pendingContainers;
     },
-    get renderScheduled() {
-        return _renderScheduled;
-    },
-    set renderScheduled(v) {
-        _renderScheduled = v;
-    },
-    get deferredRescanTimer() {
-        return _deferredRescanTimer;
-    },
-    set deferredRescanTimer(v) {
-        _deferredRescanTimer = v;
-    },
-    get loadPlaylistsDebounced() {
-        return _loadPlaylistsDebounced;
-    },
-    set loadPlaylistsDebounced(v) {
-        _loadPlaylistsDebounced = v;
-    },
-    get lastKnownUrl() {
-        return _lastKnownUrl;
-    },
-    set lastKnownUrl(v) {
-        _lastKnownUrl = v;
-    },
-    get statusTimer() {
-        return _statusTimer;
-    },
-    set statusTimer(v) {
-        _statusTimer = v;
-    },
-    get postSaveResetTimer() {
-        return _postSaveResetTimer;
-    },
-    set postSaveResetTimer(v) {
-        _postSaveResetTimer = v;
-    },
-    get lastPlaylistProbeVideoId() {
-        return _lastPlaylistProbeVideoId;
-    },
-    set lastPlaylistProbeVideoId(v) {
-        _lastPlaylistProbeVideoId = v;
-    },
-    get createVisibility() {
-        return _createVisibility;
-    },
-    set createVisibility(v) {
-        _createVisibility = v;
-    },
-    get selectAllMode() {
-        return _selectAllMode;
-    },
-    set selectAllMode(v) {
-        _selectAllMode = v;
-    },
-    get isDragging() {
-        return _isDragging;
-    },
-    set isDragging(v) {
-        _isDragging = v;
-    },
-    get dragOffsetX() {
-        return _dragOffsetX;
-    },
-    set dragOffsetX(v) {
-        _dragOffsetX = v;
-    },
-    get dragOffsetY() {
-        return _dragOffsetY;
-    },
-    set dragOffsetY(v) {
-        _dragOffsetY = v;
-    },
-    get isDragPositioned() {
-        return _isDragPositioned;
-    },
-    set isDragPositioned(v) {
-        _isDragPositioned = v;
-    },
+    get renderScheduled() { return _renderScheduled; }, set renderScheduled(v) { _renderScheduled = v; },
+    get deferredRescanTimer() { return _deferredRescanTimer; }, set deferredRescanTimer(v) { _deferredRescanTimer = v; },
+    get loadPlaylistsDebounced() { return _loadPlaylistsDebounced; }, set loadPlaylistsDebounced(v) { _loadPlaylistsDebounced = v; },
+    get lastKnownUrl() { return _lastKnownUrl; }, set lastKnownUrl(v) { _lastKnownUrl = v; },
+    get statusTimer() { return _statusTimer; }, set statusTimer(v) { _statusTimer = v; },
+    get postSaveResetTimer() { return _postSaveResetTimer; }, set postSaveResetTimer(v) { _postSaveResetTimer = v; },
+    get lastPlaylistProbeVideoId() { return _lastPlaylistProbeVideoId; }, set lastPlaylistProbeVideoId(v) { _lastPlaylistProbeVideoId = v; },
+    get createVisibility() { return _createVisibility; }, set createVisibility(v) { _createVisibility = v; },
+    get selectAllMode() { return _selectAllMode; }, set selectAllMode(v) { _selectAllMode = v; },
+    get isDragging() { return _isDragging; }, set isDragging(v) { _isDragging = v; },
+    get dragOffsetX() { return _dragOffsetX; }, set dragOffsetX(v) { _dragOffsetX = v; },
+    get dragOffsetY() { return _dragOffsetY; }, set dragOffsetY(v) { _dragOffsetY = v; },
+    get isDragPositioned() { return _isDragPositioned; }, set isDragPositioned(v) { _isDragPositioned = v; },
     get selectedVideoIds() {
         return _selectedVideoIds;
     },
@@ -496,18 +166,8 @@ export const state = {
     get decorateRetryCounts() {
         return _decorateRetryCounts;
     },
-    get cachedPageVideoCount() {
-        return _cachedPageVideoCount;
-    },
-    set cachedPageVideoCount(v) {
-        _cachedPageVideoCount = v;
-    },
-    get playlistOptions() {
-        return _playlistOptions;
-    },
-    set playlistOptions(v) {
-        _playlistOptions = v;
-    },
+    get cachedPageVideoCount() { return _cachedPageVideoCount; }, set cachedPageVideoCount(v) { _cachedPageVideoCount = v; },
+    get playlistOptions() { return _playlistOptions; }, set playlistOptions(v) { _playlistOptions = v; },
     get selectionRangeController() {
         return selectionRangeController;
     },

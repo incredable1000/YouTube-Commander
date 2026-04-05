@@ -1,7 +1,6 @@
 /**
  * Audio track manager runtime.
  */
-
 import { createLogger } from '../utils/logger.js';
 import {
     getActivePlayer,
@@ -13,9 +12,7 @@ import {
 import { AUDIO_MESSAGE_TYPES, AUTO_SWITCH_DELAYS, RETRY_DELAYS_MS } from './constants.js';
 import { normalizeTrack, pickPreferredTrack } from './trackUtils.js';
 import { extractVideoId, buildVideoKey } from './utils.js';
-
 const logger = createLogger('AudioTracks');
-
 /**
  * Main manager for tracking and switching YouTube audio tracks.
  */
@@ -30,30 +27,25 @@ class YouTubeAudioTrackManager {
         this.hasAutoSwitched = false;
         this.isInitialized = false;
         this.verboseLogging = false;
-
         this.observers = [];
         this.pendingAutoSwitchTimer = null;
         this.retryTimer = null;
         this.retryAttempt = 0;
         this.retrySessionId = 0;
     }
-
     debugLog(message, data = null) {
         if (!this.verboseLogging) {
             return;
         }
         logger.debug(message, data ?? '');
     }
-
     markLoadingComplete() {
         window.ytCommanderAudioTracksLoading = false;
     }
-
     async initialize() {
         if (this.isInitialized) {
             return true;
         }
-
         try {
             this.setupSettingsBridge();
             this.setupObservers();
@@ -68,39 +60,31 @@ class YouTubeAudioTrackManager {
             return false;
         }
     }
-
     setupSettingsBridge() {
         this.handleSettingsMessage = (event) => {
             if (event.source !== window || !event.data) {
                 return;
             }
-
             if (event.data.type !== AUDIO_MESSAGE_TYPES.SETTINGS_UPDATED) {
                 return;
             }
-
             if (typeof event.data.enabled === 'boolean') {
                 this.autoSwitchEnabled = event.data.enabled;
                 if (!this.autoSwitchEnabled) {
                     this.cancelPendingWork();
                     return;
                 }
-
                 this.queueAutoSwitch('fallback');
             }
         };
-
         window.addEventListener('message', this.handleSettingsMessage);
     }
-
     getPlayer() {
         if (this.isShortsPage()) {
             return getActivePlayer() || getYouTubePlayer();
         }
-
         return getYouTubePlayer() || getActivePlayer();
     }
-
     refreshPlayerReference() {
         const player = this.getPlayer();
         if (player && player !== this.player) {
@@ -109,13 +93,11 @@ class YouTubeAudioTrackManager {
         }
         return this.player;
     }
-
     getVideoElement() {
         const activeVideo = getActiveVideo();
         if (activeVideo) {
             return activeVideo;
         }
-
         const player = this.refreshPlayerReference();
         if (player) {
             const scopedVideo = player.querySelector('video.html5-main-video, video');
@@ -123,38 +105,31 @@ class YouTubeAudioTrackManager {
                 return scopedVideo;
             }
         }
-
         return document.querySelector('video.html5-main-video, video');
     }
-
     buildVideoKey() {
         const videoId = extractVideoId();
         const video = this.getVideoElement();
         return buildVideoKey(videoId, video);
     }
-
     isShortsPage() {
         return isShortsPage();
     }
-
     isValidPage() {
         return isVideoPage() || this.isShortsPage();
     }
-
     async analyzeAudioTracks() {
         try {
             if (!this.isValidPage()) {
                 this.audioTracks = [];
                 return [];
             }
-
             const player = this.refreshPlayerReference();
             const video = this.getVideoElement();
             if (!player && !video) {
                 this.audioTracks = [];
                 return [];
             }
-
             let currentTrackId = null;
             if (typeof player.getAudioTrack === 'function') {
                 try {
@@ -164,12 +139,10 @@ class YouTubeAudioTrackManager {
                     currentTrackId = null;
                 }
             }
-
             let availableTracks = [];
             if (player && typeof player.getAvailableAudioTracks === 'function') {
                 availableTracks = player.getAvailableAudioTracks() || [];
             }
-
             if (
                 (!availableTracks || availableTracks.length === 0) &&
                 video?.audioTracks?.length > 0
@@ -182,12 +155,10 @@ class YouTubeAudioTrackManager {
                     enabled: track?.enabled === true,
                 }));
             }
-
             if (!availableTracks.length) {
                 this.audioTracks = [];
                 return [];
             }
-
             if (!currentTrackId) {
                 const explicit = availableTracks.find(
                     (track) =>
@@ -201,7 +172,6 @@ class YouTubeAudioTrackManager {
             const normalizedTracks = availableTracks.map((track, index) =>
                 normalizeTrack(track, index, currentTrackId)
             );
-
             this.audioTracks = normalizedTracks;
             if (!currentTrackId) {
                 const active = normalizedTracks.find((track) => track.enabled);
@@ -215,18 +185,15 @@ class YouTubeAudioTrackManager {
             return [];
         }
     }
-
     switchToTrack(trackId) {
         try {
             if (!this.isValidPage()) {
                 return false;
             }
-
             const player = this.refreshPlayerReference();
             if (!player) {
                 return false;
             }
-
             if (
                 typeof player.setAudioTrack === 'function' &&
                 typeof player.getAvailableAudioTracks === 'function'
@@ -236,12 +203,10 @@ class YouTubeAudioTrackManager {
                 if (!targetTrack) {
                     return false;
                 }
-
                 player.setAudioTrack(targetTrack);
                 this.currentTrackId = trackId;
                 return true;
             }
-
             const video = this.getVideoElement();
             if (video?.audioTracks?.length > 0) {
                 let switched = false;
@@ -253,30 +218,24 @@ class YouTubeAudioTrackManager {
                         switched = true;
                     }
                 }
-
                 if (switched) {
                     this.currentTrackId = trackId;
                 }
-
                 return switched;
             }
         } catch (error) {
             this.debugLog('Failed to switch track', error);
         }
-
         return false;
     }
-
     verifyCurrentTrack(targetTrackId) {
         const player = this.refreshPlayerReference();
         if (!player) {
             return false;
         }
-
         if (typeof player.getAudioTrack !== 'function') {
             return true;
         }
-
         try {
             const currentTrack = player.getAudioTrack();
             if (!currentTrack?.id) {
@@ -287,67 +246,54 @@ class YouTubeAudioTrackManager {
             return true;
         }
     }
-
     async runAutoSwitchAttempt(reason) {
         try {
             if (!this.autoSwitchEnabled || !this.isValidPage()) {
                 return 'no-op';
             }
-
             const currentVideoKey = this.buildVideoKey();
             if (currentVideoKey && currentVideoKey !== this.currentVideoKey) {
                 this.currentVideoKey = currentVideoKey;
                 this.hasAutoSwitched = false;
             }
-
             if (this.hasAutoSwitched) {
                 return 'no-op';
             }
-
             const player = this.refreshPlayerReference();
             if (!player) {
                 return 'retry';
             }
-
             const video = this.getVideoElement();
             if (!video || video.readyState < 1) {
                 return 'retry';
             }
-
             const tracks = await this.analyzeAudioTracks();
             if (!tracks.length) {
                 return 'retry';
             }
-
             if (tracks.length === 1) {
                 this.hasAutoSwitched = true;
                 this.currentTrackId = tracks[0].id;
                 return 'no-op';
             }
-
             const currentTrack = tracks.find((track) => track.enabled) || null;
             const targetTrack = pickPreferredTrack(tracks);
-
             if (!targetTrack) {
                 this.hasAutoSwitched = true;
                 return 'no-op';
             }
-
             if (currentTrack && currentTrack.id === targetTrack.id) {
                 this.hasAutoSwitched = true;
                 this.currentTrackId = currentTrack.id;
                 return 'no-op';
             }
-
             const switched = this.switchToTrack(targetTrack.id);
             if (!switched) {
                 return 'retry';
             }
-
             if (!this.verifyCurrentTrack(targetTrack.id)) {
                 return 'retry';
             }
-
             this.hasAutoSwitched = true;
             this.currentTrackId = targetTrack.id;
             this.debugLog(`Auto-switched (${reason})`, {
@@ -360,84 +306,68 @@ class YouTubeAudioTrackManager {
             return 'retry';
         }
     }
-
     async runAutoSwitchAttemptWithRetry(reason, sessionId) {
         if (sessionId !== this.retrySessionId) {
             return;
         }
-
         const result = await this.runAutoSwitchAttempt(reason);
         if (sessionId !== this.retrySessionId) {
             return;
         }
-
         if (result !== 'retry') {
             return;
         }
-
         if (this.retryAttempt >= RETRY_DELAYS_MS.length) {
             this.debugLog('Retry budget exhausted', { reason, videoKey: this.currentVideoKey });
             return;
         }
-
         const delay = RETRY_DELAYS_MS[this.retryAttempt];
         this.retryAttempt += 1;
         this.retryTimer = window.setTimeout(() => {
             this.runAutoSwitchAttemptWithRetry(reason, sessionId);
         }, delay);
     }
-
     startRetryPipeline(reason) {
         if (!this.autoSwitchEnabled || !this.isValidPage()) {
             return;
         }
-
         if (this.pendingAutoSwitchTimer) {
             window.clearTimeout(this.pendingAutoSwitchTimer);
             this.pendingAutoSwitchTimer = null;
         }
-
         if (this.retryTimer) {
             window.clearTimeout(this.retryTimer);
             this.retryTimer = null;
         }
-
         this.retryAttempt = 0;
         this.retrySessionId += 1;
         const sessionId = this.retrySessionId;
         this.runAutoSwitchAttemptWithRetry(reason, sessionId);
     }
-
     queueAutoSwitch(reason) {
         if (!this.autoSwitchEnabled || !this.isValidPage()) {
             return;
         }
-
         const delay = AUTO_SWITCH_DELAYS[reason] ?? AUTO_SWITCH_DELAYS.fallback;
         if (this.pendingAutoSwitchTimer) {
             window.clearTimeout(this.pendingAutoSwitchTimer);
         }
-
         this.pendingAutoSwitchTimer = window.setTimeout(() => {
             this.pendingAutoSwitchTimer = null;
             this.startRetryPipeline(reason);
         }, delay);
     }
-
     scheduleAutoSwitch(reason) {
         this.queueAutoSwitch(reason);
     }
-
     resetForNewVideo(videoKey) {
         this.currentVideoKey = videoKey;
         this.hasAutoSwitched = false;
         this.retryAttempt = 0;
         this.cancelPendingWork();
     }
-
     handlePossibleContextChange(reason, options = {}) {
         const { force = false } = options;
-
         if (!this.isValidPage()) {
             this.lastKnownUrl = location.href;
             this.currentVideoKey = null;
@@ -445,103 +375,84 @@ class YouTubeAudioTrackManager {
             this.cancelPendingWork();
             return;
         }
-
         const currentUrl = location.href;
         const nextVideoKey = this.buildVideoKey();
         const urlChanged = currentUrl !== this.lastKnownUrl;
         const videoChanged = force || nextVideoKey !== this.currentVideoKey;
-
         if (urlChanged) {
             this.lastKnownUrl = currentUrl;
         }
-
         if (videoChanged) {
             this.resetForNewVideo(nextVideoKey);
             this.queueAutoSwitch('video-context-change');
             return;
         }
-
         if (!this.hasAutoSwitched) {
             this.queueAutoSwitch(reason);
         }
     }
-
     setupObservers() {
         this.setupNavigationObservers();
         this.setupShortsObserver();
         this.setupVideoLifecycleObservers();
         this.setupFocusObservers();
     }
-
     setupNavigationObservers() {
         this.handleYtNavigateFinish = () => {
             this.handlePossibleContextChange('yt-navigate', { force: true });
         };
         document.addEventListener('yt-navigate-finish', this.handleYtNavigateFinish);
-
         this.handleYtPageDataUpdated = () => {
             this.handlePossibleContextChange('yt-navigate');
         };
         document.addEventListener('yt-page-data-updated', this.handleYtPageDataUpdated);
-
         this.handlePopState = () => {
             this.handlePossibleContextChange('yt-navigate', { force: true });
         };
         window.addEventListener('popstate', this.handlePopState);
-
         let mutationQueued = false;
         const navigationObserver = new MutationObserver(() => {
             if (mutationQueued) {
                 return;
             }
-
             mutationQueued = true;
             window.setTimeout(() => {
                 mutationQueued = false;
                 this.handlePossibleContextChange('yt-navigate');
             }, 100);
         });
-
         navigationObserver.observe(document.body, {
             childList: true,
             subtree: true,
         });
-
         this.observers.push(navigationObserver);
     }
-
     setupShortsObserver() {
         const shortsObserver = new MutationObserver((mutations) => {
             if (!this.isShortsPage()) {
                 return;
             }
-
             const hasActiveShortChange = mutations.some((mutation) => {
                 if (mutation.type === 'attributes') {
                     return mutation.attributeName === 'is-active';
                 }
-
                 return (
                     mutation.type === 'childList' &&
                     (mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0)
                 );
             });
-
             if (hasActiveShortChange) {
                 this.handlePossibleContextChange('shorts-scroll', { force: true });
             }
         });
-
         shortsObserver.observe(document.body, {
             childList: true,
             subtree: true,
             attributes: true,
             attributeFilter: ['is-active'],
         });
-
         this.observers.push(shortsObserver);
     }
-
     setupVideoLifecycleObservers() {
         this.handleVideoPlay = (event) => {
             if (!event?.target || event.target.nodeName !== 'VIDEO') {
@@ -550,7 +461,6 @@ class YouTubeAudioTrackManager {
             this.handlePossibleContextChange('play');
         };
         document.addEventListener('play', this.handleVideoPlay, true);
-
         this.handleLoadedMetadata = (event) => {
             if (!event?.target || event.target.nodeName !== 'VIDEO') {
                 return;
@@ -558,7 +468,6 @@ class YouTubeAudioTrackManager {
             this.handlePossibleContextChange('loadedmetadata');
         };
         document.addEventListener('loadedmetadata', this.handleLoadedMetadata, true);
-
         this.handleCanPlay = (event) => {
             if (!event?.target || event.target.nodeName !== 'VIDEO') {
                 return;
@@ -567,62 +476,50 @@ class YouTubeAudioTrackManager {
         };
         document.addEventListener('canplay', this.handleCanPlay, true);
     }
-
     setupFocusObservers() {
         this.handleWindowFocus = () => {
             this.handlePossibleContextChange('focus');
         };
         window.addEventListener('focus', this.handleWindowFocus);
-
         this.handleVisibilityChange = () => {
             if (!document.hidden) {
                 this.handlePossibleContextChange('visibility');
             }
         };
         document.addEventListener('visibilitychange', this.handleVisibilityChange);
-
         this.handlePageShow = () => {
             this.handlePossibleContextChange('initial', { force: true });
         };
         window.addEventListener('pageshow', this.handlePageShow);
     }
-
     cancelPendingWork() {
         if (this.pendingAutoSwitchTimer) {
             window.clearTimeout(this.pendingAutoSwitchTimer);
             this.pendingAutoSwitchTimer = null;
         }
-
         if (this.retryTimer) {
             window.clearTimeout(this.retryTimer);
             this.retryTimer = null;
         }
-
         this.retrySessionId += 1;
     }
-
     async autoSwitchToOriginal(reason = 'manual') {
         const result = await this.runAutoSwitchAttempt(reason);
         if (result === 'retry') {
             this.startRetryPipeline(reason);
             return false;
         }
-
         return result === 'success' || result === 'no-op';
     }
-
     isReady() {
         return this.isInitialized;
     }
-
     getCurrentTrack() {
         return this.currentTrackId;
     }
-
     getAvailableTracks() {
         return this.audioTracks;
     }
-
     cleanup() {
         this.cancelPendingWork();
         this.observers.forEach((observer) => observer.disconnect());
@@ -640,5 +537,4 @@ class YouTubeAudioTrackManager {
         this.isInitialized = false;
     }
 }
-
 export { YouTubeAudioTrackManager, logger };
