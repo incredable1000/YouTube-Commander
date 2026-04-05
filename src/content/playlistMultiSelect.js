@@ -75,6 +75,19 @@ import {
     updateSplitModalState as updateSplitModalStateFn,
     setSplitStatus as setSplitStatusFn,
 } from './playlist-multi-select/split-modal.js';
+import {
+    setStatusMessage as setStatusMessageFn,
+    clearStatusMessage as clearStatusMessageFn,
+    showSaveProgress as showSaveProgressFn,
+    hideSaveProgress as hideSaveProgressFn,
+} from './playlist-multi-select/status-progress.js';
+import {
+    renderPlaylistLoading as renderPlaylistLoadingFn,
+    renderPlaylistEmpty as renderPlaylistEmptyFn,
+    renderPlaylistOptions as renderPlaylistOptionsFn,
+    updatePlaylistRowThumbnail as updatePlaylistRowThumbnailFn,
+    closePlaylistPanel as closePlaylistPanelFn,
+} from './playlist-multi-select/playlist-render.js';
 
 const logger = createLogger('PlaylistMultiSelect');
 const bridgeClient = createBridgeClient({
@@ -309,7 +322,7 @@ function syncActionBarVisibility() {
     state.actionBar?.classList.toggle('is-visible', visible);
 
     if (!visible) {
-        closePlaylistPanel();
+        closePlaylistPanelFn(state);
         closeCreateModal(true);
         resetActionBarPosition();
     }
@@ -328,37 +341,6 @@ function resetActionBarPosition() {
     state.actionBar.style.top = '';
     state.actionBar.style.bottom = '';
     state.actionBar.style.transform = '';
-}
-
-/**
- * Set message shown in playlist panel.
- * @param {string} message
- * @param {'info'|'success'|'error'} kind
- */
-function setStatusMessage(message, kind = STATUS_KIND.INFO) {
-    if (state.statusTimer) {
-        clearTimeout(state.statusTimer);
-        state.statusTimer = null;
-    }
-
-    const text = typeof message === 'string' ? message : '';
-    if (!state.playlistPanelStatus) {
-        return;
-    }
-
-    state.playlistPanelStatus.textContent = text;
-    state.playlistPanelStatus.classList.remove('is-visible', 'is-info', 'is-success', 'is-error');
-    if (text) {
-        state.playlistPanelStatus.classList.add('is-visible', `is-${kind}`);
-    }
-
-    if (!text) {
-        return;
-    }
-
-    state.statusTimer = window.setTimeout(() => {
-        clearStatusMessage();
-    }, 4500);
 }
 
 async function confirmPlaylistSelection(playlistId, videoIds, attempts = 3) {
@@ -388,60 +370,6 @@ async function confirmPlaylistSelection(playlistId, videoIds, attempts = 3) {
     }
 
     return false;
-}
-
-/**
- * Clear all status texts.
- */
-function clearStatusMessage() {
-    if (state.statusTimer) {
-        clearTimeout(state.statusTimer);
-        state.statusTimer = null;
-    }
-
-    [state.playlistPanelStatus, state.createStatus].forEach((node) => {
-        if (!node) {
-            return;
-        }
-        node.textContent = '';
-        node.classList.remove('is-visible', 'is-info', 'is-success', 'is-error');
-    });
-}
-
-/**
- * Show progress bar with current save progress.
- * @param {number} processed Number of videos processed
- * @param {number} total Total number of videos
- * @param {string} label Current operation label
- */
-function showSaveProgress(processed, total, label) {
-    if (
-        !state.progressBar ||
-        !state.progressBarFill ||
-        !state.progressBarLabel ||
-        !state.progressBarCount
-    ) {
-        return;
-    }
-
-    const percentage = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
-
-    state.progressBar.hidden = false;
-    state.progressBarLabel.textContent = label || 'Saving...';
-    state.progressBarFill.style.width = `${percentage}%`;
-    state.progressBarCount.textContent = `${processed} / ${total}`;
-}
-
-/**
- * Hide progress bar.
- */
-function hideSaveProgress() {
-    if (!state.progressBar) {
-        return;
-    }
-
-    console.log('[Progress] Hiding');
-    state.progressBar.hidden = true;
 }
 
 function resolveActivePageRoot() {
@@ -637,7 +565,7 @@ function updateActionUiState() {
     state.playlistPanel?.classList.toggle('is-busy', state.loadingPlaylists || state.submitting);
 
     if (selectedCount === 0) {
-        closePlaylistPanel();
+        closePlaylistPanelFn(state);
         closeCreateModal();
     }
 
@@ -663,169 +591,8 @@ async function openPlaylistPanel() {
     state.playlistPanelVisible = true;
     updateActionUiState();
     positionPlaylistPanel();
-    renderPlaylistLoading();
+    renderPlaylistLoadingFn(state, positionPlaylistPanel);
     await loadPlaylistsForPanel();
-}
-
-/**
- * Close playlist panel.
- */
-function closePlaylistPanel() {
-    state.playlistPanelVisible = false;
-    state.playlistPanel?.classList.remove('is-visible');
-    state.lastPlaylistProbeVideoId = '';
-    state.playlistOptions = [];
-    state.playlistMap.clear();
-    state.selectedPlaylistIds.clear();
-}
-
-/**
- * Render loading state in playlist panel.
- */
-function renderPlaylistLoading() {
-    if (!state.playlistPanelList) {
-        return;
-    }
-
-    state.playlistPanelList.innerHTML =
-        '<div class="yt-commander-playlist-panel__empty">Loading playlists...</div>';
-    positionPlaylistPanel();
-}
-
-/**
- * Render empty/error message in playlist panel.
- * @param {string} message
- */
-function renderPlaylistEmpty(message) {
-    if (!state.playlistPanelList) {
-        return;
-    }
-
-    state.playlistPanelList.innerHTML = `<div class="yt-commander-playlist-panel__empty">${message}</div>`;
-    positionPlaylistPanel();
-}
-
-/**
- * Build thumbnail letter for playlist item.
- * @param {string} title
- * @returns {string}
- */
-function readPlaylistInitial(title) {
-    const safe = typeof title === 'string' ? title.trim() : '';
-    if (!safe) {
-        return 'P';
-    }
-    return safe.charAt(0).toUpperCase();
-}
-
-/**
- * Render playlist rows in panel.
- */
-function renderPlaylistOptions() {
-    if (!state.playlistPanelList) {
-        return;
-    }
-
-    if (!Array.isArray(state.playlistOptions) || state.playlistOptions.length === 0) {
-        renderPlaylistEmpty('No playlists found.');
-        return;
-    }
-
-    state.playlistPanelList.innerHTML = '';
-
-    state.playlistOptions.forEach((playlist) => {
-        const row = document.createElement('button');
-        row.type = 'button';
-        row.className = 'yt-commander-playlist-panel__item';
-        row.setAttribute('role', 'option');
-        row.setAttribute('data-playlist-id', playlist.id);
-
-        const thumb = document.createElement('span');
-        thumb.className = 'yt-commander-playlist-panel__item-thumb';
-        const thumbnailUrl = typeof playlist.thumbnailUrl === 'string' ? playlist.thumbnailUrl : '';
-        const titleInitial = readPlaylistInitial(playlist.title);
-        if (thumbnailUrl) {
-            const image = document.createElement('img');
-            image.src = thumbnailUrl;
-            image.alt = '';
-            image.loading = 'lazy';
-            image.decoding = 'async';
-            image.addEventListener('error', () => {
-                image.remove();
-                thumb.textContent = titleInitial;
-            });
-            thumb.appendChild(image);
-        } else {
-            thumb.textContent = titleInitial;
-        }
-
-        const body = document.createElement('span');
-        body.className = 'yt-commander-playlist-panel__item-body';
-
-        const rowTitle = document.createElement('span');
-        rowTitle.className = 'yt-commander-playlist-panel__item-title';
-        rowTitle.textContent = playlist.title || 'Untitled playlist';
-
-        const meta = document.createElement('span');
-        meta.className = 'yt-commander-playlist-panel__item-meta';
-        meta.textContent = playlist.privacy || 'Private';
-
-        body.appendChild(rowTitle);
-        body.appendChild(meta);
-
-        const bookmark = document.createElement('span');
-        bookmark.className = 'yt-commander-playlist-panel__item-bookmark';
-        bookmark.appendChild(createBookmarkIcon());
-
-        row.appendChild(thumb);
-        row.appendChild(body);
-        row.appendChild(bookmark);
-        state.playlistPanelList.appendChild(row);
-    });
-
-    syncPlaylistSelectionVisuals();
-    positionPlaylistPanel();
-}
-
-/**
- * Update a playlist row thumbnail in-place.
- * @param {string} playlistId
- * @param {string} thumbnailUrl
- */
-function updatePlaylistRowThumbnail(playlistId, thumbnailUrl) {
-    if (!state.playlistPanelList || !playlistId || !thumbnailUrl) {
-        return;
-    }
-
-    const row = state.playlistPanelList.querySelector(
-        `.yt-commander-playlist-panel__item[data-playlist-id="${playlistId}"]`
-    );
-    if (!row) {
-        return;
-    }
-
-    const thumb = row.querySelector('.yt-commander-playlist-panel__item-thumb');
-    if (!(thumb instanceof Element)) {
-        return;
-    }
-
-    const titleNode = row.querySelector('.yt-commander-playlist-panel__item-title');
-    const titleInitial = readPlaylistInitial(titleNode?.textContent || '');
-
-    while (thumb.firstChild) {
-        thumb.removeChild(thumb.firstChild);
-    }
-
-    const image = document.createElement('img');
-    image.src = thumbnailUrl;
-    image.alt = '';
-    image.loading = 'lazy';
-    image.decoding = 'async';
-    image.addEventListener('error', () => {
-        image.remove();
-        thumb.textContent = titleInitial;
-    });
-    thumb.appendChild(image);
 }
 
 /**
@@ -861,7 +628,7 @@ async function loadPlaylistThumbnailsForPanel() {
             if (entry) {
                 entry.thumbnailUrl = thumbnailUrl;
             }
-            updatePlaylistRowThumbnail(playlistId, thumbnailUrl);
+            updatePlaylistRowThumbnailFn(state, playlistId, thumbnailUrl);
         });
     } catch (error) {
         logger.debug('Failed to load playlist thumbnails', error);
@@ -910,7 +677,7 @@ async function loadPlaylistsForPanel() {
 
     state.loadingPlaylists = true;
     updateActionUiState();
-    renderPlaylistLoading();
+    renderPlaylistLoadingFn(state, positionPlaylistPanel);
 
     try {
         const response = await sendBridgeRequest(ACTIONS.GET_PLAYLISTS, {
@@ -932,12 +699,13 @@ async function loadPlaylistsForPanel() {
             }
         });
 
-        renderPlaylistOptions();
+        renderPlaylistOptionsFn(state, positionPlaylistPanel, syncPlaylistSelectionVisuals);
         void loadPlaylistThumbnailsForPanel();
     } catch (error) {
         logger.warn('Failed to load playlists', error);
-        renderPlaylistEmpty('Failed to load playlists.');
-        setStatusMessage(
+        renderPlaylistEmptyFn(state, positionPlaylistPanel, 'Failed to load playlists.');
+        setStatusMessageFn(
+            state,
             error instanceof Error ? error.message : 'Failed to load playlists.',
             STATUS_KIND.ERROR
         );
@@ -958,19 +726,19 @@ async function saveSelectionToPlaylist(playlistId) {
 
     const videoIds = Array.from(state.selectedVideoIds);
     if (videoIds.length === 0) {
-        setStatusMessage('Select at least one video.', STATUS_KIND.ERROR);
+        setStatusMessageFn(state, 'Select at least one video.', STATUS_KIND.ERROR);
         return;
     }
 
     state.submitting = true;
     updateActionUiState();
-    closePlaylistPanel();
+    closePlaylistPanelFn(state);
 
     const playlistTitle =
         playlistId === state.WATCH_LATER_PLAYLIST_ID
             ? 'Watch later'
             : state.playlistMap.get(playlistId)?.title || 'playlist';
-    showSaveProgress(0, videoIds.length, playlistTitle);
+    showSaveProgressFn(state, 0, videoIds.length, playlistTitle);
 
     try {
         const response = await sendBridgeRequest(
@@ -982,7 +750,8 @@ async function saveSelectionToPlaylist(playlistId) {
             },
             (progress) => {
                 if (progress) {
-                    showSaveProgress(
+                    showSaveProgressFn(
+                        state,
                         progress.processed,
                         progress.total,
                         progress.label || playlistTitle
@@ -991,21 +760,22 @@ async function saveSelectionToPlaylist(playlistId) {
             }
         );
 
-        hideSaveProgress();
+        hideSaveProgressFn(state);
         const successCount = Number(response?.successCount) || 0;
         if (successCount > 0) {
             state.selectedPlaylistIds.add(playlistId);
             syncPlaylistSelectionVisuals();
-            setStatusMessage(`Saved to ${playlistTitle}.`, STATUS_KIND.SUCCESS);
+            setStatusMessageFn(state, `Saved to ${playlistTitle}.`, STATUS_KIND.SUCCESS);
             resetSelectionOnly();
             return;
         }
 
-        setStatusMessage('No playlist was updated.', STATUS_KIND.ERROR);
+        setStatusMessageFn(state, 'No playlist was updated.', STATUS_KIND.ERROR);
     } catch (error) {
         logger.warn('Failed to save selected videos', error);
-        hideSaveProgress();
-        setStatusMessage(
+        hideSaveProgressFn(state);
+        setStatusMessageFn(
+            state,
             error instanceof Error ? error.message : 'Failed to save videos.',
             STATUS_KIND.ERROR
         );
@@ -1025,17 +795,17 @@ async function createQuickPlaylistAndSave() {
 
     const videoIds = Array.from(state.selectedVideoIds);
     if (videoIds.length === 0) {
-        setStatusMessage('Select at least one video.', STATUS_KIND.ERROR);
+        setStatusMessageFn(state, 'Select at least one video.', STATUS_KIND.ERROR);
         return;
     }
 
     state.createSubmitting = true;
     updateActionUiState();
-    hideSaveProgress();
+    hideSaveProgressFn(state);
 
     try {
         const title = await generateQuickPlaylistTitle();
-        setStatusMessage(`Creating "${title}"...`, STATUS_KIND.INFO);
+        setStatusMessageFn(state, `Creating "${title}"...`, STATUS_KIND.INFO);
 
         const response = await sendBridgeRequest(
             ACTIONS.CREATE_PLAYLIST_AND_ADD,
@@ -1047,12 +817,17 @@ async function createQuickPlaylistAndSave() {
             },
             (progress) => {
                 if (progress) {
-                    showSaveProgress(progress.processed, progress.total, progress.label || title);
+                    showSaveProgressFn(
+                        state,
+                        progress.processed,
+                        progress.total,
+                        progress.label || title
+                    );
                 }
             }
         );
 
-        hideSaveProgress();
+        hideSaveProgressFn(state);
         const addedCount = Number(response?.addedCount) || 0;
         const requestedCount = Number(response?.requestedVideoCount) || videoIds.length;
         const failureCount = Array.isArray(response?.failures) ? response.failures.length : 0;
@@ -1063,9 +838,14 @@ async function createQuickPlaylistAndSave() {
 
         if (failureCount > 0) {
             const savedLabel = `${addedCount}/${requestedCount}`;
-            setStatusMessage(`Created "${title}". Saved ${savedLabel} video(s).`, STATUS_KIND.INFO);
+            setStatusMessageFn(
+                state,
+                `Created "${title}". Saved ${savedLabel} video(s).`,
+                STATUS_KIND.INFO
+            );
         } else {
-            setStatusMessage(
+            setStatusMessageFn(
+                state,
                 `Created "${title}" and saved ${addedCount} video(s).`,
                 STATUS_KIND.SUCCESS
             );
@@ -1074,8 +854,9 @@ async function createQuickPlaylistAndSave() {
         resetSelectionOnly();
     } catch (error) {
         logger.warn('Failed to create quick playlist', error);
-        hideSaveProgress();
-        setStatusMessage(
+        hideSaveProgressFn(state);
+        setStatusMessageFn(
+            state,
             error instanceof Error ? error.message : 'Failed to create playlist.',
             STATUS_KIND.ERROR
         );
@@ -1100,7 +881,7 @@ function resetSelectionOnly() {
     clearPostSaveResetTimer();
     clearSelectedVideos();
     resetActionCounters();
-    clearStatusMessage();
+    clearStatusMessageFn(state);
     clearDeferredRescanTimer();
     state.pendingContainers.clear();
     state.renderScheduled = false;
@@ -1162,19 +943,23 @@ async function removeSelectionFromCurrentPlaylist() {
     }
 
     if (!isPlaylistCollectionPage()) {
-        setStatusMessage('Open a playlist page to remove selected videos.', STATUS_KIND.ERROR);
+        setStatusMessageFn(
+            state,
+            'Open a playlist page to remove selected videos.',
+            STATUS_KIND.ERROR
+        );
         return;
     }
 
     const playlistId = getCurrentPlaylistId();
     if (!playlistId) {
-        setStatusMessage('Could not detect current playlist.', STATUS_KIND.ERROR);
+        setStatusMessageFn(state, 'Could not detect current playlist.', STATUS_KIND.ERROR);
         return;
     }
 
     const videoIds = Array.from(state.selectedVideoIds);
     if (videoIds.length === 0) {
-        setStatusMessage('Select at least one video.', STATUS_KIND.ERROR);
+        setStatusMessageFn(state, 'Select at least one video.', STATUS_KIND.ERROR);
         return;
     }
 
@@ -1182,7 +967,7 @@ async function removeSelectionFromCurrentPlaylist() {
     updateActionUiState();
 
     const playlistLabel = playlistId === 'WL' ? 'Watch later' : 'playlist';
-    showSaveProgress(0, videoIds.length, `Removing from ${playlistLabel}`);
+    showSaveProgressFn(state, 0, videoIds.length, `Removing from ${playlistLabel}`);
 
     try {
         const response = await sendBridgeRequest(
@@ -1193,7 +978,8 @@ async function removeSelectionFromCurrentPlaylist() {
             },
             (progress) => {
                 if (progress) {
-                    showSaveProgress(
+                    showSaveProgressFn(
+                        state,
                         progress.processed,
                         progress.total,
                         `Removing from ${playlistLabel}`
@@ -1202,18 +988,19 @@ async function removeSelectionFromCurrentPlaylist() {
             }
         );
 
-        hideSaveProgress();
+        hideSaveProgressFn(state);
         const removedVideoIds = Array.isArray(response?.removedVideoIds)
             ? response.removedVideoIds.filter((videoId) => VIDEO_ID_PATTERN.test(videoId))
             : [];
         const removedCount = Number(response?.removedCount) || removedVideoIds.length;
 
         if (removedCount <= 0) {
-            setStatusMessage('No videos were removed.', STATUS_KIND.ERROR);
+            setStatusMessageFn(state, 'No videos were removed.', STATUS_KIND.ERROR);
             return;
         }
 
-        setStatusMessage(
+        setStatusMessageFn(
+            state,
             `Removed ${removedCount} video(s) from ${playlistLabel}. Refreshing page...`,
             STATUS_KIND.SUCCESS
         );
@@ -1222,8 +1009,9 @@ async function removeSelectionFromCurrentPlaylist() {
         window.location.reload();
     } catch (error) {
         logger.warn('Failed to remove selected videos from playlist', error);
-        hideSaveProgress();
-        setStatusMessage(
+        hideSaveProgressFn(state);
+        setStatusMessageFn(
+            state,
             error instanceof Error ? error.message : 'Failed to remove videos.',
             STATUS_KIND.ERROR
         );
@@ -1323,7 +1111,7 @@ async function submitCreatePlaylist() {
     updateActionUiState();
     updateCreateModalState();
     setCreateStatus('Creating playlist...', STATUS_KIND.INFO);
-    showSaveProgress(0, videoIds.length, title);
+    showSaveProgressFn(state, 0, videoIds.length, title);
 
     try {
         const response = await sendBridgeRequest(
@@ -1336,7 +1124,7 @@ async function submitCreatePlaylist() {
             },
             (progress) => {
                 if (progress) {
-                    showSaveProgress(progress.processed, progress.total, title);
+                    showSaveProgressFn(state, progress.processed, progress.total, title);
                 }
             }
         );
@@ -1353,11 +1141,16 @@ async function submitCreatePlaylist() {
 
         if (failureCount > 0) {
             const savedLabel = `${addedCount}/${requestedCount}`;
-            setStatusMessage(`Created "${title}". Saved ${savedLabel} video(s).`, STATUS_KIND.INFO);
+            setStatusMessageFn(
+                state,
+                `Created "${title}". Saved ${savedLabel} video(s).`,
+                STATUS_KIND.INFO
+            );
             return;
         }
 
-        setStatusMessage(
+        setStatusMessageFn(
+            state,
             `Created "${title}" and saved ${addedCount} video(s).`,
             STATUS_KIND.SUCCESS
         );
@@ -2035,12 +1828,12 @@ function setSelectionMode(active) {
     document.documentElement.classList.toggle(ROOT_SELECTION_CLASS, state.selectionMode);
 
     if (!state.selectionMode) {
-        closePlaylistPanel();
+        closePlaylistPanelFn(state);
         closeCreateModal(true);
         clearSelectedVideos();
         cleanupDecorations();
         resetActionCounters();
-        clearStatusMessage();
+        clearStatusMessageFn(state);
         clearDeferredRescanTimer();
         state.pendingContainers.clear();
         state.renderScheduled = false;
@@ -2099,7 +1892,7 @@ function handleMastheadButtonClick(event) {
 function handleActionExitButtonClick(event) {
     event.preventDefault();
     event.stopPropagation();
-    closePlaylistPanel();
+    closePlaylistPanelFn(state);
     state.actionBar?.classList.remove('is-visible');
     setSelectionMode(false);
 }
@@ -2244,7 +2037,7 @@ async function submitSplit() {
     updateSplitModalStateFn(state);
     closeSplitModalFn(state);
 
-    showSaveProgress(0, numPlaylists, 'Splitting into playlists...');
+    showSaveProgressFn(state, 0, numPlaylists, 'Splitting into playlists...');
 
     try {
         let maxNum = 0;
@@ -2288,19 +2081,21 @@ async function submitSplit() {
             totalAdded += addedCount;
             created++;
 
-            showSaveProgress(created, numPlaylists, `Creating playlists...`);
+            showSaveProgressFn(state, created, numPlaylists, `Creating playlists...`);
         }
 
-        hideSaveProgress();
-        setStatusMessage(
+        hideSaveProgressFn(state);
+        setStatusMessageFn(
+            state,
             `Split into ${created} playlists with ${totalAdded} videos.`,
             STATUS_KIND.SUCCESS
         );
         resetSelectionOnly();
     } catch (error) {
         logger.warn('Failed to split playlists', error);
-        hideSaveProgress();
-        setStatusMessage(
+        hideSaveProgressFn(state);
+        setStatusMessageFn(
+            state,
             error instanceof Error ? error.message : 'Failed to split playlists.',
             STATUS_KIND.ERROR
         );
@@ -2337,18 +2132,18 @@ async function handleActionRemoveWatchedClick(event) {
 
     const currentPlaylistId = getCurrentPlaylistId();
     if (!currentPlaylistId) {
-        setStatusMessage('No playlist detected.', STATUS_KIND.ERROR);
+        setStatusMessageFn(state, 'No playlist detected.', STATUS_KIND.ERROR);
         return;
     }
 
     state.submitting = true;
     updateActionUiState();
-    setStatusMessage('Scanning playlist for watched videos...', STATUS_KIND.INFO);
+    setStatusMessageFn(state, 'Scanning playlist for watched videos...', STATUS_KIND.INFO);
 
     try {
         const allVideoIds = collectRenderedVideoIds();
         if (allVideoIds.length === 0) {
-            setStatusMessage('No videos found in playlist.', STATUS_KIND.INFO);
+            setStatusMessageFn(state, 'No videos found in playlist.', STATUS_KIND.INFO);
             return;
         }
 
@@ -2361,11 +2156,11 @@ async function handleActionRemoveWatchedClick(event) {
         }
 
         if (watchedIds.length === 0) {
-            setStatusMessage('No watched videos in playlist.', STATUS_KIND.INFO);
+            setStatusMessageFn(state, 'No watched videos in playlist.', STATUS_KIND.INFO);
             return;
         }
 
-        showSaveProgress(0, watchedIds.length, 'Removing watched videos');
+        showSaveProgressFn(state, 0, watchedIds.length, 'Removing watched videos');
 
         const response = await sendBridgeRequest(
             ACTIONS.REMOVE_FROM_PLAYLIST,
@@ -2375,27 +2170,34 @@ async function handleActionRemoveWatchedClick(event) {
             },
             (progress) => {
                 if (progress) {
-                    showSaveProgress(progress.processed, progress.total, 'Removing watched videos');
+                    showSaveProgressFn(
+                        state,
+                        progress.processed,
+                        progress.total,
+                        'Removing watched videos'
+                    );
                 }
             }
         );
 
-        hideSaveProgress();
+        hideSaveProgressFn(state);
         const removedCount = Number(response?.removedCount) || 0;
 
         if (removedCount > 0) {
-            setStatusMessage(
+            setStatusMessageFn(
+                state,
                 `Removed ${removedCount} watched video(s). Refreshing page...`,
                 STATUS_KIND.SUCCESS
             );
             window.location.reload();
         } else {
-            setStatusMessage('No videos were removed.', STATUS_KIND.INFO);
+            setStatusMessageFn(state, 'No videos were removed.', STATUS_KIND.INFO);
         }
     } catch (error) {
         logger.warn('Failed to remove watched videos', error);
-        hideSaveProgress();
-        setStatusMessage(
+        hideSaveProgressFn(state);
+        setStatusMessageFn(
+            state,
             error instanceof Error ? error.message : 'Failed to remove watched videos.',
             STATUS_KIND.ERROR
         );
@@ -2419,13 +2221,13 @@ async function handleActionDeletePlaylistsClick(event) {
 
     const playlistIds = Array.from(state.selectedPlaylistIds);
     if (playlistIds.length === 0) {
-        setStatusMessage('Select playlists to delete.', STATUS_KIND.ERROR);
+        setStatusMessageFn(state, 'Select playlists to delete.', STATUS_KIND.ERROR);
         return;
     }
 
     state.submitting = true;
     updateActionUiState();
-    showSaveProgress(0, playlistIds.length, 'Deleting playlists');
+    showSaveProgressFn(state, 0, playlistIds.length, 'Deleting playlists');
 
     try {
         const response = await sendBridgeRequest(
@@ -2435,24 +2237,31 @@ async function handleActionDeletePlaylistsClick(event) {
             },
             (progress) => {
                 if (progress) {
-                    showSaveProgress(progress.processed, progress.total, 'Deleting playlists');
+                    showSaveProgressFn(
+                        state,
+                        progress.processed,
+                        progress.total,
+                        'Deleting playlists'
+                    );
                 }
             }
         );
 
-        hideSaveProgress();
+        hideSaveProgressFn(state);
         const deletedCount = Number(response?.deletedCount) || 0;
         const failedCount = Number(response?.failedCount) || 0;
 
         state.selectedPlaylistIds.clear();
 
         if (failedCount > 0) {
-            setStatusMessage(
+            setStatusMessageFn(
+                state,
                 `Deleted ${deletedCount} playlist(s). ${failedCount} failed.`,
                 STATUS_KIND.ERROR
             );
         } else {
-            setStatusMessage(
+            setStatusMessageFn(
+                state,
                 `Deleted ${deletedCount} playlist(s). Refreshing...`,
                 STATUS_KIND.SUCCESS
             );
@@ -2460,8 +2269,9 @@ async function handleActionDeletePlaylistsClick(event) {
         }
     } catch (error) {
         logger.warn('Failed to delete playlists', error);
-        hideSaveProgress();
-        setStatusMessage(
+        hideSaveProgressFn(state);
+        setStatusMessageFn(
+            state,
             error instanceof Error ? error.message : 'Failed to delete playlists.',
             STATUS_KIND.ERROR
         );
@@ -2670,7 +2480,7 @@ function handleDocumentMouseDown(event) {
             return;
         }
 
-        closePlaylistPanel();
+        closePlaylistPanelFn(state);
     }
 }
 
@@ -2779,13 +2589,13 @@ function handleDocumentKeydown(event) {
 
     if (state.playlistPanelVisible) {
         event.preventDefault();
-        closePlaylistPanel();
+        closePlaylistPanelFn(state);
         return;
     }
 
     if (state.selectionMode) {
         event.preventDefault();
-        closePlaylistPanel();
+        closePlaylistPanelFn(state);
         state.actionBar?.classList.remove('is-visible');
         setSelectionMode(false);
     }
@@ -2999,7 +2809,7 @@ function cleanup() {
     clearDeferredRescanTimer();
     state.decorateRetryCounts = new WeakMap();
 
-    clearStatusMessage();
+    clearStatusMessageFn(state);
 
     if (state.actionBar) {
         state.actionBar.remove();
