@@ -4,6 +4,15 @@
  */
 
 import { createLogger } from './utils/logger.js';
+import {
+    getYtCfgValue,
+    getCookieValue,
+    sha1Hex,
+    buildInnertubeEndpoint,
+    delay,
+    chunk,
+    readText,
+} from './playlist-api/ytcfg-utils.js';
 
 const logger = createLogger('PlaylistApi');
 
@@ -20,7 +29,7 @@ const ACTIONS = {
     DELETE_PLAYLISTS: 'DELETE_PLAYLISTS',
     GET_SHORTS_UPLOAD_TIMESTAMPS: 'GET_SHORTS_UPLOAD_TIMESTAMPS',
     GET_SUBSCRIPTIONS: 'GET_SUBSCRIPTIONS',
-    UNSUBSCRIBE_CHANNELS: 'UNSUBSCRIBE_CHANNELS'
+    UNSUBSCRIBE_CHANNELS: 'UNSUBSCRIBE_CHANNELS',
 };
 
 const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{10,15}$/;
@@ -40,54 +49,6 @@ const PLAYLIST_THUMBNAIL_CONCURRENCY = 3;
 let isInitialized = false;
 let cachedAuthHeader = null;
 let cachedAuthHeaderAt = 0;
-
-/**
- * Read a value from ytcfg safely.
- * @param {string} key
- * @returns {any}
- */
-function getYtCfgValue(key) {
-    try {
-        if (window.ytcfg && typeof window.ytcfg.get === 'function') {
-            return window.ytcfg.get(key);
-        }
-    } catch (_error) {
-        // Ignore and fallback below.
-    }
-
-    try {
-        return window.ytcfg?.data_?.[key];
-    } catch (_error) {
-        return undefined;
-    }
-}
-
-/**
- * Get cookie by name.
- * @param {string} name
- * @returns {string}
- */
-function getCookieValue(name) {
-    try {
-        const encoded = encodeURIComponent(name);
-        const match = document.cookie.match(new RegExp(`(?:^|; )${encoded}=([^;]*)`));
-        return match ? decodeURIComponent(match[1]) : '';
-    } catch (_error) {
-        return '';
-    }
-}
-
-/**
- * SHA-1 digest as hex.
- * @param {string} input
- * @returns {Promise<string>}
- */
-async function sha1Hex(input) {
-    const data = new TextEncoder().encode(input);
-    const hashBuffer = await crypto.subtle.digest('SHA-1', data);
-    const bytes = Array.from(new Uint8Array(hashBuffer));
-    return bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
 
 /**
  * Build SAPISIDHASH Authorization header.
@@ -164,25 +125,28 @@ async function getInnertubeConfig() {
     const isLoggedIn = getYtCfgValue('LOGGED_IN') !== false;
 
     const rawContext = cloneSerializable(getYtCfgValue('INNERTUBE_CONTEXT'));
-    const context = rawContext && typeof rawContext === 'object'
-        ? rawContext
-        : {
-            client: {
-                hl: getYtCfgValue('HL') || 'en',
-                gl: getYtCfgValue('GL') || 'US',
-                clientName: getYtCfgValue('INNERTUBE_CLIENT_NAME') || 'WEB',
-                clientVersion: getYtCfgValue('INNERTUBE_CLIENT_VERSION') || ''
-            }
-        };
+    const context =
+        rawContext && typeof rawContext === 'object'
+            ? rawContext
+            : {
+                  client: {
+                      hl: getYtCfgValue('HL') || 'en',
+                      gl: getYtCfgValue('GL') || 'US',
+                      clientName: getYtCfgValue('INNERTUBE_CLIENT_NAME') || 'WEB',
+                      clientVersion: getYtCfgValue('INNERTUBE_CLIENT_VERSION') || '',
+                  },
+              };
 
-    const clientName = getYtCfgValue('INNERTUBE_CONTEXT_CLIENT_NAME')
-        || context?.client?.clientName
-        || getYtCfgValue('INNERTUBE_CLIENT_NAME')
-        || '1';
-    const clientVersion = getYtCfgValue('INNERTUBE_CONTEXT_CLIENT_VERSION')
-        || context?.client?.clientVersion
-        || getYtCfgValue('INNERTUBE_CLIENT_VERSION')
-        || '';
+    const clientName =
+        getYtCfgValue('INNERTUBE_CONTEXT_CLIENT_NAME') ||
+        context?.client?.clientName ||
+        getYtCfgValue('INNERTUBE_CLIENT_NAME') ||
+        '1';
+    const clientVersion =
+        getYtCfgValue('INNERTUBE_CONTEXT_CLIENT_VERSION') ||
+        context?.client?.clientVersion ||
+        getYtCfgValue('INNERTUBE_CLIENT_VERSION') ||
+        '';
     const identityToken = getYtCfgValue('ID_TOKEN') || getYtCfgValue('DELEGATED_SESSION_ID');
     const visitorData = getYtCfgValue('VISITOR_DATA') || context?.client?.visitorData;
     const sessionIndex = getYtCfgValue('SESSION_INDEX') ?? 0;
@@ -194,7 +158,7 @@ async function getInnertubeConfig() {
         'X-Youtube-Client-Name': String(clientName),
         'X-Youtube-Client-Version': String(clientVersion),
         'X-Origin': location.origin,
-        'X-Youtube-Bootstrap-Logged-In': isLoggedIn ? 'true' : 'false'
+        'X-Youtube-Bootstrap-Logged-In': isLoggedIn ? 'true' : 'false',
     };
 
     if (sessionIndex !== null && sessionIndex !== undefined) {
@@ -248,9 +212,10 @@ function readApiError(responseText) {
     }
 
     const payload = parseJsonSafe(responseText);
-    const parsedError = payload?.error?.message
-        || payload?.error?.errors?.[0]?.message
-        || payload?.alerts?.[0]?.alertRenderer?.text?.simpleText;
+    const parsedError =
+        payload?.error?.message ||
+        payload?.error?.errors?.[0]?.message ||
+        payload?.alerts?.[0]?.alertRenderer?.text?.simpleText;
     if (parsedError) {
         return String(parsedError);
     }
@@ -326,14 +291,14 @@ function parseRelativeAgeToTimestamp(value) {
         day: 24 * 60 * 60 * 1000,
         week: 7 * 24 * 60 * 60 * 1000,
         month: 30 * 24 * 60 * 60 * 1000,
-        year: 365 * 24 * 60 * 60 * 1000
+        year: 365 * 24 * 60 * 60 * 1000,
     }[unit];
 
     if (!unitMs) {
         return null;
     }
 
-    return Date.now() - (amount * unitMs);
+    return Date.now() - amount * unitMs;
 }
 
 /**
@@ -372,7 +337,7 @@ function readVideoIdFromValue(value, validIds) {
         value.videoDetails?.videoId,
         value.entityKey,
         value.onTap?.innertubeCommand?.reelWatchEndpoint?.videoId,
-        value.reelWatchEndpoint?.videoId
+        value.reelWatchEndpoint?.videoId,
     ];
 
     for (const candidate of candidates) {
@@ -409,7 +374,7 @@ function readTimestampFromValue(value) {
         value.publishTime,
         value.publishedTimeText,
         value.dateText,
-        value.publishedTime
+        value.publishedTime,
     ];
 
     for (const candidate of candidates) {
@@ -498,7 +463,7 @@ function extractUploadTimestampFromHtml(html) {
         /"publishDate"\s*:\s*"([^"]+)"/i,
         /\\"uploadDate\\"\s*:\s*\\"([^\\"]+)\\"/i,
         /\\"datePublished\\"\s*:\s*\\"([^\\"]+)\\"/i,
-        /\\"publishDate\\"\s*:\s*\\"([^\\"]+)\\"/i
+        /\\"publishDate\\"\s*:\s*\\"([^\\"]+)\\"/i,
     ];
 
     for (const pattern of patterns) {
@@ -510,16 +475,6 @@ function extractUploadTimestampFromHtml(html) {
     }
 
     return null;
-}
-
-/**
- * Build endpoint URL.
- * @param {string} path
- * @param {string} apiKey
- * @returns {string}
- */
-function buildInnertubeEndpoint(path, apiKey) {
-    return `/youtubei/v1/${path}?prettyPrint=false&key=${encodeURIComponent(apiKey)}`;
 }
 
 /**
@@ -539,7 +494,7 @@ async function postInnertube(paths, payload, config) {
             method: 'POST',
             credentials: 'same-origin',
             headers: config.headers,
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
         });
 
         const responseText = await response.text();
@@ -549,14 +504,14 @@ async function postInnertube(paths, payload, config) {
                 path,
                 status: response.status,
                 body: responseBody,
-                text: responseText
+                text: responseText,
             };
         }
 
         lastError = new Error(readApiError(responseText));
         logger.warn(`Innertube request failed on ${path}`, {
             status: response.status,
-            message: lastError.message
+            message: lastError.message,
         });
     }
 
@@ -653,33 +608,6 @@ function sanitizePlaylistId(rawPlaylistId) {
 }
 
 /**
- * Split array into chunks.
- * @template T
- * @param {T[]} items
- * @param {number} size
- * @returns {T[][]}
- */
-function chunk(items, size) {
-    const chunks = [];
-    for (let index = 0; index < items.length; index += size) {
-        chunks.push(items.slice(index, index + size));
-    }
-    return chunks;
-}
-
-/**
- * Wait helper.
- * @param {number} ms
- * @returns {Promise<void>}
- */
-function delay(ms) {
-    const safeMs = Number.isFinite(ms) ? Math.max(0, ms) : 0;
-    return new Promise((resolve) => {
-        window.setTimeout(resolve, safeMs);
-    });
-}
-
-/**
  * Run async mapper with limited concurrency.
  * @template T,U
  * @param {T[]} items
@@ -711,31 +639,6 @@ async function mapWithConcurrency(items, concurrency, mapper) {
 
     await Promise.all(workers);
     return results;
-}
-
-/**
- * Extract text from renderer run structures.
- * @param {any} field
- * @returns {string}
- */
-function readText(field) {
-    if (!field) {
-        return '';
-    }
-
-    if (typeof field.simpleText === 'string') {
-        return field.simpleText;
-    }
-
-    if (Array.isArray(field.runs)) {
-        return field.runs.map((run) => run?.text || '').join('').trim();
-    }
-
-    if (typeof field === 'string') {
-        return field;
-    }
-
-    return '';
 }
 
 /**
@@ -811,15 +714,20 @@ function collectPlaylistOptions(node, output, visited) {
 
     const renderer = node.playlistAddToOptionRenderer;
     if (renderer && typeof renderer === 'object') {
-        const playlistId = renderer.playlistId
-            || renderer.addToPlaylistServiceEndpoint?.playlistEditEndpoint?.playlistId
-            || renderer.navigationEndpoint?.watchEndpoint?.playlistId
-            || '';
+        const playlistId =
+            renderer.playlistId ||
+            renderer.addToPlaylistServiceEndpoint?.playlistEditEndpoint?.playlistId ||
+            renderer.navigationEndpoint?.watchEndpoint?.playlistId ||
+            '';
 
         if (PLAYLIST_ID_PATTERN.test(playlistId)) {
-            const title = readText(renderer.title) || readText(renderer.untoggledServiceEndpoint?.commandMetadata) || 'Untitled playlist';
+            const title =
+                readText(renderer.title) ||
+                readText(renderer.untoggledServiceEndpoint?.commandMetadata) ||
+                'Untitled playlist';
             const privacy = readText(renderer.shortBylineText) || '';
-            const isSelected = renderer.isSelected === true || renderer.containsSelectedVideos === true;
+            const isSelected =
+                renderer.isSelected === true || renderer.containsSelectedVideos === true;
             const thumbnailUrl = readPlaylistThumbnailUrl(renderer);
 
             if (!output.has(playlistId)) {
@@ -828,7 +736,7 @@ function collectPlaylistOptions(node, output, visited) {
                     title,
                     privacy,
                     isSelected,
-                    thumbnailUrl
+                    thumbnailUrl,
                 });
             } else if (isSelected) {
                 output.get(playlistId).isSelected = true;
@@ -859,16 +767,20 @@ function readPlaylistThumbnailUrl(renderer) {
         return directThumb;
     }
 
-    const playlistThumb = normalizeThumbnailUrl(pickThumbnailUrl(
-        renderer?.thumbnailRenderer?.playlistThumbnailRenderer?.thumbnail?.thumbnails
-    ));
+    const playlistThumb = normalizeThumbnailUrl(
+        pickThumbnailUrl(
+            renderer?.thumbnailRenderer?.playlistThumbnailRenderer?.thumbnail?.thumbnails
+        )
+    );
     if (playlistThumb) {
         return playlistThumb;
     }
 
-    const fallbackThumb = normalizeThumbnailUrl(pickThumbnailUrl(
-        renderer?.thumbnailRenderer?.playlistThumbnailRenderer?.defaultThumbnail?.thumbnails
-    ));
+    const fallbackThumb = normalizeThumbnailUrl(
+        pickThumbnailUrl(
+            renderer?.thumbnailRenderer?.playlistThumbnailRenderer?.defaultThumbnail?.thumbnails
+        )
+    );
     if (fallbackThumb) {
         return fallbackThumb;
     }
@@ -897,14 +809,18 @@ function readPlaylistThumbnailFromBrowse(body) {
     }
 
     const headerAltThumb = normalizeThumbnailUrl(
-        pickThumbnailUrl(body?.header?.playlistHeaderRenderer?.playlistHeaderBanner?.thumbnail?.thumbnails)
+        pickThumbnailUrl(
+            body?.header?.playlistHeaderRenderer?.playlistHeaderBanner?.thumbnail?.thumbnails
+        )
     );
     if (headerAltThumb) {
         return headerAltThumb;
     }
 
     const bannerThumb = normalizeThumbnailUrl(
-        pickThumbnailUrl(body?.header?.playlistHeaderRenderer?.playlistHeaderBanner?.heroImage?.thumbnails)
+        pickThumbnailUrl(
+            body?.header?.playlistHeaderRenderer?.playlistHeaderBanner?.heroImage?.thumbnails
+        )
     );
     if (bannerThumb) {
         return bannerThumb;
@@ -950,7 +866,7 @@ function readPlaylistFirstVideoId(body) {
         'playlistPanelVideoRenderer',
         'videoRenderer',
         'compactVideoRenderer',
-        'gridVideoRenderer'
+        'gridVideoRenderer',
     ];
 
     for (const key of rendererKeys) {
@@ -982,9 +898,10 @@ function readVideoIdFromRenderer(renderer) {
         return direct;
     }
 
-    const nested = typeof renderer?.navigationEndpoint?.watchEndpoint?.videoId === 'string'
-        ? renderer.navigationEndpoint.watchEndpoint.videoId
-        : '';
+    const nested =
+        typeof renderer?.navigationEndpoint?.watchEndpoint?.videoId === 'string'
+            ? renderer.navigationEndpoint.watchEndpoint.videoId
+            : '';
     return VIDEO_ID_PATTERN.test(nested) ? nested : '';
 }
 
@@ -1060,7 +977,7 @@ async function executeRemoveEntriesBatched(playlistId, entries, config, options 
     if (!Array.isArray(entries) || entries.length === 0) {
         return {
             appliedVideoIds: new Set(),
-            failedEntries: []
+            failedEntries: [],
         };
     }
 
@@ -1084,12 +1001,16 @@ async function executeRemoveEntriesBatched(playlistId, entries, config, options 
         const payload = {
             context: config.context,
             playlistId,
-            actions: batch.map((entry) => entry.action)
+            actions: batch.map((entry) => entry.action),
         };
 
         for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
             try {
-                await postInnertube(['playlist/edit_playlist', 'browse/edit_playlist'], payload, config);
+                await postInnertube(
+                    ['playlist/edit_playlist', 'browse/edit_playlist'],
+                    payload,
+                    config
+                );
                 success = true;
                 break;
             } catch (error) {
@@ -1107,24 +1028,25 @@ async function executeRemoveEntriesBatched(playlistId, entries, config, options 
             if (onProgress) {
                 onProgress({
                     processed: appliedVideoIds.size,
-                    total: entries.length
+                    total: entries.length,
                 });
             }
             continue;
         }
 
-        const errorText = lastError instanceof Error ? lastError.message : 'Failed to remove videos batch.';
+        const errorText =
+            lastError instanceof Error ? lastError.message : 'Failed to remove videos batch.';
         batch.forEach((entry) => {
             failedEntries.push({
                 ...entry,
-                error: errorText
+                error: errorText,
             });
         });
     }
 
     return {
         appliedVideoIds,
-        failedEntries
+        failedEntries,
     };
 }
 
@@ -1181,7 +1103,7 @@ function findThumbnailUrlDeep(node, visited, depth) {
 function buildGetAddToPlaylistPayload(context, videoId = '') {
     const payload = {
         context,
-        excludeWatchLater: false
+        excludeWatchLater: false,
     };
 
     if (VIDEO_ID_PATTERN.test(videoId)) {
@@ -1203,13 +1125,12 @@ function normalizeRemoveAction(rawAction, videoIdFallback) {
         return null;
     }
 
-    const actionType = typeof rawAction.action === 'string'
-        ? rawAction.action
-        : 'ACTION_REMOVE_VIDEO';
+    const actionType =
+        typeof rawAction.action === 'string' ? rawAction.action : 'ACTION_REMOVE_VIDEO';
     const supportedActionTypes = new Set([
         'ACTION_REMOVE_VIDEO',
         'ACTION_REMOVE_VIDEO_BY_VIDEO_ID',
-        'ACTION_REMOVE_VIDEO_BY_SET_VIDEO_ID'
+        'ACTION_REMOVE_VIDEO_BY_SET_VIDEO_ID',
     ]);
 
     if (!supportedActionTypes.has(actionType)) {
@@ -1220,24 +1141,23 @@ function normalizeRemoveAction(rawAction, videoIdFallback) {
     if (setVideoId) {
         return {
             action: 'ACTION_REMOVE_VIDEO',
-            setVideoId
+            setVideoId,
         };
     }
 
-    const removedVideoId = typeof rawAction.removedVideoId === 'string'
-        ? rawAction.removedVideoId.trim()
-        : '';
+    const removedVideoId =
+        typeof rawAction.removedVideoId === 'string' ? rawAction.removedVideoId.trim() : '';
     if (VIDEO_ID_PATTERN.test(removedVideoId)) {
         return {
             action: 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID',
-            removedVideoId
+            removedVideoId,
         };
     }
 
     if (VIDEO_ID_PATTERN.test(videoIdFallback)) {
         return {
             action: 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID',
-            removedVideoId: videoIdFallback
+            removedVideoId: videoIdFallback,
         };
     }
 
@@ -1265,7 +1185,7 @@ function buildRemoveActionCandidates(action) {
         const key = [
             candidate.action || '',
             candidate.setVideoId || '',
-            candidate.removedVideoId || ''
+            candidate.removedVideoId || '',
         ].join('|');
         if (seen.has(key)) {
             return;
@@ -1276,23 +1196,24 @@ function buildRemoveActionCandidates(action) {
     };
 
     const setVideoId = typeof action.setVideoId === 'string' ? action.setVideoId.trim() : '';
-    const removedVideoId = typeof action.removedVideoId === 'string' ? action.removedVideoId.trim() : '';
+    const removedVideoId =
+        typeof action.removedVideoId === 'string' ? action.removedVideoId.trim() : '';
 
     if (setVideoId) {
         pushCandidate({
             action: 'ACTION_REMOVE_VIDEO',
-            setVideoId
+            setVideoId,
         });
     }
 
     if (VIDEO_ID_PATTERN.test(removedVideoId)) {
         pushCandidate({
             action: 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID',
-            removedVideoId
+            removedVideoId,
         });
         pushCandidate({
             action: 'ACTION_REMOVE_VIDEO',
-            removedVideoId
+            removedVideoId,
         });
     }
 
@@ -1307,7 +1228,9 @@ function buildRemoveActionCandidates(action) {
  */
 function getRemoveActionKey(action, videoIdFallback = '') {
     if (!action || typeof action !== 'object') {
-        return VIDEO_ID_PATTERN.test(videoIdFallback) ? `video:${videoIdFallback}` : 'remove:unknown';
+        return VIDEO_ID_PATTERN.test(videoIdFallback)
+            ? `video:${videoIdFallback}`
+            : 'remove:unknown';
     }
 
     const setVideoId = typeof action.setVideoId === 'string' ? action.setVideoId.trim() : '';
@@ -1315,7 +1238,8 @@ function getRemoveActionKey(action, videoIdFallback = '') {
         return `set:${setVideoId}`;
     }
 
-    const removedVideoId = typeof action.removedVideoId === 'string' ? action.removedVideoId.trim() : '';
+    const removedVideoId =
+        typeof action.removedVideoId === 'string' ? action.removedVideoId.trim() : '';
     if (VIDEO_ID_PATTERN.test(removedVideoId)) {
         return `video:${removedVideoId}`;
     }
@@ -1342,15 +1266,16 @@ function buildDirectRemoveEntries(videoIds, actionType = 'ACTION_REMOVE_VIDEO_BY
             return;
         }
 
-        const action = actionType === 'ACTION_REMOVE_VIDEO'
-            ? {
-                action: 'ACTION_REMOVE_VIDEO',
-                removedVideoId: videoId
-            }
-            : {
-                action: 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID',
-                removedVideoId: videoId
-            };
+        const action =
+            actionType === 'ACTION_REMOVE_VIDEO'
+                ? {
+                      action: 'ACTION_REMOVE_VIDEO',
+                      removedVideoId: videoId,
+                  }
+                : {
+                      action: 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID',
+                      removedVideoId: videoId,
+                  };
 
         const key = getRemoveActionKey(action, videoId);
         const dedupeKey = `${key}|${action.action}`;
@@ -1362,7 +1287,7 @@ function buildDirectRemoveEntries(videoIds, actionType = 'ACTION_REMOVE_VIDEO_BY
         entries.push({
             videoId,
             key,
-            action
+            action,
         });
     });
 
@@ -1381,10 +1306,11 @@ function readRemoveActionFromOptionRenderer(renderer, playlistId, videoId) {
         return null;
     }
 
-    const rendererPlaylistId = renderer.playlistId
-        || renderer.addToPlaylistServiceEndpoint?.playlistEditEndpoint?.playlistId
-        || renderer.navigationEndpoint?.watchEndpoint?.playlistId
-        || '';
+    const rendererPlaylistId =
+        renderer.playlistId ||
+        renderer.addToPlaylistServiceEndpoint?.playlistEditEndpoint?.playlistId ||
+        renderer.navigationEndpoint?.watchEndpoint?.playlistId ||
+        '';
     if (rendererPlaylistId !== playlistId) {
         return null;
     }
@@ -1393,7 +1319,7 @@ function readRemoveActionFromOptionRenderer(renderer, playlistId, videoId) {
         renderer.toggledServiceEndpoint?.playlistEditEndpoint,
         renderer.toggledServiceEndpoint?.addToPlaylistServiceEndpoint?.playlistEditEndpoint,
         renderer.addToPlaylistServiceEndpoint?.playlistEditEndpoint,
-        renderer.serviceEndpoint?.playlistEditEndpoint
+        renderer.serviceEndpoint?.playlistEditEndpoint,
     ];
 
     for (const endpoint of endpoints) {
@@ -1401,7 +1327,8 @@ function readRemoveActionFromOptionRenderer(renderer, playlistId, videoId) {
             continue;
         }
 
-        const endpointPlaylistId = typeof endpoint.playlistId === 'string' ? endpoint.playlistId.trim() : '';
+        const endpointPlaylistId =
+            typeof endpoint.playlistId === 'string' ? endpoint.playlistId.trim() : '';
         if (endpointPlaylistId && endpointPlaylistId !== playlistId) {
             continue;
         }
@@ -1421,7 +1348,8 @@ function readRemoveActionFromOptionRenderer(renderer, playlistId, videoId) {
         }
     }
 
-    const selectedInTarget = renderer.isSelected === true || renderer.containsSelectedVideos === true;
+    const selectedInTarget =
+        renderer.isSelected === true || renderer.containsSelectedVideos === true;
     if (selectedInTarget) {
         return normalizeRemoveAction({ action: 'ACTION_REMOVE_VIDEO' }, videoId);
     }
@@ -1523,7 +1451,11 @@ async function getPlaylistThumbnails(payload) {
 
                 const browseId = playlistId.startsWith('VL') ? playlistId : `VL${playlistId}`;
                 try {
-                    const response = await postInnertube('browse', { context: config.context, browseId }, config);
+                    const response = await postInnertube(
+                        'browse',
+                        { context: config.context, browseId },
+                        config
+                    );
                     let thumb = readPlaylistThumbnailFromBrowse(response?.body);
                     if (!thumb) {
                         thumb = readPlaylistFirstVideoThumbnail(response?.body);
@@ -1533,7 +1465,11 @@ async function getPlaylistThumbnails(payload) {
                         thumb = buildVideoThumbnailUrl(videoId);
                     }
                     if (!thumb) {
-                        const nextResponse = await postInnertube('next', { context: config.context, playlistId }, config);
+                        const nextResponse = await postInnertube(
+                            'next',
+                            { context: config.context, playlistId },
+                            config
+                        );
                         const nextVideoId = readPlaylistFirstVideoId(nextResponse?.body);
                         thumb = buildVideoThumbnailUrl(nextVideoId);
                     }
@@ -1578,13 +1514,17 @@ async function addVideosToSinglePlaylist(playlistId, videoIds, config, options =
             playlistId,
             actions: batch.map((videoId) => ({
                 action: 'ACTION_ADD_VIDEO',
-                addedVideoId: videoId
-            }))
+                addedVideoId: videoId,
+            })),
         };
 
         for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
             try {
-                await postInnertube(['playlist/edit_playlist', 'browse/edit_playlist'], payload, config);
+                await postInnertube(
+                    ['playlist/edit_playlist', 'browse/edit_playlist'],
+                    payload,
+                    config
+                );
                 success = true;
                 break;
             } catch (error) {
@@ -1597,7 +1537,11 @@ async function addVideosToSinglePlaylist(playlistId, videoIds, config, options =
 
         if (success) {
             addedCount += batch.length;
-            console.log('[PlaylistApi] Batch succeeded, calling onProgress:', { addedCount, total: videoIds.length, hasOnProgress: typeof options.onProgress === 'function' });
+            console.log('[PlaylistApi] Batch succeeded, calling onProgress:', {
+                addedCount,
+                total: videoIds.length,
+                hasOnProgress: typeof options.onProgress === 'function',
+            });
             if (typeof options.onProgress === 'function') {
                 options.onProgress(addedCount, videoIds.length);
             }
@@ -1607,7 +1551,7 @@ async function addVideosToSinglePlaylist(playlistId, videoIds, config, options =
         failures.push({
             batchIndex,
             videoIds: batch,
-            error: lastError instanceof Error ? lastError.message : 'Failed to add videos batch.'
+            error: lastError instanceof Error ? lastError.message : 'Failed to add videos batch.',
         });
     }
 
@@ -1618,7 +1562,7 @@ async function addVideosToSinglePlaylist(playlistId, videoIds, config, options =
     return {
         requestedCount: videoIds.length,
         addedCount,
-        failures
+        failures,
     };
 }
 
@@ -1659,16 +1603,16 @@ async function addToPlaylists(payload, options = {}) {
                         options.onProgress({
                             processed,
                             total,
-                            label: playlistTitle
+                            label: playlistTitle,
                         });
                     }
-                }
+                },
             });
             successCount += 1;
         } catch (error) {
             failures.push({
                 playlistId,
-                error: error instanceof Error ? error.message : 'Failed'
+                error: error instanceof Error ? error.message : 'Failed',
             });
         }
     }
@@ -1681,7 +1625,7 @@ async function addToPlaylists(payload, options = {}) {
         requestedVideoCount: videoIds.length,
         requestedPlaylistCount: playlistIds.length,
         successCount,
-        failures
+        failures,
     };
 }
 
@@ -1717,20 +1661,21 @@ async function removeWithResolvedActions(playlistId, videoIds, config) {
                     return {
                         videoId,
                         action: null,
-                        error: 'Video is not removable from this playlist.'
+                        error: 'Video is not removable from this playlist.',
                     };
                 }
 
                 return {
                     videoId,
                     action,
-                    error: ''
+                    error: '',
                 };
             } catch (error) {
                 return {
                     videoId,
                     action: null,
-                    error: error instanceof Error ? error.message : 'Failed to resolve remove action.'
+                    error:
+                        error instanceof Error ? error.message : 'Failed to resolve remove action.',
                 };
             }
         }
@@ -1744,7 +1689,7 @@ async function removeWithResolvedActions(playlistId, videoIds, config) {
         if (!result?.action) {
             failures.push({
                 videoId: result?.videoId || '',
-                error: result?.error || 'Video is not removable from this playlist.'
+                error: result?.error || 'Video is not removable from this playlist.',
             });
             return;
         }
@@ -1753,7 +1698,7 @@ async function removeWithResolvedActions(playlistId, videoIds, config) {
         if (actionCandidates.length === 0) {
             failures.push({
                 videoId: result.videoId,
-                error: 'Video is not removable from this playlist.'
+                error: 'Video is not removable from this playlist.',
             });
             return;
         }
@@ -1767,14 +1712,14 @@ async function removeWithResolvedActions(playlistId, videoIds, config) {
         actionEntries.push({
             key,
             videoId: result.videoId,
-            actions: actionCandidates
+            actions: actionCandidates,
         });
     });
 
     if (actionEntries.length === 0) {
         return {
             appliedVideoIds: new Set(),
-            failures
+            failures,
         };
     }
 
@@ -1801,7 +1746,7 @@ async function removeWithResolvedActions(playlistId, videoIds, config) {
             batchEntries.push({
                 key,
                 videoId: entry.videoId,
-                action
+                action,
             });
         });
 
@@ -1809,15 +1754,10 @@ async function removeWithResolvedActions(playlistId, videoIds, config) {
             continue;
         }
 
-        const batchResult = await executeRemoveEntriesBatched(
-            playlistId,
-            batchEntries,
-            config,
-            {
-                batchSize: MAX_BATCH_SIZE,
-                retryAttempts: EDIT_PLAYLIST_RETRY_ATTEMPTS
-            }
-        );
+        const batchResult = await executeRemoveEntriesBatched(playlistId, batchEntries, config, {
+            batchSize: MAX_BATCH_SIZE,
+            retryAttempts: EDIT_PLAYLIST_RETRY_ATTEMPTS,
+        });
 
         batchResult.appliedVideoIds.forEach((videoId) => {
             appliedVideoIds.add(videoId);
@@ -1841,13 +1781,13 @@ async function removeWithResolvedActions(playlistId, videoIds, config) {
     pendingByKey.forEach((entry, key) => {
         failures.push({
             videoId: entry.videoId,
-            error: failedByKey.get(key) || 'Failed to remove video.'
+            error: failedByKey.get(key) || 'Failed to remove video.',
         });
     });
 
     return {
         appliedVideoIds,
-        failures
+        failures,
     };
 }
 
@@ -1882,13 +1822,15 @@ async function removeFromPlaylist(payload, options = {}) {
         {
             batchSize: MAX_BATCH_SIZE,
             retryAttempts: EDIT_PLAYLIST_RETRY_ATTEMPTS,
-            onProgress: options.onProgress
+            onProgress: options.onProgress,
         }
     );
     const removedVideoIds = new Set(primaryResult.appliedVideoIds);
 
     if (removedVideoIds.size === 0) {
-        throw new Error(primaryResult.failedEntries[0]?.error || 'Failed to remove selected videos.');
+        throw new Error(
+            primaryResult.failedEntries[0]?.error || 'Failed to remove selected videos.'
+        );
     }
 
     const failureByVideoId = new Map();
@@ -1902,14 +1844,14 @@ async function removeFromPlaylist(payload, options = {}) {
         .filter((videoId) => !removedVideoIds.has(videoId))
         .map((videoId) => ({
             videoId,
-            error: failureByVideoId.get(videoId) || 'Failed to remove video.'
+            error: failureByVideoId.get(videoId) || 'Failed to remove video.',
         }));
 
     logger.debug('Playlist remove completed', {
         playlistId,
         requestedVideoCount: videoIds.length,
         removedCount: removedVideoIds.size,
-        failureCount: failures.length
+        failureCount: failures.length,
     });
 
     return {
@@ -1917,7 +1859,7 @@ async function removeFromPlaylist(payload, options = {}) {
         requestedVideoCount: videoIds.length,
         removedCount: removedVideoIds.size,
         removedVideoIds: Array.from(removedVideoIds),
-        failures
+        failures,
     };
 }
 
@@ -1945,21 +1887,25 @@ async function deletePlaylists(payload, options = {}) {
         const playlistId = playlistIds[i];
 
         try {
-            await postInnertube('playlist/delete', {
-                context: config.context,
-                playlistId
-            }, config);
+            await postInnertube(
+                'playlist/delete',
+                {
+                    context: config.context,
+                    playlistId,
+                },
+                config
+            );
 
             if (typeof options?.onProgress === 'function') {
                 options.onProgress({
                     processed: i + 1,
-                    total: playlistIds.length
+                    total: playlistIds.length,
                 });
             }
         } catch (error) {
             failures.push({
                 playlistId,
-                error: error instanceof Error ? error.message : 'Failed to delete playlist.'
+                error: error instanceof Error ? error.message : 'Failed to delete playlist.',
             });
         }
     }
@@ -1967,7 +1913,7 @@ async function deletePlaylists(payload, options = {}) {
     return {
         deletedCount: playlistIds.length - failures.length,
         failedCount: failures.length,
-        failures
+        failures,
     };
 }
 
@@ -2004,7 +1950,7 @@ async function createPlaylistAndAdd(payload, options = {}) {
     const createPayload = {
         context: config.context,
         title,
-        privacyStatus
+        privacyStatus,
     };
 
     if (collaborate) {
@@ -2012,7 +1958,11 @@ async function createPlaylistAndAdd(payload, options = {}) {
         createPayload.collaborationState = 'COLLABORATION_ENABLED';
     }
 
-    const createResponse = await postInnertube(['playlist/create', 'browse/create_playlist'], createPayload, config);
+    const createResponse = await postInnertube(
+        ['playlist/create', 'browse/create_playlist'],
+        createPayload,
+        config
+    );
     const playlistId = findPlaylistIdInNode(createResponse.body);
     if (!playlistId) {
         throw new Error('Playlist created, but ID was not returned.');
@@ -2026,17 +1976,17 @@ async function createPlaylistAndAdd(payload, options = {}) {
                 options.onProgress({
                     processed,
                     total,
-                    label: title
+                    label: title,
                 });
             }
-        }
+        },
     });
 
     return {
         playlistId,
         requestedVideoCount: videoIds.length,
         addedCount: Number(addResult?.addedCount) || 0,
-        failures: Array.isArray(addResult?.failures) ? addResult.failures : []
+        failures: Array.isArray(addResult?.failures) ? addResult.failures : [],
     };
 }
 
@@ -2054,7 +2004,7 @@ function extractShortsTimestampFromPlayerResponse(responseBody) {
         responseBody?.microformat?.playerMicroformatRenderer?.uploadDate,
         responseBody?.microformat?.playerMicroformatRenderer?.publishDate,
         responseBody?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails?.startTimestamp,
-        responseBody?.videoDetails?.publishDate
+        responseBody?.videoDetails?.publishDate,
     ];
 
     for (const candidate of candidates) {
@@ -2081,7 +2031,7 @@ async function resolveUploadTimestampFromPlayer(videoId, config) {
                 context: config.context,
                 videoId,
                 contentCheckOk: true,
-                racyCheckOk: true
+                racyCheckOk: true,
             },
             config
         );
@@ -2090,7 +2040,7 @@ async function resolveUploadTimestampFromPlayer(videoId, config) {
     } catch (error) {
         logger.debug('Player fallback timestamp request failed', {
             videoId,
-            error: error instanceof Error ? error.message : String(error || 'Unknown error')
+            error: error instanceof Error ? error.message : String(error || 'Unknown error'),
         });
         return null;
     }
@@ -2116,7 +2066,7 @@ async function resolveShortsTimestampChunk(videoIds, config) {
     try {
         const payload = {
             context: config.context,
-            videoIds: ids
+            videoIds: ids,
         };
 
         const response = await postInnertube('updated_metadata', payload, config);
@@ -2125,7 +2075,7 @@ async function resolveShortsTimestampChunk(videoIds, config) {
     } catch (error) {
         logger.warn('Failed batch Shorts timestamp request', {
             videoCount: ids.length,
-            error
+            error,
         });
     }
 
@@ -2166,7 +2116,8 @@ async function resolveShortsTimestampChunk(videoIds, config) {
     logger.debug('Resolved Shorts timestamp chunk', {
         requested: ids.length,
         batchResolved: ids.length - unresolvedIds.length,
-        fallbackResolved: unresolvedIds.filter((videoId) => Number.isFinite(results.get(videoId))).length
+        fallbackResolved: unresolvedIds.filter((videoId) => Number.isFinite(results.get(videoId)))
+            .length,
     });
 
     return results;
@@ -2196,7 +2147,7 @@ async function getShortsUploadTimestamps(payload) {
     }
 
     return {
-        timestampsById
+        timestampsById,
     };
 }
 
@@ -2245,7 +2196,8 @@ function collectContinuationTokens(node, tokens) {
         return;
     }
 
-    const token = node?.continuationCommand?.token || node?.continuationEndpoint?.continuationCommand?.token;
+    const token =
+        node?.continuationCommand?.token || node?.continuationEndpoint?.continuationCommand?.token;
     if (typeof token === 'string' && token) {
         tokens.add(token);
     }
@@ -2299,10 +2251,12 @@ function normalizeChannelRenderer(renderer) {
     }
 
     const title = readText(renderer.title) || 'Untitled channel';
-    const url = normalizeChannelPath(renderer?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url
-        || renderer?.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl
-        || renderer?.channelUrl
-        || '');
+    const url = normalizeChannelPath(
+        renderer?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url ||
+            renderer?.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl ||
+            renderer?.channelUrl ||
+            ''
+    );
     const handle = url.startsWith('/@') ? url.split('/')[1] : '';
     const subscriberCount = readText(renderer.subscriberCountText);
     const videoCount = readText(renderer.videoCountText);
@@ -2315,7 +2269,7 @@ function normalizeChannelRenderer(renderer) {
         url,
         avatar,
         subscriberCount,
-        videoCount
+        videoCount,
     };
 }
 
@@ -2326,14 +2280,20 @@ function normalizeChannelRenderer(renderer) {
  */
 async function getSubscriptions(payload) {
     const config = await getInnertubeConfig();
-    const limit = Number.isFinite(payload?.limit) ? Number(payload.limit) : SUBSCRIPTION_PAGE_LIMIT * 100;
+    const limit = Number.isFinite(payload?.limit)
+        ? Number(payload.limit)
+        : SUBSCRIPTION_PAGE_LIMIT * 100;
 
     const channelsById = new Map();
     const seenTokens = new Set();
     let continuations = [];
     let pageCount = 0;
 
-    const first = await postInnertube('browse', { context: config.context, browseId: SUBSCRIPTION_BROWSE_ID }, config);
+    const first = await postInnertube(
+        'browse',
+        { context: config.context, browseId: SUBSCRIPTION_BROWSE_ID },
+        config
+    );
     const renderers = [];
     collectChannelRenderers(first.body, renderers);
     renderers.forEach((renderer) => {
@@ -2346,7 +2306,11 @@ async function getSubscriptions(payload) {
     collectContinuationTokens(first.body, firstTokens);
     continuations = Array.from(firstTokens);
 
-    while (continuations.length > 0 && channelsById.size < limit && pageCount < SUBSCRIPTION_PAGE_LIMIT) {
+    while (
+        continuations.length > 0 &&
+        channelsById.size < limit &&
+        pageCount < SUBSCRIPTION_PAGE_LIMIT
+    ) {
         const token = continuations.shift();
         if (!token || seenTokens.has(token)) {
             continue;
@@ -2354,7 +2318,11 @@ async function getSubscriptions(payload) {
         seenTokens.add(token);
         pageCount += 1;
 
-        const response = await postInnertube('browse', { context: config.context, continuation: token }, config);
+        const response = await postInnertube(
+            'browse',
+            { context: config.context, continuation: token },
+            config
+        );
         const batchRenderers = [];
         collectChannelRenderers(response.body, batchRenderers);
         batchRenderers.forEach((renderer) => {
@@ -2375,7 +2343,7 @@ async function getSubscriptions(payload) {
 
     return {
         channels: Array.from(channelsById.values()),
-        total: channelsById.size
+        total: channelsById.size,
     };
 }
 
@@ -2395,7 +2363,11 @@ async function unsubscribeChannels(payload) {
     let unsubscribedCount = 0;
 
     for (const channelChunk of chunks) {
-        await postInnertube('subscription/unsubscribe', { context: config.context, channelIds: channelChunk }, config);
+        await postInnertube(
+            'subscription/unsubscribe',
+            { context: config.context, channelIds: channelChunk },
+            config
+        );
         unsubscribedCount += channelChunk.length;
     }
 
@@ -2410,14 +2382,17 @@ async function unsubscribeChannels(payload) {
  * @param {string|null} error
  */
 function postBridgeResponse(requestId, success, data = null, error = null) {
-    window.postMessage({
-        source: BRIDGE_SOURCE,
-        type: RESPONSE_TYPE,
-        requestId,
-        success,
-        data,
-        error
-    }, '*');
+    window.postMessage(
+        {
+            source: BRIDGE_SOURCE,
+            type: RESPONSE_TYPE,
+            requestId,
+            success,
+            data,
+            error,
+        },
+        '*'
+    );
 }
 
 /**
@@ -2427,12 +2402,15 @@ function postBridgeResponse(requestId, success, data = null, error = null) {
  */
 function postBridgeProgress(requestId, data) {
     console.log('[PlaylistApi] postBridgeProgress:', { requestId, data });
-    window.postMessage({
-        source: BRIDGE_SOURCE,
-        type: 'YT_COMMANDER_BRIDGE_PROGRESS',
-        requestId,
-        data
-    }, '*');
+    window.postMessage(
+        {
+            source: BRIDGE_SOURCE,
+            type: 'YT_COMMANDER_BRIDGE_PROGRESS',
+            requestId,
+            data,
+        },
+        '*'
+    );
 }
 
 /**
@@ -2455,19 +2433,19 @@ async function handleBridgeRequest(message) {
             result = await addToPlaylists(payload, {
                 onProgress: (progress) => {
                     postBridgeProgress(requestId, progress);
-                }
+                },
             });
         } else if (action === ACTIONS.REMOVE_FROM_PLAYLIST) {
             result = await removeFromPlaylist(payload, {
                 onProgress: (progress) => {
                     postBridgeProgress(requestId, progress);
-                }
+                },
             });
         } else if (action === ACTIONS.CREATE_PLAYLIST_AND_ADD) {
             result = await createPlaylistAndAdd(payload, {
                 onProgress: (progress) => {
                     postBridgeProgress(requestId, progress);
-                }
+                },
             });
         } else if (action === ACTIONS.GET_SHORTS_UPLOAD_TIMESTAMPS) {
             result = await getShortsUploadTimestamps(payload);
@@ -2475,7 +2453,7 @@ async function handleBridgeRequest(message) {
             result = await deletePlaylists(payload, {
                 onProgress: (progress) => {
                     postBridgeProgress(requestId, progress);
-                }
+                },
             });
         } else if (action === ACTIONS.GET_SUBSCRIPTIONS) {
             result = await getSubscriptions(payload);
@@ -2529,17 +2507,4 @@ function initPlaylistApiBridge() {
 
 initPlaylistApiBridge();
 
-export {
-    initPlaylistApiBridge
-};
-
-
-
-
-
-
-
-
-
-
-
+export { initPlaylistApiBridge };
