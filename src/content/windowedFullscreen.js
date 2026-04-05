@@ -7,7 +7,6 @@
 import { createLogger } from './utils/logger.js';
 import { createThrottledObserver } from './utils/events.js';
 import { getActivePlayer, isShortsPage, isVideoPage } from './utils/youtube.js';
-import { normalizeShortcutKey, shortcutKeyEquals } from '../shared/shortcutKey.js';
 import {
     AUTO_WINDOWED_WARMUP_MS,
     BUTTON_ACTIVE_CLASS,
@@ -49,6 +48,10 @@ import {
     updateButtonState,
     removeButton as destroyButton,
 } from './windowed-fullscreen/ui.js';
+import {
+    matchesWindowedShortcut as checkWindowedShortcut,
+    shouldHandleWindowedShortcut as checkWindowedShortcutEligibility,
+} from './windowed-fullscreen/shortcuts-utils.js';
 
 const logger = createLogger('WindowedFullscreen');
 
@@ -426,11 +429,11 @@ function handleKeydown(event) {
         return;
     }
 
-    if (!matchesWindowedShortcut(event)) {
+    if (!checkWindowedShortcut(event, windowedShortcut, DEFAULT_WINDOWED_SHORTCUT)) {
         return;
     }
 
-    if (!shouldHandleWindowedShortcut(event)) {
+    if (!checkWindowedShortcutEligibility(event, isEnabled, isEligiblePage)) {
         return;
     }
 
@@ -472,21 +475,6 @@ function applyAutoWindowedMode() {
         lastAutoWindowedVideoId = watchVideoId;
         resetAutoWarmup();
     }
-}
-
-function matchesWindowedShortcut(event) {
-    if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) {
-        return false;
-    }
-
-    const expectedKey = normalizeShortcutKey(windowedShortcut, DEFAULT_WINDOWED_SHORTCUT);
-    const eventKey = typeof event.key === 'string' ? event.key : '';
-
-    if (!eventKey) {
-        return false;
-    }
-
-    return shortcutKeyEquals(eventKey, expectedKey);
 }
 
 function handleFullscreenChange() {
@@ -599,37 +587,6 @@ function findControlsHost() {
     }
 
     return player.querySelector('.ytp-left-controls');
-}
-
-function shouldHandleWindowedShortcut(event) {
-    if (!isEnabled || !isEligiblePage() || event.repeat) {
-        return false;
-    }
-
-    const active = document.activeElement;
-    if (!(active instanceof Element)) {
-        return true;
-    }
-
-    if (
-        active.matches('input, textarea, select, [contenteditable="true"]') ||
-        active.closest('input, textarea, select, [contenteditable="true"]')
-    ) {
-        return false;
-    }
-
-    if (active.closest('#movie_player, .html5-video-player')) {
-        return true;
-    }
-
-    if (
-        active.matches('button, a, [role="button"]') ||
-        active.closest('button, a, [role="button"]')
-    ) {
-        return false;
-    }
-
-    return true;
 }
 
 function updateSettings(newSettings) {
