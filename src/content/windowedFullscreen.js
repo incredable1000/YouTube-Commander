@@ -52,6 +52,7 @@ import {
     matchesWindowedShortcut as checkWindowedShortcut,
     shouldHandleWindowedShortcut as checkWindowedShortcutEligibility,
 } from './windowed-fullscreen/shortcuts-utils.js';
+import { isEligiblePage as checkEligiblePage } from './windowed-fullscreen/mode-utils.js';
 
 const logger = createLogger('WindowedFullscreen');
 
@@ -165,12 +166,8 @@ async function initWindowedFullscreen() {
     }
 }
 
-function isEligiblePage() {
-    return isVideoPage() && !isShortsPage();
-}
-
 function ensureButton() {
-    if (!isEnabled || !isEligiblePage()) {
+    if (!isEnabled || !checkEligiblePage(isVideoPage, isShortsPage)) {
         windowedButton = destroyButton(windowedButton);
         return;
     }
@@ -252,7 +249,7 @@ function toggleWindowedMode() {
 }
 
 function enterWindowedMode() {
-    if (!isEligiblePage()) {
+    if (!checkEligiblePage(isVideoPage, isShortsPage)) {
         return;
     }
 
@@ -391,7 +388,7 @@ function syncUiState() {
         return;
     }
 
-    if (!isEligiblePage()) {
+    if (!checkEligiblePage(isVideoPage, isShortsPage)) {
         if (isWindowed) {
             exitWindowedMode();
         }
@@ -433,7 +430,11 @@ function handleKeydown(event) {
         return;
     }
 
-    if (!checkWindowedShortcutEligibility(event, isEnabled, isEligiblePage)) {
+    if (
+        !checkWindowedShortcutEligibility(event, isEnabled, () =>
+            checkEligiblePage(isVideoPage, isShortsPage)
+        )
+    ) {
         return;
     }
 
