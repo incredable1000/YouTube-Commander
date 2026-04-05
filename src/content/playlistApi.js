@@ -11,7 +11,6 @@ import {
     buildInnertubeEndpoint,
     delay,
     chunk,
-    readText,
 } from './playlist-api/ytcfg-utils.js';
 import {
     parseJsonSafe,
@@ -32,6 +31,16 @@ import {
     normalizeThumbnailUrl,
     pickThumbnailUrl,
 } from './playlist-api/thumbnail-utils.js';
+import {
+    readText as readTextFromRenderer,
+    findPlaylistIdInNode,
+    normalizePrivacyStatus,
+    collectPlaylistOptions,
+    readPlaylistThumbnailUrl,
+    readPlaylistThumbnailFromBrowse,
+    readPlaylistFirstVideoThumbnail,
+    readPlaylistFirstVideoId,
+} from './playlist-api/playlist-data.js';
 
 const logger = createLogger('PlaylistApi');
 
@@ -432,248 +441,6 @@ async function mapWithConcurrency(items, concurrency, mapper) {
 
     await Promise.all(workers);
     return results;
-}
-
-/**
- * Find first playlist id in an arbitrary object tree.
- * @param {any} node
- * @param {WeakSet<object>} visited
- * @returns {string|null}
- */
-function findPlaylistIdInNode(node, visited = new WeakSet()) {
-    if (!node || typeof node !== 'object') {
-        return null;
-    }
-
-    if (visited.has(node)) {
-        return null;
-    }
-    visited.add(node);
-
-    if (typeof node.playlistId === 'string' && PLAYLIST_ID_PATTERN.test(node.playlistId)) {
-        return node.playlistId;
-    }
-
-    if (Array.isArray(node)) {
-        for (const item of node) {
-            const found = findPlaylistIdInNode(item, visited);
-            if (found) {
-                return found;
-            }
-        }
-        return null;
-    }
-
-    for (const value of Object.values(node)) {
-        if (value && typeof value === 'object') {
-            const found = findPlaylistIdInNode(value, visited);
-            if (found) {
-                return found;
-            }
-        }
-    }
-
-    return null;
-}
-
-/**
- * Normalize privacy status to API-friendly value.
- * @param {string} raw
- * @returns {'PUBLIC'|'UNLISTED'|'PRIVATE'}
- */
-function normalizePrivacyStatus(raw) {
-    const value = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
-    if (value === 'PUBLIC' || value === 'UNLISTED') {
-        return value;
-    }
-    return 'PRIVATE';
-}
-
-/**
- * Recursively collect playlist options from a get_add_to_playlist payload.
- * @param {any} node
- * @param {Map<string, {id: string, title: string, privacy: string, isSelected: boolean, thumbnailUrl?: string}>} output
- * @param {WeakSet<object>} visited
- */
-function collectPlaylistOptions(node, output, visited) {
-    if (!node || typeof node !== 'object') {
-        return;
-    }
-
-    if (visited.has(node)) {
-        return;
-    }
-    visited.add(node);
-
-    const renderer = node.playlistAddToOptionRenderer;
-    if (renderer && typeof renderer === 'object') {
-        const playlistId =
-            renderer.playlistId ||
-            renderer.addToPlaylistServiceEndpoint?.playlistEditEndpoint?.playlistId ||
-            renderer.navigationEndpoint?.watchEndpoint?.playlistId ||
-            '';
-
-        if (PLAYLIST_ID_PATTERN.test(playlistId)) {
-            const title =
-                readText(renderer.title) ||
-                readText(renderer.untoggledServiceEndpoint?.commandMetadata) ||
-                'Untitled playlist';
-            const privacy = readText(renderer.shortBylineText) || '';
-            const isSelected =
-                renderer.isSelected === true || renderer.containsSelectedVideos === true;
-            const thumbnailUrl = readPlaylistThumbnailUrl(renderer);
-
-            if (!output.has(playlistId)) {
-                output.set(playlistId, {
-                    id: playlistId,
-                    title,
-                    privacy,
-                    isSelected,
-                    thumbnailUrl,
-                });
-            } else if (isSelected) {
-                output.get(playlistId).isSelected = true;
-            }
-        }
-    }
-
-    if (Array.isArray(node)) {
-        node.forEach((item) => collectPlaylistOptions(item, output, visited));
-        return;
-    }
-
-    Object.values(node).forEach((value) => {
-        if (value && typeof value === 'object') {
-            collectPlaylistOptions(value, output, visited);
-        }
-    });
-}
-
-/**
- * Read a playlist thumbnail url from the renderer payload.
- * @param {any} renderer
- * @returns {string}
- */
-function readPlaylistThumbnailUrl(renderer) {
-    const directThumb = normalizeThumbnailUrl(pickThumbnailUrl(renderer?.thumbnail?.thumbnails));
-    if (directThumb) {
-        return directThumb;
-    }
-
-    const playlistThumb = normalizeThumbnailUrl(
-        pickThumbnailUrl(
-            renderer?.thumbnailRenderer?.playlistThumbnailRenderer?.thumbnail?.thumbnails
-        )
-    );
-    if (playlistThumb) {
-        return playlistThumb;
-    }
-
-    const fallbackThumb = normalizeThumbnailUrl(
-        pickThumbnailUrl(
-            renderer?.thumbnailRenderer?.playlistThumbnailRenderer?.defaultThumbnail?.thumbnails
-        )
-    );
-    if (fallbackThumb) {
-        return fallbackThumb;
-    }
-
-    return findThumbnailUrlDeep(renderer, new WeakSet(), 0);
-}
-
-/**
- * Read a playlist thumbnail from a browse response payload.
- * @param {any} body
- * @returns {string}
- */
-function readPlaylistThumbnailFromBrowse(body) {
-    const microThumb = normalizeThumbnailUrl(
-        pickThumbnailUrl(body?.microformat?.microformatDataRenderer?.thumbnail?.thumbnails)
-    );
-    if (microThumb) {
-        return microThumb;
-    }
-
-    const headerThumb = normalizeThumbnailUrl(
-        pickThumbnailUrl(body?.header?.playlistHeaderRenderer?.thumbnail?.thumbnails)
-    );
-    if (headerThumb) {
-        return headerThumb;
-    }
-
-    const headerAltThumb = normalizeThumbnailUrl(
-        pickThumbnailUrl(
-            body?.header?.playlistHeaderRenderer?.playlistHeaderBanner?.thumbnail?.thumbnails
-        )
-    );
-    if (headerAltThumb) {
-        return headerAltThumb;
-    }
-
-    const bannerThumb = normalizeThumbnailUrl(
-        pickThumbnailUrl(
-            body?.header?.playlistHeaderRenderer?.playlistHeaderBanner?.heroImage?.thumbnails
-        )
-    );
-    if (bannerThumb) {
-        return bannerThumb;
-    }
-
-    return findThumbnailUrlDeep(body, new WeakSet(), 0);
-}
-
-/**
- * Read the first video thumbnail from a playlist browse response.
- * @param {any} body
- * @returns {string}
- */
-function readPlaylistFirstVideoThumbnail(body) {
-    if (!body || typeof body !== 'object') {
-        return '';
-    }
-
-    const nodes = [];
-    collectNodesByKey(body, 'playlistVideoRenderer', nodes, new WeakSet(), 0, 8);
-    for (const renderer of nodes) {
-        const thumb = normalizeThumbnailUrl(pickThumbnailUrl(renderer?.thumbnail?.thumbnails));
-        if (thumb) {
-            return thumb;
-        }
-    }
-
-    return '';
-}
-
-/**
- * Read the first video id from a playlist payload.
- * @param {any} body
- * @returns {string}
- */
-function readPlaylistFirstVideoId(body) {
-    if (!body || typeof body !== 'object') {
-        return '';
-    }
-
-    const rendererKeys = [
-        'playlistVideoRenderer',
-        'playlistPanelVideoRenderer',
-        'videoRenderer',
-        'compactVideoRenderer',
-        'gridVideoRenderer',
-    ];
-
-    for (const key of rendererKeys) {
-        const nodes = [];
-        collectNodesByKey(body, key, nodes, new WeakSet(), 0, 8);
-        for (const renderer of nodes) {
-            const videoId = readVideoIdFromRenderer(renderer);
-            if (videoId) {
-                return videoId;
-            }
-        }
-    }
-
-    return '';
 }
 
 /**
