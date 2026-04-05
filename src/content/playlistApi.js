@@ -13,6 +13,25 @@ import {
     chunk,
     readText,
 } from './playlist-api/ytcfg-utils.js';
+import {
+    parseJsonSafe,
+    readApiError,
+    readTextValue,
+    parseRelativeAgeToTimestamp,
+    parseDateLikeValue,
+} from './playlist-api/parse-utils.js';
+import {
+    sanitizeVideoIds,
+    sanitizeChannelIds,
+    sanitizePlaylistIds,
+    sanitizePlaylistId,
+} from './playlist-api/sanitize-utils.js';
+import {
+    readVideoIdFromRenderer,
+    buildVideoThumbnailUrl,
+    normalizeThumbnailUrl,
+    pickThumbnailUrl,
+} from './playlist-api/thumbnail-utils.js';
 
 const logger = createLogger('PlaylistApi');
 
@@ -182,143 +201,6 @@ async function getInnertubeConfig() {
     }
 
     return { apiKey, context, headers };
-}
-
-/**
- * Parse JSON safely.
- * @param {string} text
- * @returns {any|null}
- */
-function parseJsonSafe(text) {
-    if (!text || typeof text !== 'string') {
-        return null;
-    }
-
-    try {
-        return JSON.parse(text);
-    } catch (_error) {
-        return null;
-    }
-}
-
-/**
- * Read readable API error from response payload.
- * @param {string} responseText
- * @returns {string}
- */
-function readApiError(responseText) {
-    if (!responseText) {
-        return 'Unknown YouTube API error.';
-    }
-
-    const payload = parseJsonSafe(responseText);
-    const parsedError =
-        payload?.error?.message ||
-        payload?.error?.errors?.[0]?.message ||
-        payload?.alerts?.[0]?.alertRenderer?.text?.simpleText;
-    if (parsedError) {
-        return String(parsedError);
-    }
-
-    return String(responseText).slice(0, 240);
-}
-
-/**
- * Extract simple text from renderer text nodes.
- * @param {any} value
- * @returns {string}
- */
-function readTextValue(value) {
-    if (typeof value === 'string') {
-        return value.trim();
-    }
-
-    if (!value || typeof value !== 'object') {
-        return '';
-    }
-
-    if (typeof value.simpleText === 'string') {
-        return value.simpleText.trim();
-    }
-
-    if (Array.isArray(value.runs)) {
-        const text = value.runs
-            .map((entry) => (typeof entry?.text === 'string' ? entry.text : ''))
-            .join('')
-            .trim();
-        if (text) {
-            return text;
-        }
-    }
-
-    return '';
-}
-
-/**
- * Parse relative age text to timestamp approximation.
- * @param {string} value
- * @returns {number|null}
- */
-function parseRelativeAgeToTimestamp(value) {
-    if (!value || typeof value !== 'string') {
-        return null;
-    }
-
-    const normalized = value.replace(/\s+/g, ' ').trim().toLowerCase();
-    if (!normalized) {
-        return null;
-    }
-
-    if (normalized === 'just now') {
-        return Date.now();
-    }
-
-    const match = normalized.match(/\b(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago\b/);
-    if (!match) {
-        return null;
-    }
-
-    const amount = Number.parseInt(match[1], 10);
-    if (!Number.isFinite(amount) || amount < 0) {
-        return null;
-    }
-
-    const unit = match[2];
-    const unitMs = {
-        second: 1000,
-        minute: 60 * 1000,
-        hour: 60 * 60 * 1000,
-        day: 24 * 60 * 60 * 1000,
-        week: 7 * 24 * 60 * 60 * 1000,
-        month: 30 * 24 * 60 * 60 * 1000,
-        year: 365 * 24 * 60 * 60 * 1000,
-    }[unit];
-
-    if (!unitMs) {
-        return null;
-    }
-
-    return Date.now() - amount * unitMs;
-}
-
-/**
- * Parse one date-like value to timestamp.
- * @param {any} value
- * @returns {number|null}
- */
-function parseDateLikeValue(value) {
-    const text = readTextValue(value);
-    if (!text) {
-        return null;
-    }
-
-    const normalized = /^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T00:00:00Z` : text;
-    const parsed = Date.parse(normalized);
-    if (Number.isFinite(parsed)) {
-        return parsed;
-    }
-
-    return parseRelativeAgeToTimestamp(text);
 }
 
 /**
@@ -516,95 +398,6 @@ async function postInnertube(paths, payload, config) {
     }
 
     throw lastError || new Error('Failed to communicate with YouTube API.');
-}
-
-/**
- * Validate and dedupe video IDs.
- * @param {string[]} rawVideoIds
- * @returns {string[]}
- */
-function sanitizeVideoIds(rawVideoIds) {
-    if (!Array.isArray(rawVideoIds)) {
-        return [];
-    }
-
-    const unique = new Set();
-    rawVideoIds.forEach((value) => {
-        if (typeof value !== 'string') {
-            return;
-        }
-
-        const trimmed = value.trim();
-        if (VIDEO_ID_PATTERN.test(trimmed)) {
-            unique.add(trimmed);
-        }
-    });
-
-    return Array.from(unique);
-}
-
-/**
- * Validate and dedupe channel IDs.
- * @param {string[]} rawChannelIds
- * @returns {string[]}
- */
-function sanitizeChannelIds(rawChannelIds) {
-    if (!Array.isArray(rawChannelIds)) {
-        return [];
-    }
-
-    const unique = new Set();
-    rawChannelIds.forEach((value) => {
-        if (typeof value !== 'string') {
-            return;
-        }
-
-        const trimmed = value.trim();
-        if (trimmed.startsWith('UC') && trimmed.length >= 22) {
-            unique.add(trimmed);
-        }
-    });
-
-    return Array.from(unique);
-}
-
-/**
- * Validate and dedupe playlist IDs.
- * @param {string[]} rawPlaylistIds
- * @returns {string[]}
- */
-function sanitizePlaylistIds(rawPlaylistIds) {
-    if (!Array.isArray(rawPlaylistIds)) {
-        return [];
-    }
-
-    const unique = new Set();
-    rawPlaylistIds.forEach((value) => {
-        if (typeof value !== 'string') {
-            return;
-        }
-
-        const trimmed = value.trim();
-        if (PLAYLIST_ID_PATTERN.test(trimmed)) {
-            unique.add(trimmed);
-        }
-    });
-
-    return Array.from(unique);
-}
-
-/**
- * Validate a single playlist id.
- * @param {string} rawPlaylistId
- * @returns {string}
- */
-function sanitizePlaylistId(rawPlaylistId) {
-    if (typeof rawPlaylistId !== 'string') {
-        return '';
-    }
-
-    const playlistId = rawPlaylistId.trim();
-    return PLAYLIST_ID_PATTERN.test(playlistId) ? playlistId : '';
 }
 
 /**
@@ -881,89 +674,6 @@ function readPlaylistFirstVideoId(body) {
     }
 
     return '';
-}
-
-/**
- * Extract video id from a renderer.
- * @param {any} renderer
- * @returns {string}
- */
-function readVideoIdFromRenderer(renderer) {
-    if (!renderer || typeof renderer !== 'object') {
-        return '';
-    }
-
-    const direct = typeof renderer.videoId === 'string' ? renderer.videoId : '';
-    if (VIDEO_ID_PATTERN.test(direct)) {
-        return direct;
-    }
-
-    const nested =
-        typeof renderer?.navigationEndpoint?.watchEndpoint?.videoId === 'string'
-            ? renderer.navigationEndpoint.watchEndpoint.videoId
-            : '';
-    return VIDEO_ID_PATTERN.test(nested) ? nested : '';
-}
-
-/**
- * Build a thumbnail URL from a video id.
- * @param {string} videoId
- * @returns {string}
- */
-function buildVideoThumbnailUrl(videoId) {
-    if (!VIDEO_ID_PATTERN.test(videoId)) {
-        return '';
-    }
-    return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
-}
-
-/**
- * Collect renderer nodes by key.
- * @param {any} node
- * @param {string} key
- * @param {any[]} out
- * @param {WeakSet<object>} visited
- * @param {number} depth
- * @param {number} maxDepth
- */
-function collectNodesByKey(node, key, out, visited, depth, maxDepth) {
-    if (!node || typeof node !== 'object' || depth > maxDepth) {
-        return;
-    }
-    if (visited.has(node)) {
-        return;
-    }
-    visited.add(node);
-
-    if (Array.isArray(node)) {
-        node.forEach((item) => collectNodesByKey(item, key, out, visited, depth + 1, maxDepth));
-        return;
-    }
-
-    if (node[key]) {
-        out.push(node[key]);
-    }
-
-    Object.values(node).forEach((value) => {
-        if (value && typeof value === 'object') {
-            collectNodesByKey(value, key, out, visited, depth + 1, maxDepth);
-        }
-    });
-}
-
-/**
- * Normalize a thumbnail URL.
- * @param {string} url
- * @returns {string}
- */
-function normalizeThumbnailUrl(url) {
-    if (!url || typeof url !== 'string') {
-        return '';
-    }
-    if (url.startsWith('//')) {
-        return `https:${url}`;
-    }
-    return url;
 }
 
 /**
@@ -2149,20 +1859,6 @@ async function getShortsUploadTimestamps(payload) {
     return {
         timestampsById,
     };
-}
-
-/**
- * Pick best thumbnail URL from a list.
- * @param {any} thumbnails
- * @returns {string}
- */
-function pickThumbnailUrl(thumbnails) {
-    if (!Array.isArray(thumbnails) || thumbnails.length === 0) {
-        return '';
-    }
-    const sorted = [...thumbnails].sort((a, b) => (a?.width || 0) - (b?.width || 0));
-    const best = sorted[sorted.length - 1];
-    return typeof best?.url === 'string' ? best.url : '';
 }
 
 /**
