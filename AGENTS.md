@@ -9,8 +9,8 @@ YouTube Commander is a Chrome extension (Manifest V3) that enhances YouTube with
 ## Build Commands
 
 ```bash
-npm run dev        # Start development server (outputs to dist-dev/)
-npm run build      # Production build to dist/
+npm run dev        # Development build (outputs to build_development/)
+npm run build      # Production build (outputs to build_production/)
 npm run preview    # Preview production build
 npm run lint       # Run ESLint
 npm run lint:fix   # Run ESLint with auto-fix
@@ -18,10 +18,11 @@ npm run format    # Format code with Prettier
 ```
 
 **Loading the Extension:**
-1. Run `npm run dev`
+
+1. Run `npm run dev` (development build)
 2. Open Chrome at `chrome://extensions/`
 3. Enable "Developer mode"
-4. Click "Load unpacked" and select the `dist-dev/` directory
+4. Click "Load unpacked" and select the `build_development/` directory
 
 **Pre-commit hooks:** Run automatically via Husky to lint and format staged files.
 
@@ -30,6 +31,7 @@ npm run format    # Format code with Prettier
 ## Code Style Guidelines
 
 ### General Principles
+
 - Use ES modules (`import`/`export`) - required for Vite build
 - Use 4-space indentation (no tabs)
 - Use single quotes for strings
@@ -39,6 +41,7 @@ npm run format    # Format code with Prettier
 - **Max 100 lines per function** (soft warning enforced by ESLint)
 
 ### File Organization
+
 ```
 src/
 ├── manifest.json                  # Extension manifest (do not rename)
@@ -57,14 +60,16 @@ src/
 ```
 
 ### Naming Conventions
-| Type | Convention | Example |
-|------|------------|---------|
-| Files | kebab-case | `quality-controls.js`, `watched-history.js` |
-| Functions/variables | camelCase | `setVideoQuality`, `userPreferredQuality` |
-| Constants | UPPER_SCREAMING_SNAKE_CASE | `LOG_LEVELS`, `DEFAULT_SETTINGS` |
-| CSS classes | kebab-case with `yt-commander-` prefix | `yt-commander-button` |
+
+| Type                | Convention                             | Example                                     |
+| ------------------- | -------------------------------------- | ------------------------------------------- |
+| Files               | kebab-case                             | `quality-controls.js`, `watched-history.js` |
+| Functions/variables | camelCase                              | `setVideoQuality`, `userPreferredQuality`   |
+| Constants           | UPPER_SCREAMING_SNAKE_CASE             | `LOG_LEVELS`, `DEFAULT_SETTINGS`            |
+| CSS classes         | kebab-case with `yt-commander-` prefix | `yt-commander-button`                       |
 
 ### Imports
+
 ```javascript
 // Local modules
 import { createLogger } from './utils/logger.js';
@@ -79,7 +84,9 @@ import { EXTENSION_PREFIX, DEFAULT_SETTINGS } from '../shared/constants.js';
 ## Module Structure
 
 ### Large File Strategy
+
 Files exceeding 600 lines should be split into a subdirectory:
+
 ```
 playlistMultiSelect.js (3000+ lines)
 ├── playlist-multi-select/
@@ -92,6 +99,7 @@ playlistMultiSelect.js (3000+ lines)
 ```
 
 ### Module Pattern
+
 ```javascript
 // Each feature module should export:
 export { init, enable, disable, cleanup };
@@ -99,6 +107,7 @@ export { specificFunction1, specificFunction2 };
 ```
 
 ### Shared State
+
 - Use `export const` or `export let` for module-level state
 - Import shared state from the primary module, not duplicate it
 - Avoid creating multiple instances of shared state
@@ -108,13 +117,15 @@ export { specificFunction1, specificFunction2 };
 ## DOM Creation Rules
 
 ### Use Shared Utilities
+
 Always prefer `utils/dom.js` for DOM operations:
+
 ```javascript
 // GOOD - uses shared utilities
 import { createEl, batchAppend } from './utils/dom.js';
 
-const elements = items.map(item => createEl('div', { className: 'item' }, item.name));
-batchAppend(container, elements);  // Single reflow
+const elements = items.map((item) => createEl('div', { className: 'item' }, item.name));
+batchAppend(container, elements); // Single reflow
 
 // BAD - inline DOM creation
 const div = document.createElement('div');
@@ -122,6 +133,7 @@ div.className = 'item';
 ```
 
 ### Available DOM Utilities
+
 ```javascript
 import { createEl, createFragment, batchAppend, mountOnce, batchRender } from './utils/dom.js';
 
@@ -138,7 +150,7 @@ batchAppend(parent, [el1, el2, el3]);
 mountOnce(element, parent, 'unique-key');
 
 // batchRender - Chunked rendering for large lists
-batchRender(items, item => createEl('div', {}, item.name), container, { chunkSize: 50 });
+batchRender(items, (item) => createEl('div', {}, item.name), container, { chunkSize: 50 });
 ```
 
 ---
@@ -159,18 +171,18 @@ batchRender(items, item => createEl('div', {}, item.name), container, { chunkSiz
 ```javascript
 // Wrap async operations
 try {
-  const result = await someAsyncOperation();
-  logger.info('Operation succeeded', { result });
+    const result = await someAsyncOperation();
+    logger.info('Operation succeeded', { result });
 } catch (error) {
-  logger.error('Operation failed', error);
-  // Handle gracefully
+    logger.error('Operation failed', error);
+    // Handle gracefully
 }
 
 // Wrap DOM operations
 try {
-  element.textContent = 'new value';
+    element.textContent = 'new value';
 } catch (error) {
-  logger.warn('Failed to update element', error);
+    logger.warn('Failed to update element', error);
 }
 ```
 
@@ -179,15 +191,18 @@ try {
 ## Chrome Extension Specific
 
 ### Content Scripts
+
 - Use `window.addEventListener` for message passing
 - Handle YouTube's SPA navigation with MutationObserver
 - Access YouTube's internal API via `document.getElementById('movie_player')`
 
 ### Background Scripts
+
 - Use the web extension polyfill: `import browser from 'webextension-polyfill'`
 - Handle extension lifecycle events
 
 ### Storage
+
 - Use `chrome.storage.local` for settings persistence
 - Keys should be defined in `src/shared/constants.js`
 
@@ -216,17 +231,18 @@ try {
 ## Testing New Code
 
 1. Make changes in `src/`
-2. Run `npm run dev` (hot reload enabled)
+2. Run `npm run dev` (outputs to `build_development/`)
 3. Reload extension in Chrome (`chrome://extensions/` → reload icon)
 4. Test on YouTube pages
 5. Run `npm run lint:fix` to auto-fix issues
-6. Run `npm run build` before committing
+6. Run `npm run build` before committing (outputs to `build_production/`)
 
 ---
 
 ## Constants Location
 
 All application constants should be defined in `src/shared/constants.js`:
+
 - Quality levels
 - YouTube selectors
 - Storage keys
