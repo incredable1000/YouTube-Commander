@@ -54,6 +54,20 @@ import {
     normalizeCategories,
     normalizeAssignments,
 } from './subscription-manager/data-utils.js';
+import {
+    resolveChannelCounts,
+    buildChannelMeta,
+    sortChannelsByName,
+    sortChannelsBySubscribers,
+} from './subscription-manager/channel-utils.js';
+import {
+    parseCountValue,
+    formatSubscriptionError,
+    formatCountLabel,
+    extractChannelIdFromUrl,
+    extractHandleFromUrl,
+    createVirtualSpacer,
+} from './subscription-manager/parse-utils.js';
 
 const logger = createLogger('SubscriptionManager');
 
@@ -695,46 +709,6 @@ function updateMastheadVisibility() {
     }
     mastheadSlot.style.display = isEligiblePage() ? '' : 'none';
 }
-/**
- * Extract channel ID from a YouTube URL.
- * @param {string} url
- * @returns {string}
- */
-function extractChannelIdFromUrl(url) {
-    if (typeof url !== 'string' || !url) {
-        return '';
-    }
-    try {
-        const parsed = new URL(url, location.origin);
-        if (parsed.pathname.startsWith('/channel/')) {
-            return parsed.pathname.split('/')[2] || '';
-        }
-    } catch (_error) {
-        return '';
-    }
-    return '';
-}
-
-/**
- * Extract handle from a YouTube URL.
- * @param {string} url
- * @returns {string}
- */
-function extractHandleFromUrl(url) {
-    if (typeof url !== 'string' || !url) {
-        return '';
-    }
-    try {
-        const parsed = new URL(url, location.origin);
-        if (parsed.pathname.startsWith('/@')) {
-            return parsed.pathname.split('/')[1] || '';
-        }
-    } catch (_error) {
-        return '';
-    }
-    return '';
-}
-
 /**
  * Resolve channel identity near a subscribe renderer.
  * @param {Element|null} renderer
@@ -2477,31 +2451,6 @@ function setStatus(message, kind = 'info') {
 }
 
 /**
- * Format subscription load errors for the UI.
- * @param {any} error
- * @returns {string}
- */
-function formatSubscriptionError(error) {
-    const raw = typeof error?.message === 'string' ? error.message : '';
-    if (!raw) {
-        return 'Failed to load subscriptions.';
-    }
-
-    if (/precondition check failed/i.test(raw)) {
-        return 'YouTube blocked this request (precondition check failed). Make sure you are signed in, open a normal YouTube page, then try again.';
-    }
-
-    if (/api key is unavailable/i.test(raw)) {
-        return 'YouTube API key is unavailable on this page. Open a standard YouTube page and retry.';
-    }
-
-    if (/timed out/i.test(raw)) {
-        return 'Subscription request timed out. Please try again.';
-    }
-
-    return raw;
-}
-/**
  * Update selection UI.
  */
 function updateSelectionSummary() {
@@ -3310,159 +3259,15 @@ async function loadSubscriptions(options = {}) {
 }
 
 /**
- * Build meta label for channel.
- * @param {object} channel
- * @returns {string}
- */
-function buildChannelMeta(channel) {
-    const bits = [];
-    if (channel?.handle) {
-        bits.push(channel.handle);
-    }
-    if (channel?.subscriberCount) {
-        bits.push(channel.subscriberCount);
-    }
-    if (channel?.videoCount) {
-        bits.push(channel.videoCount);
-    }
-    return bits.join(' | ');
-}
-
-/**
- * Parse count label to numeric value.
- * @param {string | number | null | undefined} value
- * @returns {number}
- */
-function parseCountValue(value) {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-        return value;
-    }
-    const text = String(value ?? '').trim();
-    if (!text || text === '-' || text.startsWith('@')) {
-        return 0;
-    }
-    const cleaned = text
-        .replace(/,/g, '')
-        .replace(/subscribers?/i, '')
-        .trim();
-    const match = cleaned.match(/([\d.]+)\s*([kmb])?/i);
-    if (!match) {
-        return 0;
-    }
-    let numberValue = parseFloat(match[1]);
-    if (!Number.isFinite(numberValue)) {
-        return 0;
-    }
-    const suffix = (match[2] || '').toLowerCase();
-    if (suffix === 'k') {
-        numberValue *= 1000;
-    } else if (suffix === 'm') {
-        numberValue *= 1000000;
-    } else if (suffix === 'b') {
-        numberValue *= 1000000000;
-    }
-    return numberValue;
-}
-
-/**
- * Compare channel names.
- * @param {object} a
- * @param {object} b
- * @returns {number}
- */
-function compareChannelName(a, b) {
-    return (a?.title || '').localeCompare(b?.title || '', undefined, { sensitivity: 'base' });
-}
-
-/**
  * Sort channels based on active mode.
  * @param {Array<object>} list
  * @returns {Array<object>}
  */
 function sortChannels(list) {
-    if (sortMode !== 'subscribers') {
-        return list;
+    if (sortMode === 'subscribers') {
+        return sortChannelsBySubscribers(list);
     }
-    return [...list].sort((a, b) => {
-        const aValue = parseCountValue(resolveChannelCounts(a).subscribers);
-        const bValue = parseCountValue(resolveChannelCounts(b).subscribers);
-        if (bValue !== aValue) {
-            return bValue - aValue;
-        }
-        return compareChannelName(a, b);
-    });
-}
-
-/**
- * Normalize count labels for display.
- * @param {string | number | null | undefined} value
- * @param {'subscribers' | 'videos'} kind
- * @returns {string}
- */
-function formatCountLabel(value, kind) {
-    if (value === null || value === undefined) {
-        return '-';
-    }
-    if (typeof value === 'number' && Number.isFinite(value)) {
-        return value.toLocaleString();
-    }
-    let text = String(value).trim();
-    if (!text) {
-        return '-';
-    }
-    if (text.startsWith('@')) {
-        return '-';
-    }
-    if (kind === 'subscribers') {
-        text = text.replace(/subscribers?/i, '').trim();
-    } else if (kind === 'videos') {
-        text = text.replace(/videos?/i, '').trim();
-    }
-    return text || '-';
-}
-
-/**
- * Resolve subscriber/video counts even if source fields are swapped.
- * @param {object} channel
- * @returns {{subscribers: string, videos: string}}
- */
-function resolveChannelCounts(channel) {
-    const subRaw =
-        typeof channel?.subscriberCount === 'string' ? channel.subscriberCount.trim() : '';
-    const vidRaw = typeof channel?.videoCount === 'string' ? channel.videoCount.trim() : '';
-    const subHasHandle = subRaw.startsWith('@');
-    const subHasSubscribers = /subscribers?/i.test(subRaw);
-    const subHasVideos = /videos?/i.test(subRaw);
-    const vidHasSubscribers = /subscribers?/i.test(vidRaw);
-    const vidHasVideos = /videos?/i.test(vidRaw);
-    const subIsCount = !subHasHandle && /\d/.test(subRaw);
-    const vidIsCount = !vidRaw.startsWith('@') && /\d/.test(vidRaw);
-
-    let subscriberValue = '';
-    let videoValue = '';
-
-    if (subHasSubscribers) {
-        subscriberValue = subRaw;
-    } else if (vidHasSubscribers) {
-        subscriberValue = vidRaw;
-    } else if (subIsCount) {
-        subscriberValue = subRaw;
-    } else if (vidIsCount && subHasHandle) {
-        subscriberValue = vidRaw;
-    }
-
-    if (vidHasVideos) {
-        videoValue = vidRaw;
-    } else if (subHasVideos) {
-        videoValue = subRaw;
-    } else if (vidIsCount && !vidHasSubscribers) {
-        videoValue = vidRaw;
-    }
-
-    return {
-        subscribers: formatCountLabel(subscriberValue, 'subscribers'),
-        videos: formatCountLabel(videoValue, 'videos'),
-    };
+    return sortChannelsByName(list);
 }
 
 /**
@@ -3502,12 +3307,6 @@ function buildCategoryBadges(channelId) {
     });
 
     return wrapper;
-}
-function createVirtualSpacer(height) {
-    const spacer = document.createElement('div');
-    spacer.className = 'yt-commander-sub-manager-virtual-spacer';
-    spacer.style.height = `${Math.max(0, height)}px`;
-    return spacer;
 }
 
 function buildCard(channel) {
@@ -3615,6 +3414,74 @@ function renderCards(pageItems, options = {}) {
     }
 
     cardsWrap.appendChild(fragment);
+}
+
+let filterMenuEl = null;
+
+function closeFilterMenu() {
+    if (filterMenuEl && filterMenuEl.isConnected) {
+        filterMenuEl.remove();
+        filterMenuEl = null;
+    }
+}
+
+function computeCardRange(totalCount) {
+    if (!cardsWrap || totalCount === 0) {
+        return {
+            startIndex: 0,
+            endIndex: 0,
+            columns: 1,
+            topSpacerHeight: 0,
+            bottomSpacerHeight: 0,
+        };
+    }
+    const containerWidth = cardsWrap.clientWidth || 800;
+    const columns = Math.max(
+        1,
+        Math.floor((containerWidth + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP))
+    );
+    const rowHeight = cardRowHeight;
+    const viewportHeight = mainWrap ? mainWrap.clientHeight : 600;
+    const scrollTop = mainWrap ? mainWrap.scrollTop : 0;
+    const overscan = VIRTUAL_OVERSCAN;
+
+    const rowsInViewport = Math.ceil(viewportHeight / rowHeight) + overscan * 2;
+    const startRow = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
+    const startIndex = Math.max(0, startRow * columns);
+    const endRow = startRow + rowsInViewport;
+    const endIndex = Math.min(totalCount, endRow * columns);
+
+    const totalRows = Math.ceil(totalCount / columns);
+    const topSpacerHeight = startRow * rowHeight;
+    const bottomSpacerHeight = Math.max(0, (totalRows - endRow) * rowHeight);
+
+    return { startIndex, endIndex, columns, topSpacerHeight, bottomSpacerHeight };
+}
+
+function isSameRange(a, b) {
+    if (!a || !b) {
+        return false;
+    }
+    return a.startIndex === b.startIndex && a.endIndex === b.endIndex && a.columns === b.columns;
+}
+
+let measuredCardHeight = 0;
+
+function measureCardMetrics() {
+    if (!cardsWrap || !cardsWrap.firstChild) {
+        return false;
+    }
+    const firstCard = cardsWrap.querySelector('.yt-commander-sub-manager-card');
+    if (!firstCard) {
+        return false;
+    }
+    const height = firstCard.offsetHeight;
+    if (height > 0 && height !== measuredCardHeight) {
+        cardRowHeight = height + CARD_GAP;
+        measuredCardHeight = height;
+        return true;
+    }
+    return false;
 }
 
 /**
