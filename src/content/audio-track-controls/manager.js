@@ -8,10 +8,11 @@ import {
     getActiveVideo,
     getYouTubePlayer,
     isShortsPage,
-    isVideoPage
+    isVideoPage,
 } from '../utils/youtube.js';
 import { AUDIO_MESSAGE_TYPES, AUTO_SWITCH_DELAYS, RETRY_DELAYS_MS } from './constants.js';
 import { normalizeTrack, pickPreferredTrack } from './trackUtils.js';
+import { extractVideoId, buildVideoKey } from './utils.js';
 
 const logger = createLogger('AudioTracks');
 
@@ -126,37 +127,10 @@ class YouTubeAudioTrackManager {
         return document.querySelector('video.html5-main-video, video');
     }
 
-    extractVideoId(url = location.href) {
-        try {
-            const urlObj = new URL(url);
-
-            if (urlObj.pathname === '/watch') {
-                return urlObj.searchParams.get('v');
-            }
-
-            if (urlObj.pathname.startsWith('/shorts/')) {
-                const id = urlObj.pathname.split('/shorts/')[1] || '';
-                return id.split('/')[0] || null;
-            }
-        } catch (_error) {
-            return null;
-        }
-
-        return null;
-    }
-
     buildVideoKey() {
-        const videoId = this.extractVideoId();
-        if (videoId) {
-            return videoId;
-        }
-
+        const videoId = extractVideoId();
         const video = this.getVideoElement();
-        if (video?.currentSrc) {
-            return `${location.pathname}|${video.currentSrc}`;
-        }
-
-        return location.pathname;
+        return buildVideoKey(videoId, video);
     }
 
     isShortsPage() {
@@ -196,13 +170,16 @@ class YouTubeAudioTrackManager {
                 availableTracks = player.getAvailableAudioTracks() || [];
             }
 
-            if ((!availableTracks || availableTracks.length === 0) && video?.audioTracks?.length > 0) {
+            if (
+                (!availableTracks || availableTracks.length === 0) &&
+                video?.audioTracks?.length > 0
+            ) {
                 availableTracks = Array.from(video.audioTracks).map((track, index) => ({
                     id: track?.id || String(index),
                     label: track?.label || track?.language || track?.id || `Track ${index + 1}`,
                     language: track?.language,
                     kind: track?.kind || 'main',
-                    enabled: track?.enabled === true
+                    enabled: track?.enabled === true,
                 }));
             }
 
@@ -212,11 +189,12 @@ class YouTubeAudioTrackManager {
             }
 
             if (!currentTrackId) {
-                const explicit = availableTracks.find((track) =>
-                    track?.enabled === true
-                    || track?.isDefault === true
-                    || track?.isActive === true
-                    || track?.isSelected === true
+                const explicit = availableTracks.find(
+                    (track) =>
+                        track?.enabled === true ||
+                        track?.isDefault === true ||
+                        track?.isActive === true ||
+                        track?.isSelected === true
                 );
                 currentTrackId = explicit?.id || null;
             }
@@ -249,7 +227,10 @@ class YouTubeAudioTrackManager {
                 return false;
             }
 
-            if (typeof player.setAudioTrack === 'function' && typeof player.getAvailableAudioTracks === 'function') {
+            if (
+                typeof player.setAudioTrack === 'function' &&
+                typeof player.getAvailableAudioTracks === 'function'
+            ) {
                 const availableTracks = player.getAvailableAudioTracks() || [];
                 const targetTrack = availableTracks.find((track) => track.id === trackId);
                 if (!targetTrack) {
@@ -371,7 +352,7 @@ class YouTubeAudioTrackManager {
             this.currentTrackId = targetTrack.id;
             this.debugLog(`Auto-switched (${reason})`, {
                 track: targetTrack.label,
-                videoKey: this.currentVideoKey
+                videoKey: this.currentVideoKey,
             });
             return 'success';
         } catch (error) {
@@ -523,7 +504,7 @@ class YouTubeAudioTrackManager {
 
         navigationObserver.observe(document.body, {
             childList: true,
-            subtree: true
+            subtree: true,
         });
 
         this.observers.push(navigationObserver);
@@ -540,8 +521,10 @@ class YouTubeAudioTrackManager {
                     return mutation.attributeName === 'is-active';
                 }
 
-                return mutation.type === 'childList'
-                    && (mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0);
+                return (
+                    mutation.type === 'childList' &&
+                    (mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0)
+                );
             });
 
             if (hasActiveShortChange) {
@@ -553,7 +536,7 @@ class YouTubeAudioTrackManager {
             childList: true,
             subtree: true,
             attributes: true,
-            attributeFilter: ['is-active']
+            attributeFilter: ['is-active'],
         });
 
         this.observers.push(shortsObserver);
@@ -664,7 +647,4 @@ class YouTubeAudioTrackManager {
     }
 }
 
-export {
-    YouTubeAudioTrackManager,
-    logger
-};
+export { YouTubeAudioTrackManager, logger };
