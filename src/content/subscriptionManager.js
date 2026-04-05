@@ -32,6 +32,7 @@ import {
     SNAPSHOT_TTL_MS,
     ICONS,
 } from './subscription-manager/constants.js';
+import { state } from './subscription-manager/state.js';
 import { setTooltip, clearTooltip } from './subscription-manager/tooltip-utils.js';
 import { storageGet, storageSet } from './subscription-manager/storage-utils.js';
 import {
@@ -59,6 +60,8 @@ import {
     buildChannelMeta,
     sortChannelsByName,
     sortChannelsBySubscribers,
+    computeSnapshotHash,
+    rebuildChannelIndexes,
 } from './subscription-manager/channel-utils.js';
 import {
     parseCountValue,
@@ -68,6 +71,89 @@ import {
     extractHandleFromUrl,
     createVirtualSpacer,
 } from './subscription-manager/parse-utils.js';
+import {
+    markCategoriesDirty,
+    markAssignmentsDirty,
+    getCategoryCounts,
+    readChannelAssignments,
+    writeChannelAssignments,
+    loadLocalState,
+    persistLocalState,
+    persistViewState,
+    persistSidebarState,
+    persistSnapshot,
+    hydrateSnapshotFromStorage,
+    markPending,
+} from './subscription-manager/channel-storage.js';
+import {
+    resetSidebarDraftState,
+    captureSidebarDraftState,
+    startSidebarCreate,
+    startSidebarEdit,
+    commitSidebarInput,
+    updateCategoryColor,
+    removeCategory,
+    getCategoryLabel,
+} from './subscription-manager/sidebar-utils.js';
+import {
+    renderSidebarCategories,
+    updateSidebarToggleButton,
+    updateSortButton,
+    updateChipbarNavButtons,
+    attachChipbarWheelScroll,
+    scrollChipbarBy,
+    applySidebarState,
+} from './subscription-manager/sidebar-ui.js';
+import {
+    buildQuickAddButton,
+    getQuickAddIdentityFromButton,
+    updateQuickAddButtonState,
+    refreshQuickAddButtons,
+    resolveSubscribeRendererForQuickAdd,
+    ensureQuickAddButtons,
+    scheduleQuickAddScan,
+    startQuickAddObserver,
+    isQuickAddPage,
+} from './subscription-manager/quick-add.js';
+import {
+    resolveChannelIdentityFromContext,
+    resolveChannelIdFromIdentity,
+    resolveAssignmentKeyForWrite,
+    readChannelIdFromElement,
+    getHandleAssignmentKey,
+    getUrlAssignmentKey,
+    resolveAssignmentKeyForRead,
+    migrateAssignmentKeyIfNeeded,
+} from './subscription-manager/channel-identity.js';
+import {
+    filterChannels,
+    buildCard,
+    renderCards,
+    renderVirtualizedList,
+    queueVirtualRender,
+} from './subscription-manager/card-utils.js';
+import {
+    createModalElements,
+    ensureConfirmDialog,
+    showConfirmDialog,
+    closeConfirmDialog,
+    ensureTooltipPortal,
+    hideTooltipPortal,
+} from './subscription-manager/modal-utils.js';
+import {
+    updateSelectionSummary,
+    applyChannelSelection,
+    toggleChannelSelection,
+} from './subscription-manager/selection-utils.js';
+import {
+    ensurePickerAll,
+    openPickerAll,
+    closePickerAll,
+    createPickerContextAnchorAll,
+    positionPickerAll,
+} from './subscription-manager/picker-utils.js';
+import { setStatus } from './subscription-manager/status-utils.js';
+import { applyCategoryUpdate } from './subscription-manager/category-ops.js';
 
 const logger = createLogger('SubscriptionManager');
 
@@ -176,38 +262,12 @@ let pendingVirtualForce = false;
  * @param {string} label
  * @param {{ tooltip?: string }} [options]
  */
-function applySidebarTooltip(el, label, options = {}) {
-    if (!el) {
-        return;
-    }
-    const tooltipText =
-        typeof options.tooltip === 'string' && options.tooltip.trim() ? options.tooltip : label;
-    if (sidebar?.classList.contains('yt-commander-sub-manager-chipbar')) {
-        setTooltip(el, tooltipText);
-        return;
-    }
-    if (sidebarCollapsed) {
-        setTooltip(el, tooltipText);
-        return;
-    }
-    clearTooltip(el);
-}
 
 /**
  * Get single-letter initial.
  * @param {string} label
  * @returns {string}
  */
-function getSidebarInitial(label) {
-    if (typeof label !== 'string') {
-        return '';
-    }
-    const trimmed = label.trim();
-    if (!trimmed) {
-        return '';
-    }
-    return trimmed[0].toUpperCase();
-}
 
 /**
  * Normalize color to hex for color input controls.
@@ -388,271 +448,63 @@ function openUrlInBackground(url) {
  * Rebuild channel lookup maps.
  * @param {Array<object>} list
  */
-function rebuildChannelIndexes(list) {
-    channelsById = new Map();
-    channelsByHandle = new Map();
-    channelsByUrl = new Map();
-
-    (list || []).forEach((channel) => {
-        const channelId = typeof channel?.channelId === 'string' ? channel.channelId : '';
-        const handle = typeof channel?.handle === 'string' ? channel.handle : '';
-        const url = typeof channel?.url === 'string' ? channel.url : '';
-        if (channelId) {
-            channelsById.set(channelId, channel);
-        }
-        const normalizedHandle = normalizeHandle(handle);
-        if (normalizedHandle) {
-            channelsByHandle.set(
-                normalizedHandle,
-                channelId || channelsByHandle.get(normalizedHandle) || ''
-            );
-            channelsByHandle.set(
-                normalizedHandle.replace(/^@/, ''),
-                channelId || channelsByHandle.get(normalizedHandle.replace(/^@/, '')) || ''
-            );
-        }
-        const normalizedUrl = normalizeChannelUrl(url);
-        if (normalizedUrl) {
-            channelsByUrl.set(normalizedUrl, channelId || channelsByUrl.get(normalizedUrl) || '');
-        }
-    });
-
-    channelsVersion += 1;
-    categoryCountsCacheKey = '';
-}
-
 /**
  * Mark categories changed for memoized views.
  */
-function markCategoriesDirty() {
-    categoriesVersion += 1;
-    categoryCountsCacheKey = '';
-}
-
 /**
  * Mark assignments changed for memoized views.
  */
-function markAssignmentsDirty() {
-    assignmentsVersion += 1;
-    assignmentCache.clear();
-    categoryCountsCacheKey = '';
-}
-
 /**
  * Memoized category counts.
  * @returns {Record<string, number>}
  */
-function getCategoryCounts() {
-    const key = `${channelsVersion}:${assignmentsVersion}:${categoriesVersion}`;
-    if (categoryCountsCacheKey === key && categoryCountsCache) {
-        return categoryCountsCache;
-    }
-
-    const counts = { all: channels.length, uncategorized: 0 };
-    categories.forEach((category) => {
-        counts[category.id] = 0;
-    });
-
-    channels.forEach((channel) => {
-        const channelId = channel?.channelId || '';
-        if (!channelId) {
-            return;
-        }
-        const assigned = readChannelAssignments(channelId);
-        if (!assigned || assigned.length === 0) {
-            counts.uncategorized += 1;
-            return;
-        }
-        assigned.forEach((categoryId) => {
-            if (typeof counts[categoryId] === 'number') {
-                counts[categoryId] += 1;
-            }
-        });
-    });
-
-    categoryCountsCache = counts;
-    categoryCountsCacheKey = key;
-    return counts;
-}
-
 /**
  * Load stored category and assignment data.
  * @returns {Promise<void>}
  */
-async function loadLocalState() {
-    const result = await storageGet([
-        STORAGE_KEYS.CATEGORIES,
-        STORAGE_KEYS.ASSIGNMENTS,
-        STORAGE_KEYS.FILTER,
-        STORAGE_KEYS.SORT,
-        STORAGE_KEYS.SIDEBAR_COLLAPSED,
-    ]);
-
-    categories = normalizeCategories(result[STORAGE_KEYS.CATEGORIES]);
-    assignments = normalizeAssignments(result[STORAGE_KEYS.ASSIGNMENTS]);
-    markCategoriesDirty();
-    markAssignmentsDirty();
-    filterMode =
-        typeof result[STORAGE_KEYS.FILTER] === 'string' ? result[STORAGE_KEYS.FILTER] : 'all';
-    sortMode = result[STORAGE_KEYS.SORT] === 'subscribers' ? 'subscribers' : 'name';
-    sidebarCollapsed = result[STORAGE_KEYS.SIDEBAR_COLLAPSED] === true;
-}
 
 /**
  * Persist categories + assignments.
  * @returns {Promise<void>}
  */
-async function persistLocalState() {
-    await storageSet({
-        [STORAGE_KEYS.CATEGORIES]: categories,
-        [STORAGE_KEYS.ASSIGNMENTS]: assignments,
-    });
-}
 
 /**
  * Persist view and filter settings.
  * @returns {Promise<void>}
  */
-async function persistViewState() {
-    await storageSet({
-        [STORAGE_KEYS.FILTER]: filterMode,
-        [STORAGE_KEYS.SORT]: sortMode,
-    });
-}
 
 /**
  * Read channel assignments.
  * @param {string} channelId
  * @returns {string[]}
  */
-function readChannelAssignments(channelId) {
-    if (!channelId) {
-        return [];
-    }
-    if (assignmentCache.has(channelId)) {
-        return assignmentCache.get(channelId);
-    }
-    const list = assignments[channelId];
-    const normalized = Array.isArray(list) ? list : [];
-    const singleton = normalized.length > 0 ? [normalized[0]] : [];
-    assignmentCache.set(channelId, singleton);
-    return singleton;
-}
-
 /**
  * Update assignments for channel.
  * @param {string} channelId
  * @param {string[]} next
  */
-function writeChannelAssignments(channelId, next) {
-    if (!channelId) {
-        return;
-    }
-    const normalized = Array.from(new Set(next)).slice(0, 1);
-    if (normalized.length === 0) {
-        delete assignments[channelId];
-        assignmentCache.delete(channelId);
-        markAssignmentsDirty();
-        return;
-    }
-    assignments[channelId] = normalized;
-    assignmentCache.set(channelId, normalized);
-    markAssignmentsDirty();
-}
-
 /**
  * Compute a stable hash for subscription IDs.
  * @param {Array<{channelId: string}>} list
  * @returns {string}
  */
-function computeSnapshotHash(list) {
-    if (!Array.isArray(list)) {
-        return '';
-    }
-    return list
-        .map((item) => item?.channelId)
-        .filter((id) => typeof id === 'string' && id)
-        .sort()
-        .join('|');
-}
-
 /**
  * Save snapshot to storage.
  * @param {Array<object>} list
  * @param {string} hash
  * @returns {Promise<void>}
  */
-async function persistSnapshot(list, hash) {
-    await storageSet({
-        [STORAGE_KEYS.SNAPSHOT]: {
-            channels: list,
-            fetchedAt: Date.now(),
-            hash,
-        },
-    });
-}
+
 /**
  * Hydrate snapshot from storage for fast rendering.
  * @returns {Promise<boolean>}
  */
-async function hydrateSnapshotFromStorage() {
-    const stored = await storageGet([STORAGE_KEYS.SNAPSHOT]);
-    const snapshot = stored?.[STORAGE_KEYS.SNAPSHOT];
-    if (!snapshot || !Array.isArray(snapshot.channels)) {
-        return false;
-    }
-
-    const fetchedAt = Number(snapshot.fetchedAt) || 0;
-    if (channels.length > 0 && fetchedAt <= channelsFetchedAt) {
-        return true;
-    }
-
-    channels = snapshot.channels;
-    channelsFetchedAt = fetchedAt;
-    lastSnapshotHash =
-        typeof snapshot.hash === 'string' ? snapshot.hash : computeSnapshotHash(channels);
-    rebuildChannelIndexes(channels);
-    refreshQuickAddButtons();
-    return true;
-}
 
 /**
  * Mark pending sync keys.
  * @param {string[]} keys
  * @returns {Promise<void>}
  */
-async function markPending(keys) {
-    if (!Array.isArray(keys) || keys.length === 0) {
-        return;
-    }
-    const result = await storageGet([STORAGE_KEYS.PENDING_KEYS]);
-    const existing = Array.isArray(result[STORAGE_KEYS.PENDING_KEYS])
-        ? result[STORAGE_KEYS.PENDING_KEYS]
-        : [];
-    const set = new Set(existing);
-    keys.forEach((key) => {
-        if (typeof key === 'string' && key) {
-            set.add(key);
-        }
-    });
-    const next = Array.from(set);
-    await storageSet({
-        [STORAGE_KEYS.PENDING_KEYS]: next,
-        [STORAGE_KEYS.PENDING_COUNT]: next.length,
-    });
-
-    chrome.runtime.sendMessage(
-        {
-            type: 'SUBSCRIPTION_MANAGER_UPDATED',
-            pendingCount: next.length,
-        },
-        () => {
-            if (chrome.runtime.lastError) {
-                return;
-            }
-        }
-    );
-}
 
 /**
  * Ensure masthead slot exists.
@@ -714,409 +566,30 @@ function updateMastheadVisibility() {
  * @param {Element|null} renderer
  * @returns {{channelId: string, handle: string, url: string}}
  */
-function readChannelIdFromElement(element) {
-    if (!element) {
-        return '';
-    }
-    return (
-        element.getAttribute('channel-external-id') ||
-        element.getAttribute('channel-id') ||
-        element.getAttribute('data-channel-external-id') ||
-        element.getAttribute('data-channel-id') ||
-        element.dataset?.channelExternalId ||
-        element.dataset?.channelId ||
-        ''
-    );
-}
 
-function resolveChannelIdentityFromContext(renderer) {
-    let channelId = '';
-    let handle = '';
-    let url = '';
-
-    if (renderer) {
-        channelId = readChannelIdFromElement(renderer);
-    }
-
-    if (!channelId) {
-        const flexy = document.querySelector('ytd-watch-flexy');
-        channelId = readChannelIdFromElement(flexy);
-    }
-
-    if (!channelId) {
-        const reelHost = renderer?.closest('ytd-reel-video-renderer');
-        channelId = readChannelIdFromElement(reelHost);
-    }
-
-    if (!channelId) {
-        const reel = document.querySelector(
-            'ytd-reel-video-renderer[is-active], ytd-reel-video-renderer[active]'
-        );
-        channelId = readChannelIdFromElement(reel);
-    }
-
-    if (!channelId) {
-        const reelHeader = document.querySelector(
-            'ytd-reel-player-header-renderer, ytd-reel-player-overlay-renderer'
-        );
-        channelId = readChannelIdFromElement(reelHeader);
-    }
-
-    if (!channelId) {
-        const owner = document.querySelector(
-            'ytd-video-owner-renderer, ytd-channel-name, ytd-channel-header-renderer'
-        );
-        channelId = readChannelIdFromElement(owner);
-    }
-
-    if (!channelId) {
-        const metaChannel = document.querySelector('meta[itemprop="channelId"]');
-        channelId = metaChannel?.getAttribute('content') || '';
-    }
-
-    const context = renderer?.closest(QUICK_ADD_CONTEXT_SELECTOR) || renderer;
-    const link = context?.querySelector('a[href^="/channel/"], a[href^="/@"]');
-    if (link) {
-        url = link.getAttribute('href') || '';
-    }
-
-    if (!url) {
-        const ownerLink = document.querySelector(
-            'ytd-video-owner-renderer a[href^="/channel/"], ytd-video-owner-renderer a[href^="/@"], ytd-channel-name a[href^="/channel/"], ytd-channel-name a[href^="/@"]'
-        );
-        url = ownerLink?.getAttribute('href') || '';
-    }
-
-    if (!url) {
-        const reelLink = document.querySelector(
-            'ytd-reel-player-header-renderer a[href^="/channel/"], ytd-reel-player-header-renderer a[href^="/@"], ytd-reel-player-overlay-renderer a[href^="/channel/"], ytd-reel-player-overlay-renderer a[href^="/@"]'
-        );
-        url = reelLink?.getAttribute('href') || '';
-    }
-
-    if (!url) {
-        const canonical =
-            document.querySelector('link[rel="canonical"]')?.getAttribute('href') || '';
-        url = canonical;
-    }
-
-    handle = extractHandleFromUrl(url) || '';
-    if (!handle && renderer) {
-        const labelText =
-            renderer.querySelector('button[aria-label]')?.getAttribute('aria-label') || '';
-        const handleMatch = labelText.match(/@[\w.-]+/i);
-        handle = handleMatch ? handleMatch[0] : '';
-    }
-    if (!channelId) {
-        channelId = extractChannelIdFromUrl(url);
-    }
-
-    return { channelId, handle, url };
-}
 
 /**
  * Resolve channel ID from cached indexes.
  * @param {{channelId: string, handle: string, url: string}} identity
  * @returns {string}
  */
-function resolveChannelIdFromIdentity(identity) {
-    if (identity.channelId && channelsById.has(identity.channelId)) {
-        return identity.channelId;
-    }
-    const normalizedHandle = normalizeHandle(identity.handle);
-    if (normalizedHandle && channelsByHandle.has(normalizedHandle)) {
-        return channelsByHandle.get(normalizedHandle) || '';
-    }
-    if (normalizedHandle && channelsByHandle.has(normalizedHandle.replace(/^@/, ''))) {
-        return channelsByHandle.get(normalizedHandle.replace(/^@/, '')) || '';
-    }
-    const normalizedUrl = normalizeChannelUrl(identity.url);
-    if (normalizedUrl && channelsByUrl.has(normalizedUrl)) {
-        return channelsByUrl.get(normalizedUrl) || '';
-    }
-    return identity.channelId || '';
-}
 
-function getHandleAssignmentKey(handle) {
-    const normalized = normalizeHandle(handle);
-    if (!normalized) {
-        return '';
-    }
-    return `handle:${normalized.replace(/^@/, '')}`;
-}
 
-function getUrlAssignmentKey(url) {
-    const normalized = normalizeChannelUrl(url);
-    if (!normalized) {
-        return '';
-    }
-    return `url:${normalized}`;
-}
 
-function resolveAssignmentKeyForRead(identity, channelId) {
-    const handleKey = getHandleAssignmentKey(identity.handle);
-    const urlKey = getUrlAssignmentKey(identity.url);
-    if (channelId && readChannelAssignments(channelId).length > 0) {
-        return channelId;
-    }
-    if (handleKey && readChannelAssignments(handleKey).length > 0) {
-        return handleKey;
-    }
-    if (urlKey && readChannelAssignments(urlKey).length > 0) {
-        return urlKey;
-    }
-    return channelId || handleKey || urlKey || '';
-}
 
-function resolveAssignmentKeyForWrite(identity, channelId) {
-    const handleKey = getHandleAssignmentKey(identity.handle);
-    const urlKey = getUrlAssignmentKey(identity.url);
-    return channelId || handleKey || urlKey || '';
-}
 
-function migrateAssignmentKeyIfNeeded(channelId, identity) {
-    if (!channelId) {
-        return;
-    }
-    const handleKey = getHandleAssignmentKey(identity.handle);
-    const urlKey = getUrlAssignmentKey(identity.url);
-    const fallbackKeys = [handleKey, urlKey].filter(Boolean);
-    if (fallbackKeys.length === 0) {
-        return;
-    }
-    const existing = readChannelAssignments(channelId);
-    let migrated = false;
-    fallbackKeys.forEach((key) => {
-        const fallback = readChannelAssignments(key);
-        if (fallback.length === 0) {
-            return;
-        }
-        if (existing.length === 0) {
-            writeChannelAssignments(channelId, fallback);
-        }
-        writeChannelAssignments(key, []);
-        migrated = true;
-    });
-    if (migrated) {
-        void persistLocalState();
-    }
-}
+
+
 
 /**
  * Build quick add button.
  * @param {{channelId: string, handle: string, url: string}} identity
  * @returns {HTMLButtonElement}
  */
-function buildQuickAddButton(identity) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = QUICK_ADD_CLASS;
-    button.setAttribute('aria-label', 'Add to category');
-    button.setAttribute('title', 'Add to category');
-
-    const iconWrap = document.createElement('span');
-    iconWrap.className = 'yt-commander-sub-manager-quick-add-icon';
-    iconWrap.setAttribute('data-role', 'quick-add-icon');
-    iconWrap.appendChild(createQuickAddIcon());
-
-    const label = document.createElement('span');
-    label.className = 'yt-commander-sub-manager-quick-add-label';
-    label.setAttribute('data-role', 'quick-add-label');
-
-    const caret = createIcon(ICONS.chevronDown);
-    caret.classList.add('yt-commander-sub-manager-icon');
-    caret.classList.add('yt-commander-sub-manager-quick-add-caret');
-
-    button.appendChild(iconWrap);
-    button.appendChild(label);
-    button.appendChild(caret);
-    if (identity.channelId) {
-        button.setAttribute('data-channel-id', identity.channelId);
-    }
-    if (identity.handle) {
-        button.setAttribute('data-channel-handle', identity.handle);
-    }
-    if (identity.url) {
-        button.setAttribute('data-channel-url', identity.url);
-    }
-    button.addEventListener('click', handleQuickAddClick);
-    updateQuickAddButtonState(button, identity);
-    return button;
-}
-
-function getQuickAddIdentityFromButton(button) {
-    if (!button) {
-        return { channelId: '', handle: '', url: '' };
-    }
-    return {
-        channelId: button.getAttribute('data-channel-id') || '',
-        handle: button.getAttribute('data-channel-handle') || '',
-        url: button.getAttribute('data-channel-url') || '',
-    };
-}
-
-function getQuickAddAssignmentKeyFromButton(button) {
-    if (!button) {
-        return '';
-    }
-    return button.getAttribute('data-channel-key') || '';
-}
-
-function setQuickAddIcon(button, assigned, color) {
-    const iconWrap = button?.querySelector('[data-role="quick-add-icon"]');
-    if (!iconWrap) {
-        return;
-    }
-    iconWrap.textContent = '';
-    if (assigned && color) {
-        const dot = document.createElement('span');
-        dot.className = 'yt-commander-sub-manager-quick-add-dot';
-        dot.style.backgroundColor = color;
-        iconWrap.appendChild(dot);
-        return;
-    }
-    iconWrap.appendChild(createQuickAddIcon());
-}
-
-function updateQuickAddButtonState(button, identityOverride = null) {
-    if (!button) {
-        return;
-    }
-    const identity = identityOverride || getQuickAddIdentityFromButton(button);
-    let channelId = identity.channelId;
-    let handle = identity.handle;
-    let url = identity.url;
-    if (!channelId) {
-        const renderer = resolveSubscribeRendererForQuickAdd(button);
-        const resolved = resolveChannelIdentityFromContext(renderer);
-        channelId = resolveChannelIdFromIdentity(resolved);
-        if (channelId) {
-            button.setAttribute('data-channel-id', channelId);
-        }
-        if (!handle && resolved.handle) {
-            handle = resolved.handle;
-            button.setAttribute('data-channel-handle', resolved.handle);
-        }
-        if (!url && resolved.url) {
-            url = resolved.url;
-            button.setAttribute('data-channel-url', resolved.url);
-        }
-    }
-
-    const labelEl = button.querySelector('[data-role="quick-add-label"]');
-    migrateAssignmentKeyIfNeeded(channelId, { channelId, handle, url });
-    const assignmentKey = resolveAssignmentKeyForRead({ channelId, handle, url }, channelId);
-    if (assignmentKey) {
-        button.setAttribute('data-channel-key', assignmentKey);
-    } else {
-        button.removeAttribute('data-channel-key');
-    }
-    const assignedId = assignmentKey ? readChannelAssignments(assignmentKey)[0] : '';
-    const category = assignedId ? categories.find((item) => item.id === assignedId) : null;
-    if (category) {
-        applyCategoryItemColors(button, category.color);
-        button.classList.add('is-assigned');
-        button.classList.remove('is-empty');
-        button.setAttribute('data-category-id', category.id);
-        if (labelEl) {
-            labelEl.textContent = category.name;
-        }
-        setQuickAddIcon(button, true, category.color);
-        button.setAttribute('aria-label', `Category: ${category.name}`);
-        button.setAttribute('title', `Change category (${category.name})`);
-        return;
-    }
-
-    clearCategoryItemColors(button);
-    button.classList.remove('is-assigned');
-    button.classList.add('is-empty');
-    button.removeAttribute('data-category-id');
-    if (labelEl) {
-        labelEl.textContent = DEFAULT_QUICK_ADD_LABEL;
-    }
-    setQuickAddIcon(button, false);
-    button.setAttribute('aria-label', 'Add to category');
-    button.setAttribute('title', 'Add to category');
-}
-
-function refreshQuickAddButtons() {
-    const buttons = document.querySelectorAll(`.${QUICK_ADD_CLASS}`);
-    buttons.forEach((button) => {
-        updateQuickAddButtonState(button);
-    });
-}
-
-function resolveSubscribeRendererForQuickAdd(button) {
-    if (!button) {
-        return null;
-    }
-    const sibling = button.previousElementSibling;
-    if (sibling && sibling.matches(SUBSCRIBE_RENDERER_SELECTOR)) {
-        return sibling;
-    }
-    const parent = button.parentElement;
-    if (parent) {
-        const candidate = parent.querySelector(SUBSCRIBE_RENDERER_SELECTOR);
-        if (candidate) {
-            return candidate;
-        }
-    }
-    return button.closest(SUBSCRIBE_RENDERER_SELECTOR);
-}
 
 /**
  * Ensure quick add buttons on subscribe renderers.
  */
-function ensureQuickAddButtons() {
-    const renderers = Array.from(document.querySelectorAll(SUBSCRIBE_RENDERER_SELECTOR));
-    renderers.forEach((renderer) => {
-        if (!renderer.closest(QUICK_ADD_CONTEXT_SELECTOR)) {
-            return;
-        }
-        const parent = renderer.closest(QUICK_ADD_HOST_SELECTOR) || renderer.parentElement;
-        if (!parent) {
-            return;
-        }
-        const existing = parent.querySelector(`.${QUICK_ADD_CLASS}`);
-        if (existing) {
-            parent.classList.add('yt-commander-sub-manager-quick-add-host');
-            updateQuickAddButtonState(existing, resolveChannelIdentityFromContext(renderer));
-            renderer.dataset.ytcQuickAdd = 'true';
-            return;
-        }
-
-        const identity = resolveChannelIdentityFromContext(renderer);
-        const button = buildQuickAddButton(identity);
-        renderer.insertAdjacentElement('afterend', button);
-        parent.classList.add('yt-commander-sub-manager-quick-add-host');
-        renderer.dataset.ytcQuickAdd = 'true';
-    });
-}
-
-function scheduleQuickAddScan() {
-    if (quickAddPending) {
-        return;
-    }
-    quickAddPending = true;
-    window.requestAnimationFrame(() => {
-        quickAddPending = false;
-        ensureQuickAddButtons();
-    });
-}
-
-function startQuickAddObserver() {
-    if (quickAddObserver) {
-        return;
-    }
-    quickAddObserver = new MutationObserver(scheduleQuickAddScan);
-    quickAddObserver.observe(document.body, { childList: true, subtree: true });
-    scheduleQuickAddScan();
-}
-
-function isQuickAddPage() {
-    const href = String(location.href || '');
-    return QUICK_ADD_PAGES.some((pattern) => pattern.test(href));
-}
 
 async function handleQuickAddClick(event) {
     event.preventDefault();
@@ -1154,14 +627,14 @@ async function handleQuickAddClick(event) {
         if (isQuickAddPage()) {
             setStatus('Select a category to retry channel lookup.', 'info');
             pickerContextChannelId = channelId || '';
-            ensurePicker();
-            openPicker(button, 'toggle', []);
+            ensurePickerAll();
+            openPickerAll(button, 'toggle', []);
             if (quickAddRetryTimer) {
                 window.clearTimeout(quickAddRetryTimer);
             }
             quickAddRetryTimer = window.setTimeout(() => {
                 quickAddRetryTimer = 0;
-                closePicker();
+                closePickerAll();
             }, 5000);
             return;
         }
@@ -1172,362 +645,21 @@ async function handleQuickAddClick(event) {
     button.setAttribute('data-channel-key', assignmentKey);
     updateQuickAddButtonState(button, { channelId, handle: identity.handle, url: identity.url });
     pickerContextChannelId = channelId || '';
-    ensurePicker();
-    openPicker(button, 'toggle', [assignmentKey]);
+    ensurePickerAll();
+    openPickerAll(button, 'toggle', [assignmentKey]);
 }
 
 /**
  * Ensure modal elements exist.
  */
-function ensureModal() {
-    if (overlay && overlay.isConnected && overlay.dataset?.ytcVersion === MODAL_VERSION) {
-        return;
-    }
-
-    resetModalElements();
-
-    overlay = document.createElement('div');
-    overlay.className = OVERLAY_CLASS;
-    overlay.dataset.ytcVersion = MODAL_VERSION;
-
-    modal = document.createElement('div');
-    modal.className = MODAL_CLASS;
-    modal.setAttribute('role', 'dialog');
-    modal.setAttribute('aria-label', 'Subscription manager');
-
-    const header = document.createElement('div');
-    header.className = 'yt-commander-sub-manager-header';
-
-    const titleWrap = document.createElement('div');
-    titleWrap.className = 'yt-commander-sub-manager-title-wrap';
-
-    const titleRow = document.createElement('div');
-    titleRow.className = 'yt-commander-sub-manager-title-row';
-
-    const title = document.createElement('div');
-    title.className = 'yt-commander-sub-manager-title';
-    title.textContent = 'Subscription Manager';
-
-    titleRow.appendChild(title);
-
-    selectionBadgeEl = document.createElement('span');
-    selectionBadgeEl.className = 'yt-commander-sub-manager-selected-badge';
-    selectionBadgeEl.setAttribute('aria-live', 'polite');
-    selectionBadgeEl.style.display = 'none';
-    const selectionIcon = createIcon(ICONS.check);
-    selectionIcon.classList.add('yt-commander-sub-manager-icon');
-    selectionIcon.classList.add('yt-commander-sub-manager-selected-icon');
-    selectionCountEl = document.createElement('span');
-    selectionCountEl.className = 'yt-commander-sub-manager-selected-count';
-    selectionBadgeEl.appendChild(selectionIcon);
-    selectionBadgeEl.appendChild(selectionCountEl);
-
-    clearSelectionButton = document.createElement('button');
-    clearSelectionButton.type = 'button';
-    clearSelectionButton.className = 'yt-commander-sub-manager-clear-selection';
-    clearSelectionButton.setAttribute('data-action', 'clear-selection');
-    setIconButton(clearSelectionButton, ICONS.close, 'Clear selection');
-    clearSelectionButton.style.display = 'none';
-
-    selectionGroupEl = document.createElement('div');
-    selectionGroupEl.className = 'yt-commander-sub-manager-selection-group';
-    selectionGroupEl.style.display = 'none';
-    selectionGroupEl.appendChild(selectionBadgeEl);
-    selectionGroupEl.appendChild(clearSelectionButton);
-
-    const subtitle = document.createElement('div');
-    subtitle.className = 'yt-commander-sub-manager-subtitle';
-    subtitle.textContent = '';
-
-    titleWrap.appendChild(titleRow);
-    titleWrap.appendChild(subtitle);
-
-    const headerActions = document.createElement('div');
-    headerActions.className = 'yt-commander-sub-manager-header-actions';
-
-    unsubscribeButton = document.createElement('button');
-    unsubscribeButton.type = 'button';
-    unsubscribeButton.className = 'yt-commander-sub-manager-btn danger';
-    unsubscribeButton.setAttribute('data-action', 'unsubscribe-selected');
-    setIconButton(unsubscribeButton, ICONS.trash, 'Unsubscribe selected');
-
-    refreshButton = document.createElement('button');
-    refreshButton.type = 'button';
-    refreshButton.className = 'yt-commander-sub-manager-toggle';
-    refreshButton.setAttribute('data-action', 'refresh-subscriptions');
-    setIconButton(refreshButton, ICONS.refresh, 'Refresh subscriptions');
-
-    sortButton = document.createElement('button');
-    sortButton.type = 'button';
-    sortButton.className = 'yt-commander-sub-manager-toggle';
-    sortButton.setAttribute('data-action', 'sort-toggle');
-    updateSortButton();
-
-    const actionGroup = document.createElement('div');
-    actionGroup.className = 'yt-commander-sub-manager-action-group';
-    actionGroup.appendChild(unsubscribeButton);
-    const headerDivider = document.createElement('div');
-    headerDivider.className = 'yt-commander-sub-manager-header-divider';
-
-    headerActions.appendChild(refreshButton);
-    headerActions.appendChild(sortButton);
-    headerActions.appendChild(headerDivider);
-    headerActions.appendChild(actionGroup);
-
-    header.appendChild(titleWrap);
-    header.appendChild(headerActions);
-
-    const content = document.createElement('div');
-    content.className = 'yt-commander-sub-manager-content';
-
-    sidebar = document.createElement('div');
-    sidebar.className = 'yt-commander-sub-manager-chipbar';
-
-    const chipbarLead = document.createElement('div');
-    chipbarLead.className = 'yt-commander-sub-manager-chipbar-lead';
-
-    sidebarAddButton = document.createElement('button');
-    sidebarAddButton.type = 'button';
-    sidebarAddButton.className = 'yt-commander-sub-manager-chipbar-btn';
-    sidebarAddButton.setAttribute('data-action', 'new-category');
-    setIconButton(sidebarAddButton, ICONS.plus, 'Add category');
-    setTooltip(sidebarAddButton, 'Add category');
-
-    sidebarCountEl = document.createElement('span');
-    sidebarCountEl.className = 'yt-commander-sub-manager-chipbar-count';
-    sidebarCountEl.textContent = '0';
-
-    chipbarLead.appendChild(sidebarAddButton);
-    chipbarLead.appendChild(sidebarCountEl);
-
-    chipbarPrevButton = document.createElement('button');
-    chipbarPrevButton.type = 'button';
-    chipbarPrevButton.className = 'yt-commander-sub-manager-chipbar-nav';
-    chipbarPrevButton.setAttribute('data-action', 'chipbar-prev');
-    setIconButton(chipbarPrevButton, ICONS.prev, 'Scroll categories left');
-
-    sidebarList = document.createElement('div');
-    sidebarList.className = 'yt-commander-sub-manager-chip-list';
-
-    chipbarNextButton = document.createElement('button');
-    chipbarNextButton.type = 'button';
-    chipbarNextButton.className = 'yt-commander-sub-manager-chipbar-nav';
-    chipbarNextButton.setAttribute('data-action', 'chipbar-next');
-    setIconButton(chipbarNextButton, ICONS.next, 'Scroll categories right');
-
-    sidebar.appendChild(chipbarLead);
-    sidebar.appendChild(chipbarPrevButton);
-    sidebar.appendChild(sidebarList);
-    sidebar.appendChild(chipbarNextButton);
-
-    cardsWrap = document.createElement('div');
-    cardsWrap.className = CARDS_CLASS;
-
-    mainWrap = document.createElement('div');
-    mainWrap.className = 'yt-commander-sub-manager-main';
-    selectionHeaderEl = document.createElement('div');
-    selectionHeaderEl.className = 'yt-commander-sub-manager-main-header';
-    selectionHeaderEl.style.display = 'none';
-    floatingStackEl = document.createElement('div');
-    floatingStackEl.className = 'yt-commander-sub-manager-float-stack';
-    floatingStackEl.appendChild(selectionGroupEl);
-    selectionHeaderEl.appendChild(floatingStackEl);
-    mainWrap.appendChild(sidebar);
-    mainWrap.appendChild(selectionHeaderEl);
-    mainWrap.appendChild(cardsWrap);
-
-    content.appendChild(mainWrap);
-    attachChipbarWheelScroll();
-    updateChipbarNavButtons();
-
-    statusEl = document.createElement('div');
-    statusEl.className = STATUS_CLASS;
-    statusEl.setAttribute('aria-live', 'polite');
-    if (floatingStackEl) {
-        floatingStackEl.appendChild(statusEl);
-    }
-
-    modal.appendChild(header);
-    modal.appendChild(content);
-
-    overlay.appendChild(modal);
-    document.body.appendChild(overlay);
-
-    overlay.addEventListener('click', handleOverlayClick);
-    modal.addEventListener('click', handleModalClick);
-    document.addEventListener('mousedown', handleModalMouseDown, true);
-    document.addEventListener('contextmenu', handleModalContextMenu, true);
-    modal.addEventListener('dblclick', handleModalDoubleClick);
-    modal.addEventListener('change', handleModalChange);
-    modal.addEventListener('input', handleModalInput);
-    modal.addEventListener('keydown', handleModalKeydown);
-    if (mainWrap) {
-        mainWrap.addEventListener('scroll', handleMainScroll, { passive: true });
-    }
-    window.addEventListener('resize', handleVirtualResize);
-    window.addEventListener('blur', () => {
-        isCtrlPressed = false;
-    });
-    ensurePicker();
-    ensureTooltipPortal();
-    ensureConfirmDialog();
-}
 
 /**
  * Ensure category picker exists.
  */
-function ensurePicker() {
-    if (picker && picker.isConnected) {
-        return;
-    }
-
-    picker = document.createElement('div');
-    picker.className = PICKER_CLASS;
-    picker.setAttribute('role', 'menu');
-    picker.setAttribute('aria-label', 'Category picker');
-    picker.style.display = 'none';
-
-    picker.addEventListener('click', handlePickerClick);
-    document.body.appendChild(picker);
-}
 
 /**
  * Render category picker options.
  */
-function resolvePickerActiveCategoryId() {
-    if (!Array.isArray(pickerTargetIds) || pickerTargetIds.length === 0) {
-        return '';
-    }
-    const firstAssigned = readChannelAssignments(pickerTargetIds[0]);
-    const firstId = firstAssigned[0] || '';
-    const allMatch = pickerTargetIds.every((channelId) => {
-        const assigned = readChannelAssignments(channelId);
-        return (assigned[0] || '') === firstId;
-    });
-    if (!allMatch) {
-        return '';
-    }
-    return firstId || 'uncategorized';
-}
-
-function renderPicker() {
-    if (!picker) {
-        return;
-    }
-
-    picker.innerHTML = '';
-
-    const contextId =
-        pickerContextChannelId || (pickerTargetIds.length === 1 ? pickerTargetIds[0] : '');
-    const channelForPicker = contextId
-        ? channels.find((channel) => channel.channelId === contextId)
-        : null;
-    const openButton = buildPickerOpenChannelButton(channelForPicker);
-    const divider = document.createElement('div');
-    divider.className = 'yt-commander-sub-manager-picker-divider';
-
-    const title = document.createElement('div');
-    title.className = 'yt-commander-sub-manager-picker-title';
-    title.textContent =
-        pickerMode === 'remove'
-            ? 'Remove from category'
-            : pickerMode === 'add'
-              ? 'Add to category'
-              : pickerMode === 'move'
-                ? 'Move to category'
-                : 'Set category';
-
-    const list = document.createElement('div');
-    list.className = 'yt-commander-sub-manager-picker-list';
-    const activeCategoryId = resolvePickerActiveCategoryId();
-
-    const addPickerItem = (options) => {
-        const { id, label, color, isActive, isUncategorized } = options;
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'yt-commander-sub-manager-picker-item';
-        button.setAttribute('data-category-id', id);
-        const dot = document.createElement('span');
-        dot.className = 'yt-commander-sub-manager-picker-dot';
-        dot.style.backgroundColor = color || '#788195';
-        const labelEl = document.createElement('span');
-        labelEl.textContent = label;
-        button.appendChild(dot);
-        button.appendChild(labelEl);
-        if (isUncategorized) {
-            button.classList.add('is-uncategorized');
-        }
-        if (isActive) {
-            button.classList.add('is-active');
-            const check = createIcon(ICONS.check);
-            check.classList.add('yt-commander-sub-manager-icon');
-            check.classList.add('yt-commander-sub-manager-picker-check');
-            button.appendChild(check);
-        }
-        list.appendChild(button);
-    };
-
-    if (pickerMode !== 'remove') {
-        addPickerItem({
-            id: 'uncategorized',
-            label: 'Uncategorized',
-            color: '#7c8698',
-            isActive: activeCategoryId === 'uncategorized',
-            isUncategorized: true,
-        });
-    }
-
-    if (categories.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'yt-commander-sub-manager-picker-empty';
-        empty.textContent = 'No categories yet.';
-        list.appendChild(empty);
-    } else {
-        categories.forEach((category) => {
-            addPickerItem({
-                id: category.id,
-                label: category.name,
-                color: category.color,
-                isActive: activeCategoryId === category.id,
-                isUncategorized: false,
-            });
-        });
-    }
-
-    picker.appendChild(openButton);
-    picker.appendChild(divider);
-    picker.appendChild(title);
-    picker.appendChild(list);
-    if (overlay?.classList.contains('is-visible')) {
-        const footer = document.createElement('div');
-        footer.className = 'yt-commander-sub-manager-picker-footer';
-        const newButton = document.createElement('button');
-        newButton.type = 'button';
-        newButton.className = 'yt-commander-sub-manager-btn secondary';
-        newButton.setAttribute('data-action', 'picker-new-category');
-        setIconButton(newButton, ICONS.plus, 'New category');
-        footer.appendChild(newButton);
-        picker.appendChild(footer);
-    }
-}
-
-function createPickerContextAnchor(x, y) {
-    if (pickerContextAnchor && pickerContextAnchor.parentNode) {
-        pickerContextAnchor.remove();
-    }
-    const anchor = document.createElement('div');
-    anchor.className = 'yt-commander-sub-manager-context-anchor';
-    anchor.style.position = 'fixed';
-    anchor.style.left = `${Math.max(0, x)}px`;
-    anchor.style.top = `${Math.max(0, y)}px`;
-    anchor.style.width = '0px';
-    anchor.style.height = '0px';
-    anchor.style.pointerEvents = 'none';
-    anchor.style.zIndex = '2147483647';
-    document.body.appendChild(anchor);
-    pickerContextAnchor = anchor;
-    return anchor;
-}
 
 /**
  * Show picker.
@@ -1535,291 +667,41 @@ function createPickerContextAnchor(x, y) {
  * @param {string} mode
  * @param {string[]} channelIds
  */
-function openPicker(anchor, mode, channelIds) {
-    if (!picker) {
-        return;
-    }
-    pickerMode = mode;
-    pickerTargetIds = Array.isArray(channelIds) ? channelIds : [];
-    pickerAnchorEl = anchor;
-    renderPicker();
-    picker.style.display = 'block';
-    picker.style.visibility = 'hidden';
-    requestAnimationFrame(() => {
-        positionPicker();
-        picker.style.visibility = 'visible';
-    });
-}
 
 /**
  * Hide picker.
  */
-function closePicker() {
-    if (!picker) {
-        return;
-    }
-    picker.style.display = 'none';
-    picker.style.visibility = '';
-    const list = picker.querySelector('.yt-commander-sub-manager-picker-list');
-    if (list) {
-        list.style.maxHeight = '';
-    }
-    pickerAnchorEl = null;
-    pickerTargetIds = [];
-    pickerContextChannelId = '';
-    if (pickerContextAnchor) {
-        pickerContextAnchor.remove();
-        pickerContextAnchor = null;
-    }
-}
 
 /**
  * Ensure tooltip portal exists.
  */
-function ensureTooltipPortal() {
-    if (tooltipPortal && tooltipPortal.isConnected) {
-        return;
-    }
-
-    tooltipPortal = document.createElement('div');
-    tooltipPortal.className = 'yt-commander-sub-manager-tooltip-portal';
-    tooltipPortal.setAttribute('role', 'tooltip');
-    tooltipPortal.setAttribute('aria-hidden', 'true');
-    document.body.appendChild(tooltipPortal);
-
-    const handleTooltipOver = (event) => {
-        const target = event.target instanceof Element ? event.target : null;
-        const tooltipTarget = target?.closest('.yt-commander-sub-manager-tooltip');
-        if (!tooltipTarget || !modal?.contains(tooltipTarget)) {
-            return;
-        }
-        const label =
-            tooltipTarget.getAttribute('data-tooltip') || tooltipTarget.getAttribute('title') || '';
-        if (!label) {
-            return;
-        }
-        tooltipPortalTarget = tooltipTarget;
-        tooltipPortal.textContent = label;
-        tooltipPortal.setAttribute('data-placement', 'top');
-        tooltipPortal.setAttribute('aria-hidden', 'false');
-        tooltipPortal.classList.add('is-visible');
-        positionTooltipPortal();
-    };
-
-    const handleTooltipOut = (event) => {
-        if (!tooltipPortalTarget) {
-            return;
-        }
-        const related = event.relatedTarget instanceof Element ? event.relatedTarget : null;
-        if (related && (tooltipPortalTarget.contains(related) || tooltipPortal.contains(related))) {
-            return;
-        }
-        hideTooltipPortal();
-    };
-
-    modal.addEventListener('mouseover', handleTooltipOver);
-    modal.addEventListener('mouseout', handleTooltipOut);
-    modal.addEventListener('focusin', handleTooltipOver);
-    modal.addEventListener('focusout', handleTooltipOut);
-    window.addEventListener('scroll', hideTooltipPortal, true);
-    window.addEventListener('resize', hideTooltipPortal);
-}
 
 /**
  * Position tooltip portal.
  */
-function positionTooltipPortal() {
-    if (!tooltipPortal || !tooltipPortalTarget) {
-        return;
-    }
-    const rect = tooltipPortalTarget.getBoundingClientRect();
-    tooltipPortal.style.left = '0px';
-    tooltipPortal.style.top = '0px';
-    tooltipPortal.style.transform = 'translate(-50%, -100%)';
-    const tooltipRect = tooltipPortal.getBoundingClientRect();
-    const padding = 8;
-    let left = rect.left + rect.width / 2;
-    let top = rect.top - 10;
-    let placement = 'top';
-    if (top - tooltipRect.height < padding) {
-        top = rect.bottom + 10;
-        placement = 'bottom';
-        tooltipPortal.style.transform = 'translate(-50%, 0)';
-    }
-    left = Math.max(
-        padding + tooltipRect.width / 2,
-        Math.min(window.innerWidth - padding - tooltipRect.width / 2, left)
-    );
-    tooltipPortal.style.left = `${left}px`;
-    tooltipPortal.style.top = `${top}px`;
-    tooltipPortal.setAttribute('data-placement', placement);
-}
 
 /**
  * Hide tooltip portal.
  */
-function hideTooltipPortal() {
-    if (!tooltipPortal) {
-        return;
-    }
-    tooltipPortal.classList.remove('is-visible');
-    tooltipPortal.setAttribute('aria-hidden', 'true');
-    tooltipPortalTarget = null;
-}
 
 /**
  * Ensure confirm dialog exists.
  */
-function ensureConfirmDialog() {
-    if (confirmBackdrop && confirmBackdrop.isConnected) {
-        return;
-    }
-
-    confirmBackdrop = document.createElement('div');
-    confirmBackdrop.className = 'yt-commander-sub-manager-confirm-backdrop';
-    confirmBackdrop.setAttribute('aria-hidden', 'true');
-
-    const dialog = document.createElement('div');
-    dialog.className = 'yt-commander-sub-manager-confirm-dialog';
-    dialog.setAttribute('role', 'dialog');
-    dialog.setAttribute('aria-modal', 'true');
-
-    confirmTitleEl = document.createElement('div');
-    confirmTitleEl.className = 'yt-commander-sub-manager-confirm-title';
-    confirmTitleEl.textContent = 'Confirm action';
-
-    confirmMessageEl = document.createElement('div');
-    confirmMessageEl.className = 'yt-commander-sub-manager-confirm-message';
-
-    const actions = document.createElement('div');
-    actions.className = 'yt-commander-sub-manager-confirm-actions';
-
-    const cancelButton = document.createElement('button');
-    cancelButton.type = 'button';
-    cancelButton.className = 'yt-commander-sub-manager-btn secondary';
-    cancelButton.setAttribute('data-action', 'confirm-cancel');
-    cancelButton.textContent = 'Cancel';
-
-    const confirmButton = document.createElement('button');
-    confirmButton.type = 'button';
-    confirmButton.className = 'yt-commander-sub-manager-btn danger';
-    confirmButton.setAttribute('data-action', 'confirm-accept');
-    confirmButton.textContent = 'Confirm';
-
-    actions.appendChild(cancelButton);
-    actions.appendChild(confirmButton);
-
-    dialog.appendChild(confirmTitleEl);
-    dialog.appendChild(confirmMessageEl);
-    dialog.appendChild(actions);
-
-    confirmBackdrop.appendChild(dialog);
-    modal.appendChild(confirmBackdrop);
-
-    confirmBackdrop.addEventListener('click', (event) => {
-        if (event.target === confirmBackdrop) {
-            closeConfirmDialog(false);
-        }
-    });
-
-    confirmBackdrop.addEventListener('click', (event) => {
-        const action = event.target?.closest('[data-action]');
-        const actionType = action?.getAttribute('data-action');
-        if (actionType === 'confirm-accept') {
-            closeConfirmDialog(true);
-        } else if (actionType === 'confirm-cancel') {
-            closeConfirmDialog(false);
-        }
-    });
-}
 
 /**
  * Show confirm dialog.
  * @param {{title?: string, message?: string, confirmLabel?: string, cancelLabel?: string}} options
  * @returns {Promise<boolean>}
  */
-function showConfirmDialog(options = {}) {
-    ensureConfirmDialog();
-    if (!confirmBackdrop) {
-        return Promise.resolve(false);
-    }
-    const { title, message, confirmLabel, cancelLabel } = options;
-    if (confirmTitleEl && title) {
-        confirmTitleEl.textContent = title;
-    }
-    if (confirmMessageEl && message) {
-        confirmMessageEl.textContent = message;
-    }
-    const confirmButton = confirmBackdrop.querySelector('[data-action="confirm-accept"]');
-    const cancelButton = confirmBackdrop.querySelector('[data-action="confirm-cancel"]');
-    if (confirmButton && confirmLabel) {
-        confirmButton.textContent = confirmLabel;
-    }
-    if (cancelButton && cancelLabel) {
-        cancelButton.textContent = cancelLabel;
-    }
-    confirmBackdrop.classList.add('is-visible');
-    confirmBackdrop.setAttribute('aria-hidden', 'false');
-    return new Promise((resolve) => {
-        confirmResolve = resolve;
-    });
-}
 
 /**
  * Close confirm dialog.
  * @param {boolean} accepted
  */
-function closeConfirmDialog(accepted) {
-    if (!confirmBackdrop) {
-        return;
-    }
-    confirmBackdrop.classList.remove('is-visible');
-    confirmBackdrop.setAttribute('aria-hidden', 'true');
-    if (confirmResolve) {
-        const resolve = confirmResolve;
-        confirmResolve = null;
-        resolve(Boolean(accepted));
-    }
-}
 
 /**
  * Position picker near anchor.
  */
-function positionPicker() {
-    if (!picker || !pickerAnchorEl) {
-        return;
-    }
-    if (picker.style.display !== 'block') {
-        return;
-    }
-    const rect = pickerAnchorEl.getBoundingClientRect();
-    const list = picker.querySelector('.yt-commander-sub-manager-picker-list');
-    if (list) {
-        list.style.maxHeight = '';
-    }
-    const initialPickerRect = picker.getBoundingClientRect();
-    const initialListRect = list ? list.getBoundingClientRect() : { height: 0 };
-    const padding = 8;
-    const spaceBelow = window.innerHeight - rect.bottom - padding;
-    const spaceAbove = rect.top - padding;
-    const openAbove = spaceAbove > spaceBelow;
-    const available = Math.max(openAbove ? spaceAbove : spaceBelow, 0);
-    const nonListHeight = Math.max(0, initialPickerRect.height - initialListRect.height);
-    if (list) {
-        const maxListHeight = Math.max(0, Math.floor(available - nonListHeight));
-        list.style.maxHeight = `${maxListHeight}px`;
-    }
-    const pickerRect = picker.getBoundingClientRect();
-    let top = openAbove ? rect.top - pickerRect.height - padding : rect.bottom + padding;
-    let left = rect.left;
-
-    if (left + pickerRect.width > window.innerWidth - padding) {
-        left = window.innerWidth - pickerRect.width - padding;
-    }
-
-    picker.style.top = `${Math.max(padding, top)}px`;
-    picker.style.left = `${Math.max(padding, left)}px`;
-}
 
 /**
  * Create a category.
@@ -1827,757 +709,39 @@ function positionPicker() {
  * @param {string} [colorOverride]
  * @returns {{id: string, name: string, color: string}}
  */
-function createCategory(name, colorOverride = '') {
-    const trimmed = name.trim();
-    const id = `cat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    const color =
-        typeof colorOverride === 'string' && colorOverride.trim()
-            ? colorOverride.trim()
-            : generateRandomCategoryColor();
-    return {
-        id,
-        name: trimmed,
-        color,
-    };
-}
 
 /**
  * Persist sidebar state.
  * @returns {Promise<void>}
  */
-async function persistSidebarState() {
-    await storageSet({
-        [STORAGE_KEYS.SIDEBAR_COLLAPSED]: sidebarCollapsed,
-    });
-}
-
-function updateSidebarToggleButton() {
-    if (!sidebarToggleButton) {
-        return;
-    }
-    const icon = sidebarCollapsed ? ICONS.expand : ICONS.collapse;
-    const label = sidebarCollapsed ? 'Expand categories' : 'Collapse categories';
-    setIconButton(sidebarToggleButton, icon, label);
-}
-
-function updateSortButton() {
-    if (!sortButton) {
-        return;
-    }
-    const isSubscribers = sortMode === 'subscribers';
-    const label = isSubscribers ? 'Sort by name' : 'Sort by subscribers';
-    setIconButton(sortButton, ICONS.sort, label);
-    sortButton.classList.toggle('active', isSubscribers);
-}
-
-function updateRemoveCategoryButton() {
-    if (!removeCategoryButton) {
-        return;
-    }
-    const hasSelection = selectedChannelIds.size > 0;
-    removeCategoryButton.disabled = !hasSelection;
-    const label = hasSelection ? 'Move to category' : 'Select channels to move';
-    setIconButton(removeCategoryButton, ICONS.categoryMove, label);
-}
-
-function updateChipbarNavButtons() {
-    if (!sidebarList) {
-        return;
-    }
-    const maxScrollLeft = Math.max(0, sidebarList.scrollWidth - sidebarList.clientWidth);
-    const currentScrollLeft = sidebarList.scrollLeft;
-    if (chipbarPrevButton) {
-        chipbarPrevButton.disabled = currentScrollLeft <= 0;
-    }
-    if (chipbarNextButton) {
-        chipbarNextButton.disabled = currentScrollLeft >= maxScrollLeft - 1;
-    }
-}
-
-function attachChipbarWheelScroll() {
-    if (!sidebar || !sidebarList) {
-        return;
-    }
-    if (!sidebar.classList.contains('yt-commander-sub-manager-chipbar')) {
-        return;
-    }
-    if (chipbarWheelTarget && chipbarWheelHandler) {
-        chipbarWheelTarget.removeEventListener('wheel', chipbarWheelHandler);
-    }
-    chipbarWheelTarget = sidebar;
-    chipbarWheelHandler = (event) => {
-        if (!sidebarList) {
-            return;
-        }
-        if (event.ctrlKey) {
-            return;
-        }
-        if (sidebarList.scrollWidth <= sidebarList.clientWidth) {
-            return;
-        }
-        const dominantDelta =
-            Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
-        if (!dominantDelta) {
-            return;
-        }
-        event.preventDefault();
-        sidebarList.scrollLeft += dominantDelta;
-        updateChipbarNavButtons();
-    };
-    chipbarWheelTarget.addEventListener('wheel', chipbarWheelHandler, { passive: false });
-
-    chipbarScrollTarget = sidebarList;
-    chipbarScrollHandler = () => {
-        updateChipbarNavButtons();
-    };
-    chipbarScrollTarget.addEventListener('scroll', chipbarScrollHandler, { passive: true });
-    updateChipbarNavButtons();
-}
-
-function updateCategoryActionButtons() {
-    const showAddButton = filterMode === 'all' || filterMode === 'uncategorized';
-    if (addCategoryButton) {
-        addCategoryButton.style.display = showAddButton ? 'inline-flex' : 'none';
-    }
-    updateRemoveCategoryButton();
-}
-
-function applySidebarState() {
-    if (!sidebar) {
-        return;
-    }
-    if (sidebar.classList.contains('yt-commander-sub-manager-chipbar')) {
-        sidebarCollapsed = false;
-        sidebar.classList.remove('is-collapsed');
-        return;
-    }
-    sidebar.classList.toggle('is-collapsed', sidebarCollapsed);
-    updateSidebarToggleButton();
-}
-
-function scrollChipbarBy(amount) {
-    if (!sidebarList) {
-        return;
-    }
-    sidebarList.scrollBy({ left: amount, behavior: 'smooth' });
-    updateChipbarNavButtons();
-}
-
-function resetSidebarDraftState() {
-    sidebarEditingId = '';
-    sidebarEditingName = '';
-    sidebarCreating = false;
-    sidebarDraftName = '';
-    sidebarDraftColor = '';
-}
-
-function captureSidebarDraftState() {
-    if (!sidebarList) {
-        return;
-    }
-    const input = sidebarList.querySelector('.yt-commander-sub-manager-sidebar-input');
-    if (!input) {
-        return;
-    }
-    if (sidebarCreating) {
-        sidebarDraftName = input.value;
-        return;
-    }
-    if (sidebarEditingId) {
-        sidebarEditingName = input.value;
-    }
-}
-
-function focusSidebarInput() {
-    if (!sidebarList) {
-        return;
-    }
-    const input = sidebarList.querySelector('.yt-commander-sub-manager-sidebar-input');
-    if (!input) {
-        return;
-    }
-    input.focus();
-    input.select();
-    input.scrollIntoView({ block: 'nearest' });
-}
-
-function ensureSidebarExpanded() {
-    if (!sidebarCollapsed) {
-        return;
-    }
-    sidebarCollapsed = false;
-    applySidebarState();
-    persistSidebarState().catch(() => undefined);
-}
-
-function startSidebarCreate() {
-    ensureSidebarExpanded();
-    sidebarCreating = true;
-    sidebarEditingId = '';
-    sidebarEditingName = '';
-    sidebarDraftName = '';
-    sidebarDraftColor = generateRandomCategoryColor();
-    renderSidebarCategories();
-    focusSidebarInput();
-}
-
-function startSidebarEdit(categoryId) {
-    const category = categories.find((item) => item.id === categoryId);
-    if (!category) {
-        return;
-    }
-    ensureSidebarExpanded();
-    sidebarEditingId = categoryId;
-    sidebarEditingName = category.name;
-    sidebarCreating = false;
-    sidebarDraftName = '';
-    sidebarDraftColor = '';
-    renderSidebarCategories();
-    focusSidebarInput();
-}
-
-async function commitSidebarCreate(name) {
-    const trimmed = name.trim();
-    if (!trimmed) {
-        resetSidebarDraftState();
-        renderSidebarCategories();
-        return false;
-    }
-    if (categories.some((item) => item.name.toLowerCase() === trimmed.toLowerCase())) {
-        setStatus('Category already exists.', 'error');
-        focusSidebarInput();
-        return false;
-    }
-    const category = createCategory(trimmed, sidebarDraftColor);
-    categories.push(category);
-    markCategoriesDirty();
-    await persistLocalState();
-    await markPending([`category:${category.id}`]);
-    setStatus(`Created category "${category.name}".`, 'success');
-    resetSidebarDraftState();
-    renderList();
-    return true;
-}
-
-async function commitSidebarRename(categoryId, name) {
-    const category = categories.find((item) => item.id === categoryId);
-    if (!category) {
-        resetSidebarDraftState();
-        renderSidebarCategories();
-        return false;
-    }
-    const trimmed = name.trim();
-    if (!trimmed) {
-        setStatus('Category name required.', 'error');
-        focusSidebarInput();
-        return false;
-    }
-    if (
-        categories.some(
-            (item) => item.id !== categoryId && item.name.toLowerCase() === trimmed.toLowerCase()
-        )
-    ) {
-        setStatus('Category already exists.', 'error');
-        focusSidebarInput();
-        return false;
-    }
-    if (category.name !== trimmed) {
-        category.name = trimmed;
-        markCategoriesDirty();
-        await persistLocalState();
-        await markPending([`category:${categoryId}`]);
-        setStatus(`Renamed category to "${trimmed}".`, 'success');
-    }
-    resetSidebarDraftState();
-    renderList();
-    return true;
-}
-
-async function commitSidebarInput(input, reason) {
-    if (!input) {
-        return false;
-    }
-    const mode = input.getAttribute('data-mode');
-    if (mode === 'create') {
-        if (reason === 'blur' && !input.value.trim()) {
-            resetSidebarDraftState();
-            renderSidebarCategories();
-            return false;
-        }
-        return commitSidebarCreate(input.value);
-    }
-    const categoryId = input.getAttribute('data-category-id') || '';
-    if (reason === 'blur' && !input.value.trim()) {
-        resetSidebarDraftState();
-        renderSidebarCategories();
-        return false;
-    }
-    return commitSidebarRename(categoryId, input.value);
-}
-
-async function updateCategoryColor(categoryId, nextColor) {
-    const category = categories.find((item) => item.id === categoryId);
-    if (!category || !nextColor) {
-        return;
-    }
-    if (category.color === nextColor) {
-        return;
-    }
-    category.color = nextColor;
-    markCategoriesDirty();
-    await persistLocalState();
-    await markPending([`category:${categoryId}`]);
-    setStatus(`Updated color for "${category.name}".`, 'success');
-    renderList();
-}
-
-function renderSidebarCategories() {
-    if (!sidebarList) {
-        return;
-    }
-    const previousScrollTop = sidebarList.scrollTop;
-    const wasAtBottom =
-        sidebarList.scrollHeight > sidebarList.clientHeight &&
-        sidebarList.scrollHeight - sidebarList.scrollTop - sidebarList.clientHeight < 4;
-
-    if (sidebarCountEl) {
-        sidebarCountEl.textContent = String(categories.length);
-    }
-
-    const counts = getCategoryCounts();
-    const validIds = new Set([
-        'all',
-        'uncategorized',
-        ...categories.map((category) => category.id),
-    ]);
-    if (!validIds.has(filterMode)) {
-        filterMode = 'all';
-        persistViewState().catch(() => undefined);
-    }
-
-    sidebarList.innerHTML = '';
-
-    if (sidebarEditingId && !categories.some((item) => item.id === sidebarEditingId)) {
-        resetSidebarDraftState();
-    }
-
-    const buildColorInput = (value, options = {}) => {
-        const input = document.createElement('input');
-        input.type = 'color';
-        input.className = 'yt-commander-sub-manager-color-input';
-        input.value = normalizeColorToHex(value);
-        if (options.categoryId) {
-            input.setAttribute('data-category-id', options.categoryId);
-        }
-        if (options.mode) {
-            input.setAttribute('data-mode', options.mode);
-        }
-        input.setAttribute('data-action', 'category-color');
-        setTooltip(input, options.tooltip || 'Change color');
-        return input;
-    };
-
-    const addItem = (id, label, color, options = {}) => {
-        const countValue = typeof counts[id] === 'number' ? counts[id] : 0;
-        const item = document.createElement('div');
-        item.className = `${FILTER_ITEM_CLASS} yt-commander-sub-manager-sidebar-item`;
-        item.setAttribute('data-action', 'filter-select');
-        item.setAttribute('data-filter-id', id);
-        item.setAttribute('role', 'button');
-        item.tabIndex = 0;
-        if (filterMode === id) {
-            item.classList.add('active');
-        }
-        applySidebarTooltip(item, label, {
-            tooltip: `${label} (${countValue})`,
-        });
-
-        const left = document.createElement('span');
-        left.className = 'yt-commander-sub-manager-filter-left';
-
-        const initial = document.createElement('span');
-        initial.className = 'yt-commander-sub-manager-filter-initial';
-        initial.textContent = getSidebarInitial(label);
-
-        const name = document.createElement('span');
-        name.className = 'yt-commander-sub-manager-filter-name';
-        name.textContent = label;
-
-        left.appendChild(initial);
-        left.appendChild(name);
-
-        const right = document.createElement('span');
-        right.className = 'yt-commander-sub-manager-filter-right';
-
-        const count = document.createElement('span');
-        count.className = FILTER_COUNT_CLASS;
-        count.textContent = String(countValue);
-
-        right.appendChild(count);
-
-        if (options.removable) {
-            const remove = document.createElement('button');
-            remove.type = 'button';
-            remove.className = 'yt-commander-sub-manager-filter-remove';
-            remove.setAttribute('data-action', 'filter-remove');
-            remove.setAttribute('data-category-id', id);
-            setTooltip(remove, `Delete ${label}`);
-            const removeIcon = createIcon(ICONS.trash);
-            removeIcon.classList.add('yt-commander-sub-manager-icon');
-            remove.appendChild(removeIcon);
-            right.appendChild(remove);
-        }
-
-        item.appendChild(left);
-        item.appendChild(right);
-        sidebarList.appendChild(item);
-    };
-
-    const addEditableItem = (category) => {
-        const item = document.createElement('div');
-        item.className = `${FILTER_ITEM_CLASS} yt-commander-sub-manager-sidebar-item is-editing`;
-
-        const left = document.createElement('span');
-        left.className = 'yt-commander-sub-manager-filter-left';
-
-        const color = buildColorInput(category.color, {
-            categoryId: category.id,
-            tooltip: 'Change color',
-        });
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'yt-commander-sub-manager-sidebar-input';
-        input.value = sidebarEditingName || category.name;
-        input.placeholder = 'Category name';
-        input.setAttribute('data-category-id', category.id);
-        input.setAttribute('data-mode', 'edit');
-
-        left.appendChild(color);
-        left.appendChild(input);
-        item.appendChild(left);
-        sidebarList.appendChild(item);
-        applyCategoryItemColors(item, category.color);
-    };
-
-    const addCreateItem = () => {
-        const item = document.createElement('div');
-        item.className = `${FILTER_ITEM_CLASS} yt-commander-sub-manager-sidebar-item is-creating`;
-
-        const left = document.createElement('span');
-        left.className = 'yt-commander-sub-manager-filter-left';
-
-        const colorValue =
-            sidebarDraftColor || pickCategoryColor(sidebarDraftName || 'New category');
-        const color = buildColorInput(colorValue, { mode: 'create', tooltip: 'Pick color' });
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'yt-commander-sub-manager-sidebar-input';
-        input.value = sidebarDraftName;
-        input.placeholder = 'New category';
-        input.setAttribute('data-mode', 'create');
-
-        left.appendChild(color);
-        left.appendChild(input);
-        item.appendChild(left);
-        sidebarList.appendChild(item);
-        applyCategoryItemColors(item, colorValue);
-    };
-
-    addItem('all', 'All categories', '#616b7f');
-    addItem('uncategorized', 'Uncategorized', '#3b4457');
-    categories.forEach((category) => {
-        if (sidebarEditingId === category.id) {
-            addEditableItem(category);
-            return;
-        }
-        const countValue = typeof counts[category.id] === 'number' ? counts[category.id] : 0;
-        const item = document.createElement('div');
-        item.className = `${FILTER_ITEM_CLASS} yt-commander-sub-manager-sidebar-item`;
-        item.setAttribute('data-action', 'filter-select');
-        item.setAttribute('data-filter-id', category.id);
-        item.setAttribute('role', 'button');
-        item.tabIndex = 0;
-        if (filterMode === category.id) {
-            item.classList.add('active');
-        }
-        applySidebarTooltip(item, category.name, {
-            tooltip: `${category.name} (${countValue})`,
-        });
-
-        const left = document.createElement('span');
-        left.className = 'yt-commander-sub-manager-filter-left';
-
-        const initial = document.createElement('span');
-        initial.className = 'yt-commander-sub-manager-filter-initial';
-        initial.textContent = getSidebarInitial(category.name);
-
-        const name = document.createElement('span');
-        name.className = 'yt-commander-sub-manager-filter-name';
-        name.textContent = category.name;
-        name.setAttribute('data-category-id', category.id);
-
-        left.appendChild(initial);
-        left.appendChild(name);
-
-        const right = document.createElement('span');
-        right.className = 'yt-commander-sub-manager-filter-right';
-
-        const count = document.createElement('span');
-        count.className = FILTER_COUNT_CLASS;
-        count.textContent = String(countValue);
-
-        const remove = document.createElement('button');
-        remove.type = 'button';
-        remove.className = 'yt-commander-sub-manager-filter-remove';
-        remove.setAttribute('data-action', 'filter-remove');
-        remove.setAttribute('data-category-id', category.id);
-        setTooltip(remove, `Delete ${category.name}`);
-        const removeIcon = createIcon(ICONS.trash);
-        removeIcon.classList.add('yt-commander-sub-manager-icon');
-        remove.appendChild(removeIcon);
-
-        right.appendChild(count);
-        right.appendChild(remove);
-
-        item.appendChild(left);
-        item.appendChild(right);
-        sidebarList.appendChild(item);
-        applyCategoryItemColors(item, category.color);
-    });
-    if (sidebarCreating) {
-        addCreateItem();
-    }
-    if (!sidebarCreating && !sidebarEditingId) {
-        const nextScrollTop = wasAtBottom ? sidebarList.scrollHeight : previousScrollTop;
-        window.requestAnimationFrame(() => {
-            if (!sidebarList) {
-                return;
-            }
-            sidebarList.scrollTop = Math.min(nextScrollTop, sidebarList.scrollHeight);
-        });
-    }
-
-    window.requestAnimationFrame(() => {
-        updateChipbarNavButtons();
-    });
-}
 
 /**
  * Remove category and associated assignments.
  * @param {string} categoryId
  * @returns {Promise<void>}
  */
-async function removeCategory(categoryId) {
-    if (!categoryId) {
-        return;
-    }
-    const category = categories.find((item) => item.id === categoryId);
-    if (!category) {
-        return;
-    }
-    const confirmText = `Remove category "${category.name}"? This will unassign it from all channels.`;
-    if (!window.confirm(confirmText)) {
-        return;
-    }
-
-    categories = categories.filter((item) => item.id !== categoryId);
-    markCategoriesDirty();
-
-    const updatedKeys = [`category:${categoryId}`];
-    let affected = 0;
-    Object.entries(assignments).forEach(([channelId, list]) => {
-        if (!Array.isArray(list) || !list.includes(categoryId)) {
-            return;
-        }
-        const next = list.filter((id) => id !== categoryId);
-        if (next.length > 0) {
-            assignments[channelId] = next;
-        } else {
-            delete assignments[channelId];
-        }
-        updatedKeys.push(`channel:${channelId}`);
-        affected += 1;
-    });
-
-    if (affected > 0) {
-        markAssignmentsDirty();
-    }
-
-    await persistLocalState();
-    await markPending(updatedKeys);
-    setStatus(`Deleted "${category.name}" and unassigned ${affected} channel(s).`, 'success');
-    renderSidebarCategories();
-    renderList();
-}
-
-function getCategoryLabel(categoryId) {
-    if (categoryId === 'all') {
-        return 'All categories';
-    }
-    if (categoryId === 'uncategorized') {
-        return 'Uncategorized';
-    }
-    const category = categories.find((item) => item.id === categoryId);
-    return category ? category.name : 'category';
-}
 
 /**
  * Render status message.
  * @param {string} message
  * @param {string} [kind]
  */
-function setStatus(message, kind = 'info') {
-    if (!statusEl) {
-        return;
-    }
-    statusEl.textContent = message;
-    statusEl.setAttribute('data-status', kind);
-    if (statusTimeoutId) {
-        window.clearTimeout(statusTimeoutId);
-        statusTimeoutId = 0;
-    }
-    if (message) {
-        statusTimeoutId = window.setTimeout(() => {
-            if (!statusEl) {
-                return;
-            }
-            statusEl.textContent = '';
-            statusEl.removeAttribute('data-status');
-            statusTimeoutId = 0;
-            updateFloatingHeaderVisibility();
-        }, 3000);
-    }
-    updateFloatingHeaderVisibility();
-}
 
 /**
  * Update selection UI.
  */
-function updateSelectionSummary() {
-    const count = selectedChannelIds.size;
-    if (selectionBadgeEl) {
-        if (count > 0) {
-            if (selectionCountEl) {
-                selectionCountEl.textContent = String(count);
-            } else {
-                selectionBadgeEl.textContent = String(count);
-            }
-            const tooltipLabel = buildSelectionTooltip() || `${count} selected`;
-            selectionBadgeEl.setAttribute('aria-label', `${count} selected`);
-            selectionBadgeEl.setAttribute('title', tooltipLabel);
-            selectionBadgeEl.setAttribute('data-tooltip', tooltipLabel);
-            selectionBadgeEl.classList.add('yt-commander-sub-manager-tooltip');
-            selectionBadgeEl.style.display = 'inline-flex';
-        } else {
-            if (selectionCountEl) {
-                selectionCountEl.textContent = '';
-            } else {
-                selectionBadgeEl.textContent = '';
-            }
-            selectionBadgeEl.style.display = 'none';
-        }
-    }
-    if (selectedChannelIds.size === 0) {
-        selectionAnchorId = '';
-    }
-
-    const disabled = selectedChannelIds.size === 0;
-    if (unsubscribeButton) {
-        unsubscribeButton.disabled = disabled;
-    }
-    if (addCategoryButton) {
-        addCategoryButton.disabled = disabled;
-    }
-    updateCategoryActionButtons();
-    if (clearSelectionButton) {
-        clearSelectionButton.style.display = disabled ? 'none' : 'inline-flex';
-    }
-
-    updateFloatingHeaderVisibility();
-}
-
-function buildSelectionTooltip() {
-    if (selectedChannelIds.size === 0) {
-        return '';
-    }
-    const nameById = new Map(categories.map((category) => [category.id, category.name]));
-    const countsById = new Map();
-    let uncategorizedCount = 0;
-    let otherCount = 0;
-
-    selectedChannelIds.forEach((channelId) => {
-        const assigned = readChannelAssignments(channelId);
-        if (!assigned || assigned.length === 0) {
-            uncategorizedCount += 1;
-            return;
-        }
-        assigned.forEach((categoryId) => {
-            if (!nameById.has(categoryId)) {
-                otherCount += 1;
-                return;
-            }
-            countsById.set(categoryId, (countsById.get(categoryId) || 0) + 1);
-        });
-    });
-
-    const lines = [];
-    categories.forEach((category) => {
-        const count = countsById.get(category.id);
-        if (count) {
-            lines.push(`${category.name}: ${count}`);
-        }
-    });
-    if (uncategorizedCount) {
-        lines.push(`Uncategorized: ${uncategorizedCount}`);
-    }
-    if (otherCount) {
-        lines.push(`Other: ${otherCount}`);
-    }
-    return lines.join('\n');
-}
-
-function updateFloatingHeaderVisibility() {
-    const hasSelection = selectedChannelIds.size > 0;
-    const hasStatus = Boolean(statusEl && statusEl.textContent);
-    if (selectionGroupEl) {
-        selectionGroupEl.style.display = hasSelection ? 'inline-flex' : 'none';
-    }
-    if (selectionHeaderEl) {
-        selectionHeaderEl.style.display = hasSelection || hasStatus ? 'flex' : 'none';
-    }
-}
 
 /**
  * Toggle a channel selection state.
  * @param {string} channelId
  * @param {boolean} [nextState]
  */
-function applyChannelSelection(channelId, shouldSelect) {
-    if (!channelId) {
-        return;
-    }
-    if (shouldSelect) {
-        selectedChannelIds.add(channelId);
-    } else {
-        selectedChannelIds.delete(channelId);
-    }
-    const card = cardById.get(channelId);
-    if (card) {
-        card.classList.toggle('is-selected', shouldSelect);
-    }
-}
 
 /**
  * Toggle a channel selection state.
  * @param {string} channelId
  * @param {boolean} [nextState]
  */
-function toggleChannelSelection(channelId, nextState) {
-    const shouldSelect =
-        typeof nextState === 'boolean' ? nextState : !selectedChannelIds.has(channelId);
-    applyChannelSelection(channelId, shouldSelect);
-    updateSelectionSummary();
-}
 
 /**
  * Handle selection interaction (shift+click range).
@@ -2616,105 +780,6 @@ function handleChannelSelectionInteraction(channelId, options = {}) {
  * @param {string} categoryId
  * @param {'add'|'remove'|'toggle'} mode
  */
-async function applyCategoryUpdate(channelIds, categoryId, mode) {
-    if (!categoryId) {
-        return;
-    }
-    const isUncategorized = categoryId === 'uncategorized';
-    const categoryLabel = getCategoryLabel(categoryId);
-    const categoryDisplay = isUncategorized
-        ? 'Uncategorized'
-        : categoryLabel === 'category'
-          ? 'selected category'
-          : `"${categoryLabel}"`;
-
-    const ids = (channelIds || []).filter((id) => typeof id === 'string' && id);
-    if (ids.length === 0) {
-        setStatus('Select at least one channel.', 'error');
-        return;
-    }
-
-    const updatedKeys = [];
-    const total = ids.length;
-    const batchSize = Math.min(50, Math.max(5, Math.ceil(total / 6)));
-    let processed = 0;
-    let assignedCount = 0;
-    let clearedCount = 0;
-
-    for (let i = 0; i < ids.length; i += batchSize) {
-        const batch = ids.slice(i, i + batchSize);
-        batch.forEach((channelId) => {
-            const current = readChannelAssignments(channelId);
-            const hasCategory = current.includes(categoryId);
-            let next = current;
-            let changed = false;
-
-            if (mode === 'add' && (!hasCategory || current.length > 1)) {
-                next = isUncategorized ? [] : [categoryId];
-                changed = true;
-            } else if (mode === 'remove' && hasCategory) {
-                next = [];
-                changed = true;
-            } else if (mode === 'toggle') {
-                next = isUncategorized ? [] : hasCategory ? [] : [categoryId];
-                changed = true;
-            }
-
-            if (changed) {
-                writeChannelAssignments(channelId, next);
-                updatedKeys.push(`channel:${channelId}`);
-                if (next.length === 0) {
-                    clearedCount += 1;
-                } else {
-                    assignedCount += 1;
-                }
-            }
-        });
-
-        processed += batch.length;
-        if (total > batchSize) {
-            const label = isUncategorized
-                ? 'Clearing category'
-                : mode === 'remove'
-                  ? `Removing ${categoryDisplay}`
-                  : mode === 'add'
-                    ? `Assigning ${categoryDisplay}`
-                    : `Updating ${categoryDisplay}`;
-            setStatus(`${label} ${processed}/${total}...`, 'info');
-            await new Promise((resolve) => setTimeout(resolve, 0));
-        }
-    }
-
-    if (updatedKeys.length === 0) {
-        if (isUncategorized) {
-            setStatus('No changes: already uncategorized.', 'info');
-        } else if (mode === 'remove') {
-            setStatus(`No changes: not in ${categoryDisplay}.`, 'info');
-        } else if (mode === 'add') {
-            setStatus(`No changes: already in ${categoryDisplay}.`, 'info');
-        } else {
-            setStatus('No category changes.', 'info');
-        }
-        return;
-    }
-
-    await persistLocalState();
-    await markPending(updatedKeys);
-    let successMessage = '';
-    if (isUncategorized) {
-        successMessage = `Moved ${clearedCount || updatedKeys.length} channel(s) to Uncategorized.`;
-    } else if (assignedCount && !clearedCount) {
-        successMessage = `Assigned ${categoryDisplay} to ${assignedCount} channel(s).`;
-    } else if (clearedCount && !assignedCount) {
-        successMessage = `Removed ${categoryDisplay} from ${clearedCount} channel(s).`;
-    } else {
-        successMessage = `Updated ${categoryDisplay}: assigned ${assignedCount}, cleared ${clearedCount} channel(s).`;
-    }
-    setStatus(successMessage, 'success');
-    selectedChannelIds = new Set();
-    selectionAnchorId = '';
-    renderList();
-}
 
 /**
  * Handle overlay click.
@@ -2742,7 +807,7 @@ function handleDocumentClick(event) {
             (target && pickerAnchorEl && pickerAnchorEl.contains(target)) ||
             (pickerAnchorEl && path.includes(pickerAnchorEl));
         if (!inPicker && !inAnchor) {
-            closePicker();
+            closePickerAll();
         }
     }
 }
@@ -3029,9 +1094,9 @@ function handleModalContextMenu(event) {
         return;
     }
 
-    ensurePicker();
-    const contextAnchor = createPickerContextAnchor(event.clientX, event.clientY);
-    openPicker(contextAnchor, 'move', ids);
+    ensurePickerAll();
+    const contextAnchor = createPickerContextAnchorAll(event.clientX, event.clientY);
+    openPickerAll(contextAnchor, 'move', ids);
 }
 
 /**
@@ -3172,7 +1237,7 @@ async function handlePickerClick(event) {
         }
         if (!Array.isArray(targetIds) || targetIds.length === 0) {
             setStatus('Unable to resolve channel for category.', 'error');
-            closePicker();
+            closePickerAll();
             return;
         }
         if (pickerMode === 'remove') {
@@ -3182,7 +1247,7 @@ async function handlePickerClick(event) {
         } else {
             applyCategoryUpdate(targetIds, categoryId, 'toggle').catch(() => undefined);
         }
-        closePicker();
+        closePickerAll();
         return;
     }
 
@@ -3191,11 +1256,11 @@ async function handlePickerClick(event) {
         const url =
             baseTarget?.closest('[data-channel-url]')?.getAttribute('data-channel-url') || '';
         openUrlInBackground(url);
-        closePicker();
+        closePickerAll();
         return;
     }
     if (action === 'picker-new-category') {
-        closePicker();
+        closePickerAll();
         startSidebarCreate();
     }
 }
@@ -3309,49 +1374,6 @@ function buildCategoryBadges(channelId) {
     return wrapper;
 }
 
-function buildCard(channel) {
-    const card = document.createElement('div');
-    card.className = 'yt-commander-sub-manager-card';
-    card.setAttribute('data-channel-id', channel.channelId || '');
-    if (selectedChannelIds.has(channel.channelId)) {
-        card.classList.add('is-selected');
-    }
-
-    const media = document.createElement('div');
-    media.className = 'yt-commander-sub-manager-card-media';
-    const avatar = document.createElement('img');
-    avatar.className = 'yt-commander-sub-manager-card-image';
-    avatar.alt = channel.title || 'Channel';
-    avatar.loading = 'lazy';
-    if (channel.avatar) {
-        avatar.src = channel.avatar;
-    }
-    media.appendChild(avatar);
-    card.appendChild(media);
-
-    const stats = document.createElement('div');
-    stats.className = 'yt-commander-sub-manager-card-stats';
-    const name = document.createElement('div');
-    name.className = 'yt-commander-sub-manager-name yt-commander-sub-manager-card-name';
-    name.setAttribute('data-field', 'name');
-    name.textContent = channel.title || 'Untitled channel';
-    setTooltip(name, channel.title || 'Untitled channel');
-    const counts = resolveChannelCounts(channel);
-    const subscribers = document.createElement('div');
-    subscribers.className = 'yt-commander-sub-manager-card-metric';
-    subscribers.setAttribute('data-field', 'subscribers');
-    subscribers.textContent = counts.subscribers;
-    const nameRow = document.createElement('div');
-    nameRow.className = 'yt-commander-sub-manager-card-title-row';
-    nameRow.appendChild(name);
-    nameRow.appendChild(subscribers);
-
-    stats.appendChild(nameRow);
-    card.appendChild(stats);
-
-    return card;
-}
-
 function updateCard(card, channel) {
     const name = card.querySelector('[data-field="name"]');
     if (name) {
@@ -3378,43 +1400,6 @@ function updateCard(card, channel) {
  * @param {Array<object>} pageItems
  * @param {{totalCount?: number, topSpacerHeight?: number, bottomSpacerHeight?: number}} [options]
  */
-function renderCards(pageItems, options = {}) {
-    if (!cardsWrap) {
-        return;
-    }
-    cardsWrap.innerHTML = '';
-    cardById.clear();
-    const totalCount = Number.isFinite(options.totalCount) ? options.totalCount : pageItems.length;
-    const topSpacerHeight = Number.isFinite(options.topSpacerHeight) ? options.topSpacerHeight : 0;
-    const bottomSpacerHeight = Number.isFinite(options.bottomSpacerHeight)
-        ? options.bottomSpacerHeight
-        : 0;
-
-    if (totalCount === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'yt-commander-sub-manager-empty';
-        empty.textContent = 'No channels found.';
-        cardsWrap.appendChild(empty);
-        return;
-    }
-
-    const fragment = document.createDocumentFragment();
-    if (topSpacerHeight > 0) {
-        fragment.appendChild(createVirtualSpacer(topSpacerHeight));
-    }
-    pageItems.forEach((channel) => {
-        const card = buildCard(channel);
-        if (channel.channelId) {
-            cardById.set(channel.channelId, card);
-        }
-        fragment.appendChild(card);
-    });
-    if (bottomSpacerHeight > 0) {
-        fragment.appendChild(createVirtualSpacer(bottomSpacerHeight));
-    }
-
-    cardsWrap.appendChild(fragment);
-}
 
 let filterMenuEl = null;
 
@@ -3423,39 +1408,6 @@ function closeFilterMenu() {
         filterMenuEl.remove();
         filterMenuEl = null;
     }
-}
-
-function computeCardRange(totalCount) {
-    if (!cardsWrap || totalCount === 0) {
-        return {
-            startIndex: 0,
-            endIndex: 0,
-            columns: 1,
-            topSpacerHeight: 0,
-            bottomSpacerHeight: 0,
-        };
-    }
-    const containerWidth = cardsWrap.clientWidth || 800;
-    const columns = Math.max(
-        1,
-        Math.floor((containerWidth + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP))
-    );
-    const rowHeight = cardRowHeight;
-    const viewportHeight = mainWrap ? mainWrap.clientHeight : 600;
-    const scrollTop = mainWrap ? mainWrap.scrollTop : 0;
-    const overscan = VIRTUAL_OVERSCAN;
-
-    const rowsInViewport = Math.ceil(viewportHeight / rowHeight) + overscan * 2;
-    const startRow = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
-    const startIndex = Math.max(0, startRow * columns);
-    const endRow = startRow + rowsInViewport;
-    const endIndex = Math.min(totalCount, endRow * columns);
-
-    const totalRows = Math.ceil(totalCount / columns);
-    const topSpacerHeight = startRow * rowHeight;
-    const bottomSpacerHeight = Math.max(0, (totalRows - endRow) * rowHeight);
-
-    return { startIndex, endIndex, columns, topSpacerHeight, bottomSpacerHeight };
 }
 
 function isSameRange(a, b) {
@@ -3467,84 +1419,10 @@ function isSameRange(a, b) {
 
 let measuredCardHeight = 0;
 
-function measureCardMetrics() {
-    if (!cardsWrap || !cardsWrap.firstChild) {
-        return false;
-    }
-    const firstCard = cardsWrap.querySelector('.yt-commander-sub-manager-card');
-    if (!firstCard) {
-        return false;
-    }
-    const height = firstCard.offsetHeight;
-    if (height > 0 && height !== measuredCardHeight) {
-        cardRowHeight = height + CARD_GAP;
-        measuredCardHeight = height;
-        return true;
-    }
-    return false;
-}
-
 /**
  * Filter channels by category.
  * @returns {Array<object>}
  */
-function filterChannels() {
-    let list = channels;
-    if (filterMode === 'all') {
-        list = channels;
-    } else if (filterMode === 'uncategorized') {
-        list = channels.filter((channel) => readChannelAssignments(channel.channelId).length === 0);
-    } else {
-        list = channels.filter((channel) =>
-            readChannelAssignments(channel.channelId).includes(filterMode)
-        );
-    }
-    return sortChannels(list);
-}
-
-function renderVirtualizedList(force = false) {
-    if (!modal) {
-        refreshQuickAddButtons();
-        return;
-    }
-    if (force) {
-        lastCardRange = null;
-    }
-    const totalCount = filteredChannelsCache.length;
-    const range = computeCardRange(totalCount);
-    if (!force && isSameRange(range, lastCardRange)) {
-        return;
-    }
-    cardColumns = range.columns || cardColumns;
-    lastCardRange = range;
-    const pageItems = filteredChannelsCache.slice(range.startIndex, range.endIndex);
-    currentPageIds = pageItems
-        .map((channel) => channel?.channelId)
-        .filter((id) => typeof id === 'string' && id);
-    renderCards(pageItems, {
-        totalCount,
-        topSpacerHeight: range.topSpacerHeight,
-        bottomSpacerHeight: range.bottomSpacerHeight,
-    });
-    if (measureCardMetrics()) {
-        queueVirtualRender(true);
-    }
-}
-
-function queueVirtualRender(force = false) {
-    if (force) {
-        pendingVirtualForce = true;
-    }
-    if (virtualScrollRaf) {
-        return;
-    }
-    virtualScrollRaf = window.requestAnimationFrame(() => {
-        virtualScrollRaf = 0;
-        const shouldForce = pendingVirtualForce;
-        pendingVirtualForce = false;
-        renderVirtualizedList(shouldForce);
-    });
-}
 
 function handleMainScroll() {
     queueVirtualRender(false);
@@ -3591,7 +1469,7 @@ function closeModal() {
         return;
     }
     overlay.classList.remove('is-visible');
-    closePicker();
+    closePickerAll();
     closeFilterMenu();
     closeConfirmDialog(false);
     hideTooltipPortal();
@@ -3676,7 +1554,7 @@ function handleKeydown(event) {
         return;
     }
     if (picker && picker.style.display === 'block') {
-        closePicker();
+        closePickerAll();
         return;
     }
     if (overlay?.classList.contains('is-visible')) {
@@ -3702,7 +1580,7 @@ export async function initSubscriptionManager() {
     });
 
     window.addEventListener('resize', () => {
-        positionPicker();
+        positionPickerAll();
     });
 
     window.addEventListener('message', bridgeClient.handleResponse);
@@ -3739,3 +1617,4 @@ export async function getSubscriptionSnapshot() {
     const nextStored = await storageGet([STORAGE_KEYS.SNAPSHOT]);
     return nextStored?.[STORAGE_KEYS.SNAPSHOT] || { channels: [], fetchedAt: Date.now(), hash: '' };
 }
+
