@@ -28,7 +28,7 @@ import {
     PROCESS_CHUNK_SIZE,
     STATUS_KIND,
     VISIBILITY_OPTIONS,
-    PLAYLIST_ID_PATTERN
+    PLAYLIST_ID_PATTERN,
 } from './playlist-multi-select/constants.js';
 import { ICONS } from '../shared/constants.js';
 import {
@@ -44,7 +44,7 @@ import {
     createRemoveIcon,
     createSelectAllIcon,
     createUnselectAllIcon,
-    createSplitIcon
+    createSplitIcon,
 } from './playlist-multi-select/icons.js';
 import {
     extractVideoId,
@@ -54,11 +54,27 @@ import {
     isPlaylistCollectionPage,
     getRemoveActionLabel,
     isPlaylistsPage,
-    collectRenderedPlaylistIds
+    collectRenderedPlaylistIds,
 } from './playlist-multi-select/pageContext.js';
 import { createBridgeClient } from './playlist-multi-select/bridge.js';
 import { createSelectionRangeController } from './playlist-multi-select/selectionRange.js';
 import { isVideoWatched } from './watchedHistory.js';
+import { state, resetState } from './playlist-multi-select/state.js';
+import { clamp, visibilityLabel, visibilityIconPath } from './playlist-multi-select/utils.js';
+import {
+    ensureMastheadButton,
+    updateMastheadVisibility,
+    updateMastheadButtonState,
+} from './playlist-multi-select/masthead-ui.js';
+import { ensureActionBar } from './playlist-multi-select/action-bar.js';
+import { ensurePlaylistPanel } from './playlist-multi-select/playlist-panel.js';
+import { ensureCreateModal } from './playlist-multi-select/create-modal.js';
+import {
+    ensureSplitModal,
+    closeSplitModal as closeSplitModalFn,
+    updateSplitModalState as updateSplitModalStateFn,
+    setSplitStatus as setSplitStatusFn,
+} from './playlist-multi-select/split-modal.js';
 
 const logger = createLogger('PlaylistMultiSelect');
 const bridgeClient = createBridgeClient({
@@ -66,124 +82,11 @@ const bridgeClient = createBridgeClient({
     requestType: REQUEST_TYPE,
     responseType: RESPONSE_TYPE,
     timeoutMs: REQUEST_TIMEOUT_MS,
-    requestPrefix: 'ytc-playlist'
+    requestPrefix: 'ytc-playlist',
 });
-
-let isInitialized = false;
-let isEnabled = true;
-let selectionMode = false;
-let playlistPanelVisible = false;
-let createModalVisible = false;
-let createVisibilityMenuVisible = false;
-let loadingPlaylists = false;
-let submitting = false;
-let createSubmitting = false;
-
-let mastheadSlot = null;
-let mastheadButton = null;
-let mastheadBadge = null;
-
-let actionBar = null;
-let actionCount = null;
-let actionTotalCount = null;
-let actionWatchLaterButton = null;
-let actionSaveButton = null;
-let actionQuickCreateButton = null;
-let actionSplitButton = null;
-let actionRemoveButton = null;
-let actionRemoveWatchedButton = null;
-let actionDeletePlaylistsButton = null;
-let actionSelectAllButton = null;
-let actionUnselectAllButton = null;
-let actionOpenAllButton = null;
-let actionExitButton = null;
-let progressBar = null;
-let progressBarLabel = null;
-let progressBarFill = null;
-let progressBarCount = null;
-
-let playlistPanel = null;
-let playlistPanelCount = null;
-let playlistPanelList = null;
-let playlistPanelStatus = null;
-let playlistPanelCloseButton = null;
-let playlistPanelNewButton = null;
-
-let createBackdrop = null;
-let createModal = null;
-let splitBackdrop = null;
-let splitModal = null;
-let splitCountInput = null;
-let splitStatus = null;
-let splitSubmitting = false;
-let createTitleInput = null;
-let createVisibilityButton = null;
-let createVisibilityValue = null;
-let createVisibilityMenu = null;
-let createCollaborateInput = null;
-let createCancelButton = null;
-let createCreateButton = null;
-let createStatus = null;
-
-let observer = null;
-let pendingContainers = new Set();
-let renderScheduled = false;
-let deferredRescanTimer = null;
-let loadPlaylistsDebounced = null;
-
-let lastKnownUrl = location.href;
-let statusTimer = null;
-let postSaveResetTimer = null;
-let lastPlaylistProbeVideoId = '';
-let createVisibility = 'PRIVATE';
-let selectAllMode = false;
-
-let isDragging = false;
-let dragOffsetX = 0;
-let dragOffsetY = 0;
-let isDragPositioned = false;
-const WATCH_LATER_PLAYLIST_ID = 'WL';
-
-const selectedVideoIds = new Set();
-const selectedPlaylistIds = new Set();
-const cleanupCallbacks = [];
-const playlistMap = new Map();
-const selectionRangeController = createSelectionRangeController();
-let decorateRetryCounts = new WeakMap();
-let cachedPageVideoCount = 0;
 
 const DECORATE_MAX_RETRIES = 3;
 const DECORATE_RETRY_DELAY_MS = 320;
-
-let playlistOptions = [];
-
-/**
- * Clamp number to bounds.
- * @param {number} value
- * @param {number} min
- * @param {number} max
- * @returns {number}
- */
-function clamp(value, min, max) {
-    return Math.min(max, Math.max(min, value));
-}
-
-/**
- * Convert visibility enum to UI label.
- * @param {string} value
- * @returns {string}
- */
-function visibilityLabel(value) {
-    const option = VISIBILITY_OPTIONS.find((item) => item.value === value);
-    return option ? option.label : 'Private';
-}
-
-function pickRandom(list) {
-    if (!Array.isArray(list) || list.length === 0) {
-        return '';
-    }
-    return list[Math.floor(Math.random() * list.length)];
-}
 
 /**
  * Generate a unique playlist title by finding the highest "Playlist N" number
@@ -194,7 +97,7 @@ async function generateQuickPlaylistTitle() {
     try {
         const response = await sendBridgeRequest(ACTIONS.GET_PLAYLISTS, {});
         const playlists = Array.isArray(response?.playlists) ? response.playlists : [];
-        
+
         let maxNum = 0;
         playlists.forEach((playlist) => {
             const title = playlist?.title || '';
@@ -206,7 +109,7 @@ async function generateQuickPlaylistTitle() {
                 }
             }
         });
-        
+
         return `Playlist ${maxNum + 1}`;
     } catch (error) {
         logger.warn('Failed to get existing playlists for title generation', error);
@@ -215,453 +118,54 @@ async function generateQuickPlaylistTitle() {
 }
 
 /**
- * Resolve icon path for visibility option.
- * @param {string} value
- * @returns {string}
- */
-function visibilityIconPath(value) {
-    if (value === 'PUBLIC') {
-        return 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm6.93 9h-2.95a15.65 15.65 0 00-1.38-5.02A8.03 8.03 0 0118.93 11zM12 4.04c.83 1.2 1.5 2.95 1.9 4.96h-3.8c.4-2.01 1.07-3.76 1.9-4.96zM4.07 13h2.95c.12 1.83.59 3.56 1.38 5.02A8.03 8.03 0 014.07 13zm2.95-2H4.07a8.03 8.03 0 014.33-5.02A15.65 15.65 0 007.02 11zM12 19.96c-.83-1.2-1.5-2.95-1.9-4.96h3.8c-.4 2.01-1.07 3.76-1.9 4.96zM14.34 13H9.66c-.11-1.01-.16-2.01-.16-3s.05-1.99.16-3h4.68c.11 1.01.16 2.01.16 3s-.05 1.99-.16 3zm.26 5.02c.79-1.46 1.26-3.19 1.38-5.02h2.95a8.03 8.03 0 01-4.33 5.02z';
-    }
-
-    if (value === 'UNLISTED') {
-        return 'M3.9 12a5 5 0 015-5h3v2h-3a3 3 0 000 6h3v2h-3a5 5 0 01-5-5zm7-1h2v2h-2v-2zm4.1-4h-3v2h3a3 3 0 010 6h-3v2h3a5 5 0 000-10z';
-    }
-
-    return 'M12 17a2 2 0 100-4 2 2 0 000 4zm6-8h-1V7a5 5 0 00-10 0v2H6a2 2 0 00-2 2v9a2 2 0 002 2h12a2 2 0 002-2v-9a2 2 0 00-2-2zm-9-2a3 3 0 116 0v2H9V7zm9 13H6v-9h12v9z';
-}
-
-/**
- * Ensure masthead slot + icon button exist and are mounted.
- */
-function ensureMastheadButton() {
-    if (!mastheadButton) {
-        mastheadButton = document.createElement('button');
-        mastheadButton.type = 'button';
-        mastheadButton.className = MASTHEAD_BUTTON_CLASS;
-        mastheadButton.title = 'Select videos';
-        mastheadButton.setAttribute('aria-label', 'Select videos');
-        mastheadButton.appendChild(createMastheadIcon());
-        mastheadButton.addEventListener('click', handleMastheadButtonClick);
-        cleanupCallbacks.push(() => mastheadButton?.removeEventListener('click', handleMastheadButtonClick));
-    }
-
-    if (!mastheadBadge) {
-        mastheadBadge = document.createElement('span');
-        mastheadBadge.className = MASTHEAD_BADGE_CLASS;
-        mastheadBadge.textContent = '0';
-        mastheadButton.appendChild(mastheadBadge);
-    }
-
-    if (!mastheadSlot) {
-        mastheadSlot = document.createElement('div');
-        mastheadSlot.className = MASTHEAD_SLOT_CLASS;
-    }
-
-    if (!mastheadButton.parentElement || mastheadButton.parentElement !== mastheadSlot) {
-        mastheadSlot.appendChild(mastheadButton);
-    }
-
-    const mountPoint = resolveMastheadMountPoint();
-    if (mountPoint && mastheadSlot.parentElement !== mountPoint.parent) {
-        mountPoint.parent.insertBefore(mastheadSlot, mountPoint.anchor);
-    } else if (!mountPoint && !mastheadSlot.isConnected) {
-        document.body.appendChild(mastheadSlot);
-    }
-
-    updateMastheadButtonState();
-    updateMastheadVisibility();
-}
-
-/**
- * Toggle masthead visibility by page eligibility + feature state.
- */
-function updateMastheadVisibility() {
-    const visible = isEnabled && isEligiblePage();
-    if (mastheadSlot) {
-        mastheadSlot.style.display = visible ? '' : 'none';
-    }
-}
-
-/**
- * Build one icon button for action bar.
- * @param {SVGSVGElement} icon
- * @param {string} label
- * @returns {HTMLButtonElement}
- */
-function createActionIconButton(icon, label) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'yt-commander-playlist-action-button';
-    button.setAttribute('aria-label', label);
-    button.setAttribute('title', label);
-    button.setAttribute('data-tooltip', label);
-    button.appendChild(icon);
-    return button;
-}
-
-/**
- * Ensure bottom action bar exists.
- */
-function ensureActionBar() {
-    if (actionBar && actionBar.isConnected) {
-        return;
-    }
-
-    actionBar = document.createElement('div');
-    actionBar.className = ACTION_BAR_CLASS;
-
-    const dragHandle = document.createElement('div');
-    dragHandle.className = 'yt-commander-playlist-action-drag-handle';
-    dragHandle.setAttribute('title', 'Drag to move');
-    dragHandle.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4h1v1H6V4zm3 0h1v1H9V4zm3 0h1v1h-1V4zM6 7h1v1H6V7zm3 0h1v1H9V7zm3 0h1v1h-1V7zM6 10h1v1H6v-1zm3 0h1v1H9v-1zm3 0h1v1h-1v-1z"/></svg>';
-
-    const countWrap = document.createElement('div');
-    countWrap.className = 'yt-commander-playlist-action-count';
-
-    const countLabel = document.createElement('span');
-    countLabel.className = 'yt-commander-playlist-action-count-label';
-    countLabel.textContent = 'Selected';
-
-    actionCount = document.createElement('span');
-    actionCount.className = 'yt-commander-playlist-action-count-value';
-    actionCount.textContent = '0';
-
-    const totalLabel = document.createElement('span');
-    totalLabel.className = 'yt-commander-playlist-action-count-label';
-    totalLabel.textContent = 'of';
-
-    actionTotalCount = document.createElement('span');
-    actionTotalCount.className = 'yt-commander-playlist-action-count-total';
-    actionTotalCount.textContent = '0';
-
-    countWrap.appendChild(countLabel);
-    countWrap.appendChild(actionCount);
-    countWrap.appendChild(totalLabel);
-    countWrap.appendChild(actionTotalCount);
-
-    dragHandle.addEventListener('mousedown', handleDragStart);
-    document.addEventListener('mousemove', handleDragMove);
-    document.addEventListener('mouseup', handleDragEnd);
-
-    actionWatchLaterButton = createActionIconButton(createWatchLaterIcon(), 'Save to Watch later');
-    actionSaveButton = createActionIconButton(createBookmarkIcon(), 'Save to playlist');
-    actionQuickCreateButton = createActionIconButton(createPlaylistAddIcon(), 'Save to new playlist');
-    actionSplitButton = createActionIconButton(createSplitIcon(), 'Split into playlists');
-    actionRemoveButton = createActionIconButton(createRemoveIcon(), getRemoveActionLabel());
-    actionRemoveWatchedButton = createActionIconButton(createRemoveIcon(), 'Remove watched');
-    actionDeletePlaylistsButton = createActionIconButton(createRemoveIcon(), 'Remove selected playlist');
-    actionSelectAllButton = createActionIconButton(createSelectAllIcon(), 'Select all');
-    actionUnselectAllButton = createActionIconButton(createUnselectAllIcon(), 'Unselect all');
-
-    actionOpenAllButton = document.createElement('button');
-    actionOpenAllButton.type = 'button';
-    actionOpenAllButton.className = 'yt-commander-playlist-action-button';
-    actionOpenAllButton.setAttribute('aria-label', 'Open all in new tab');
-    actionOpenAllButton.setAttribute('title', 'Open all in new tab');
-    actionOpenAllButton.setAttribute('data-tooltip', 'Open all in new tab');
-    const openIcon = createSvgIcon(ICONS.OPEN_NEW_TAB);
-    actionOpenAllButton.appendChild(openIcon);
-
-    actionExitButton = document.createElement('button');
-    actionExitButton.type = 'button';
-    actionExitButton.className = 'yt-commander-playlist-action-button yt-commander-playlist-action-exit';
-    actionExitButton.setAttribute('aria-label', 'Exit selection mode');
-    actionExitButton.setAttribute('title', 'Exit selection mode');
-    actionExitButton.setAttribute('data-tooltip', 'Exit selection mode');
-    actionExitButton.appendChild(createCloseIcon());
-
-    actionBar.appendChild(dragHandle);
-    actionBar.appendChild(countWrap);
-    actionBar.appendChild(actionWatchLaterButton);
-    actionBar.appendChild(actionSaveButton);
-    actionBar.appendChild(actionQuickCreateButton);
-    actionBar.appendChild(actionSplitButton);
-    actionBar.appendChild(actionRemoveButton);
-    actionBar.appendChild(actionRemoveWatchedButton);
-    actionBar.appendChild(actionDeletePlaylistsButton);
-    actionBar.appendChild(actionSelectAllButton);
-    actionBar.appendChild(actionUnselectAllButton);
-    actionBar.appendChild(actionOpenAllButton);
-    actionBar.appendChild(actionExitButton);
-
-    progressBar = document.createElement('div');
-    progressBar.className = 'yt-commander-playlist-progress';
-    progressBar.hidden = true;
-
-    progressBarLabel = document.createElement('div');
-    progressBarLabel.className = 'yt-commander-playlist-progress__label';
-    progressBarLabel.textContent = 'Saving...';
-
-    const progressBarElement = document.createElement('div');
-    progressBarElement.className = 'yt-commander-playlist-progress__bar';
-
-    progressBarFill = document.createElement('div');
-    progressBarFill.className = 'yt-commander-playlist-progress__fill';
-
-    progressBarCount = document.createElement('div');
-    progressBarCount.className = 'yt-commander-playlist-progress__count';
-    progressBarCount.textContent = '0 / 0';
-
-    progressBarElement.appendChild(progressBarFill);
-    progressBar.appendChild(progressBarLabel);
-    progressBar.appendChild(progressBarElement);
-    progressBar.appendChild(progressBarCount);
-
-    document.body.appendChild(actionBar);
-    document.body.appendChild(progressBar);
-
-    actionWatchLaterButton.addEventListener('click', handleActionWatchLaterClick);
-    actionSaveButton.addEventListener('click', handleActionSaveClick);
-    actionQuickCreateButton.addEventListener('click', handleActionQuickCreateClick);
-    actionSplitButton.addEventListener('click', handleSplitClick);
-    actionRemoveButton.addEventListener('click', handleActionRemoveClick);
-    actionRemoveWatchedButton.addEventListener('click', handleActionRemoveWatchedClick);
-    actionDeletePlaylistsButton.addEventListener('click', handleActionDeletePlaylistsClick);
-    actionSelectAllButton.addEventListener('click', handleActionSelectAllClick);
-    actionUnselectAllButton.addEventListener('click', handleActionUnselectAllClick);
-    actionOpenAllButton.addEventListener('click', handleOpenInNewTab);
-    actionExitButton.addEventListener('click', handleActionExitButtonClick);
-
-    cleanupCallbacks.push(() => actionWatchLaterButton?.removeEventListener('click', handleActionWatchLaterClick));
-    cleanupCallbacks.push(() => actionSaveButton?.removeEventListener('click', handleActionSaveClick));
-    cleanupCallbacks.push(() => actionQuickCreateButton?.removeEventListener('click', handleActionQuickCreateClick));
-    cleanupCallbacks.push(() => actionSplitButton?.removeEventListener('click', handleSplitClick));
-    cleanupCallbacks.push(() => actionRemoveButton?.removeEventListener('click', handleActionRemoveClick));
-    cleanupCallbacks.push(() => actionRemoveWatchedButton?.removeEventListener('click', handleActionRemoveWatchedClick));
-    cleanupCallbacks.push(() => actionDeletePlaylistsButton?.removeEventListener('click', handleActionDeletePlaylistsClick));
-    cleanupCallbacks.push(() => actionSelectAllButton?.removeEventListener('click', handleActionSelectAllClick));
-    cleanupCallbacks.push(() => actionUnselectAllButton?.removeEventListener('click', handleActionUnselectAllClick));
-    cleanupCallbacks.push(() => actionOpenAllButton?.removeEventListener('click', handleOpenInNewTab));
-    cleanupCallbacks.push(() => actionExitButton?.removeEventListener('click', handleActionExitButtonClick));
-    syncRemoveActionButton();
-}
-
-/**
- * Ensure playlist panel exists.
- */
-function ensurePlaylistPanel() {
-    if (playlistPanel && playlistPanel.isConnected) {
-        return;
-    }
-
-    playlistPanel = document.createElement('div');
-    playlistPanel.className = PLAYLIST_PANEL_CLASS;
-    playlistPanel.setAttribute('role', 'dialog');
-    playlistPanel.setAttribute('aria-label', 'Save to playlist');
-
-    const header = document.createElement('div');
-    header.className = 'yt-commander-playlist-panel__header';
-
-    const title = document.createElement('div');
-    title.className = 'yt-commander-playlist-panel__title';
-    title.textContent = 'Save to...';
-
-    playlistPanelCloseButton = document.createElement('button');
-    playlistPanelCloseButton.type = 'button';
-    playlistPanelCloseButton.className = 'yt-commander-playlist-panel__close';
-    playlistPanelCloseButton.setAttribute('aria-label', 'Close');
-    playlistPanelCloseButton.appendChild(createCloseIcon());
-
-    header.appendChild(title);
-    header.appendChild(playlistPanelCloseButton);
-
-    const subhead = document.createElement('div');
-    subhead.className = 'yt-commander-playlist-panel__subhead';
-    playlistPanelCount = document.createElement('span');
-    playlistPanelCount.className = 'yt-commander-playlist-panel__count';
-    playlistPanelCount.textContent = '0 selected';
-    subhead.appendChild(playlistPanelCount);
-
-    playlistPanelList = document.createElement('div');
-    playlistPanelList.className = 'yt-commander-playlist-panel__list';
-    playlistPanelList.setAttribute('role', 'listbox');
-    playlistPanelList.setAttribute('aria-label', 'Playlists');
-
-    playlistPanelStatus = document.createElement('div');
-    playlistPanelStatus.className = 'yt-commander-playlist-panel__status';
-    playlistPanelStatus.setAttribute('aria-live', 'polite');
-
-    const footer = document.createElement('div');
-    footer.className = 'yt-commander-playlist-panel__footer';
-
-    playlistPanelNewButton = document.createElement('button');
-    playlistPanelNewButton.type = 'button';
-    playlistPanelNewButton.className = 'yt-commander-playlist-panel__new';
-    const plus = document.createElement('span');
-    plus.className = 'yt-commander-playlist-panel__new-icon';
-    plus.appendChild(createPlusIcon());
-    const newLabel = document.createElement('span');
-    newLabel.textContent = 'New playlist';
-    playlistPanelNewButton.appendChild(plus);
-    playlistPanelNewButton.appendChild(newLabel);
-
-    footer.appendChild(playlistPanelNewButton);
-
-    playlistPanel.appendChild(header);
-    playlistPanel.appendChild(subhead);
-    playlistPanel.appendChild(playlistPanelList);
-    playlistPanel.appendChild(playlistPanelStatus);
-    playlistPanel.appendChild(footer);
-
-    document.body.appendChild(playlistPanel);
-
-    playlistPanelCloseButton.addEventListener('click', closePlaylistPanel);
-    playlistPanelList.addEventListener('click', handlePlaylistListClick);
-    playlistPanelNewButton.addEventListener('click', handlePlaylistNewButtonClick);
-
-    cleanupCallbacks.push(() => playlistPanelCloseButton?.removeEventListener('click', closePlaylistPanel));
-    cleanupCallbacks.push(() => playlistPanelList?.removeEventListener('click', handlePlaylistListClick));
-    cleanupCallbacks.push(() => playlistPanelNewButton?.removeEventListener('click', handlePlaylistNewButtonClick));
-}
-
-/**
- * Ensure create-playlist modal exists.
- */
-function ensureCreateModal() {
-    if (createBackdrop && createBackdrop.isConnected) {
-        return;
-    }
-
-    createBackdrop = document.createElement('div');
-    createBackdrop.className = CREATE_BACKDROP_CLASS;
-
-    createModal = document.createElement('div');
-    createModal.className = CREATE_MODAL_CLASS;
-    createModal.setAttribute('role', 'dialog');
-    createModal.setAttribute('aria-modal', 'true');
-    createModal.setAttribute('aria-label', 'New playlist');
-
-    const modalTitle = document.createElement('h3');
-    modalTitle.className = 'yt-commander-playlist-create-modal__title';
-    modalTitle.textContent = 'New playlist';
-
-    createTitleInput = document.createElement('input');
-    createTitleInput.type = 'text';
-    createTitleInput.className = 'yt-commander-playlist-create-modal__input';
-    createTitleInput.placeholder = 'Choose a title';
-    createTitleInput.maxLength = 150;
-
-    const visibilityWrap = document.createElement('div');
-    visibilityWrap.className = 'yt-commander-playlist-create-modal__visibility';
-
-    createVisibilityButton = document.createElement('button');
-    createVisibilityButton.type = 'button';
-    createVisibilityButton.className = 'yt-commander-playlist-create-modal__visibility-button';
-    createVisibilityButton.setAttribute('aria-haspopup', 'listbox');
-    createVisibilityButton.setAttribute('aria-expanded', 'false');
-
-    const visibilityTextWrap = document.createElement('span');
-    visibilityTextWrap.className = 'yt-commander-playlist-create-modal__visibility-text';
-
-    const visibilityLabelText = document.createElement('span');
-    visibilityLabelText.className = 'yt-commander-playlist-create-modal__visibility-label';
-    visibilityLabelText.textContent = 'Visibility';
-
-    createVisibilityValue = document.createElement('span');
-    createVisibilityValue.className = 'yt-commander-playlist-create-modal__visibility-value';
-    createVisibilityValue.textContent = visibilityLabel(createVisibility);
-
-    visibilityTextWrap.appendChild(visibilityLabelText);
-    visibilityTextWrap.appendChild(createVisibilityValue);
-    createVisibilityButton.appendChild(visibilityTextWrap);
-    createVisibilityButton.appendChild(createChevronDownIcon());
-
-    createVisibilityMenu = document.createElement('div');
-    createVisibilityMenu.className = 'yt-commander-playlist-create-modal__visibility-menu';
-    createVisibilityMenu.setAttribute('role', 'listbox');
-
-    visibilityWrap.appendChild(createVisibilityButton);
-    visibilityWrap.appendChild(createVisibilityMenu);
-
-    const collaborateRow = document.createElement('div');
-    collaborateRow.className = 'yt-commander-playlist-create-modal__collaborate';
-
-    const collaborateLabel = document.createElement('span');
-    collaborateLabel.className = 'yt-commander-playlist-create-modal__collaborate-label';
-    collaborateLabel.textContent = 'Collaborate';
-
-    const switchLabel = document.createElement('label');
-    switchLabel.className = 'yt-commander-playlist-create-modal__switch';
-    createCollaborateInput = document.createElement('input');
-    createCollaborateInput.type = 'checkbox';
-    createCollaborateInput.className = 'yt-commander-playlist-create-modal__switch-input';
-    const slider = document.createElement('span');
-    slider.className = 'yt-commander-playlist-create-modal__switch-slider';
-    switchLabel.appendChild(createCollaborateInput);
-    switchLabel.appendChild(slider);
-
-    collaborateRow.appendChild(collaborateLabel);
-    collaborateRow.appendChild(switchLabel);
-
-    createStatus = document.createElement('div');
-    createStatus.className = 'yt-commander-playlist-create-modal__status';
-    createStatus.setAttribute('aria-live', 'polite');
-
-    const actions = document.createElement('div');
-    actions.className = 'yt-commander-playlist-create-modal__actions';
-
-    createCancelButton = document.createElement('button');
-    createCancelButton.type = 'button';
-    createCancelButton.className = 'yt-commander-playlist-create-modal__button';
-    createCancelButton.textContent = 'Cancel';
-
-    createCreateButton = document.createElement('button');
-    createCreateButton.type = 'button';
-    createCreateButton.className = 'yt-commander-playlist-create-modal__button yt-commander-playlist-create-modal__button--primary';
-    createCreateButton.textContent = 'Create';
-
-    actions.appendChild(createCancelButton);
-    actions.appendChild(createCreateButton);
-
-    createModal.appendChild(modalTitle);
-    createModal.appendChild(createTitleInput);
-    createModal.appendChild(visibilityWrap);
-    createModal.appendChild(collaborateRow);
-    createModal.appendChild(createStatus);
-    createModal.appendChild(actions);
-    createBackdrop.appendChild(createModal);
-
-    document.body.appendChild(createBackdrop);
-
-    createBackdrop.addEventListener('mousedown', handleCreateBackdropMouseDown);
-    createTitleInput.addEventListener('input', updateCreateModalState);
-    createTitleInput.addEventListener('keydown', handleCreateTitleKeydown);
-    createVisibilityButton.addEventListener('click', handleCreateVisibilityButtonClick);
-    createVisibilityMenu.addEventListener('click', handleCreateVisibilityMenuClick);
-    createCancelButton.addEventListener('click', closeCreateModal);
-    createCreateButton.addEventListener('click', handleCreateSubmitClick);
-
-    cleanupCallbacks.push(() => createBackdrop?.removeEventListener('mousedown', handleCreateBackdropMouseDown));
-    cleanupCallbacks.push(() => createTitleInput?.removeEventListener('input', updateCreateModalState));
-    cleanupCallbacks.push(() => createTitleInput?.removeEventListener('keydown', handleCreateTitleKeydown));
-    cleanupCallbacks.push(() => createVisibilityButton?.removeEventListener('click', handleCreateVisibilityButtonClick));
-    cleanupCallbacks.push(() => createVisibilityMenu?.removeEventListener('click', handleCreateVisibilityMenuClick));
-    cleanupCallbacks.push(() => createCancelButton?.removeEventListener('click', closeCreateModal));
-    cleanupCallbacks.push(() => createCreateButton?.removeEventListener('click', handleCreateSubmitClick));
-
-    renderCreateVisibilityOptions();
-    updateCreateModalState();
-}
-
-/**
  * Ensure all action UI elements exist.
  */
 function ensureActionUi() {
-    ensureActionBar();
-    ensurePlaylistPanel();
-    ensureCreateModal();
+    const actionBarHandlers = {
+        handleDragStart,
+        handleDragMove,
+        handleDragEnd,
+        handleActionWatchLaterClick,
+        handleActionSaveClick,
+        handleActionQuickCreateClick,
+        handleSplitClick,
+        handleActionRemoveClick,
+        handleActionRemoveWatchedClick,
+        handleActionDeletePlaylistsClick,
+        handleActionSelectAllClick,
+        handleActionUnselectAllClick,
+        handleOpenInNewTab,
+        handleActionExitButtonClick,
+    };
+    const panelHandlers = {
+        closePlaylistPanel,
+        handlePlaylistListClick,
+        handlePlaylistNewButtonClick,
+    };
+    const createModalHandlers = {
+        handleCreateBackdropMouseDown,
+        handleCreateTitleKeydown,
+        handleCreateVisibilityButtonClick,
+        handleCreateVisibilityMenuClick,
+        closeCreateModal,
+        handleCreateSubmitClick,
+        renderCreateVisibilityOptions,
+        updateCreateModalState,
+    };
+    ensureActionBar(state, actionBarHandlers);
+    ensurePlaylistPanel(state, panelHandlers);
+    ensureCreateModal(state, createModalHandlers, visibilityLabel);
 }
 
 /**
  * Position the playlist panel relative to the save action.
  */
 function positionPlaylistPanel() {
-    if (!playlistPanelVisible || !playlistPanel || !actionSaveButton) {
+    if (!state.playlistPanelVisible || !state.playlistPanel || !state.actionSaveButton) {
         return;
     }
 
-    positionElementAboveAnchor(playlistPanel, actionSaveButton);
+    positionElementAboveAnchor(state.playlistPanel, state.actionSaveButton);
 }
 
 /**
@@ -684,7 +188,11 @@ function positionElementAboveAnchor(element, anchor) {
 
     let top = anchorRect.top - rect.height - spacing;
     if (top < viewportGap) {
-        top = clamp(anchorRect.bottom + spacing, viewportGap, window.innerHeight - rect.height - viewportGap);
+        top = clamp(
+            anchorRect.bottom + spacing,
+            viewportGap,
+            window.innerHeight - rect.height - viewportGap
+        );
     }
 
     element.style.left = `${left}px`;
@@ -695,11 +203,11 @@ function positionElementAboveAnchor(element, anchor) {
  * Render visibility options for create modal.
  */
 function renderCreateVisibilityOptions() {
-    if (!createVisibilityMenu) {
+    if (!state.createVisibilityMenu) {
         return;
     }
 
-    createVisibilityMenu.innerHTML = '';
+    state.createVisibilityMenu.innerHTML = '';
 
     VISIBILITY_OPTIONS.forEach((option) => {
         const button = document.createElement('button');
@@ -733,66 +241,63 @@ function renderCreateVisibilityOptions() {
         button.appendChild(iconWrap);
         button.appendChild(textWrap);
         button.appendChild(check);
-        createVisibilityMenu.appendChild(button);
+        state.createVisibilityMenu.appendChild(button);
     });
-}
-
-/**
- * Update masthead state.
- */
-function updateMastheadButtonState() {
-    if (!mastheadButton || !mastheadBadge) {
-        return;
-    }
-
-    const selectedCount = selectedVideoIds.size;
-    mastheadButton.classList.toggle('is-active', selectionMode);
-    mastheadBadge.textContent = selectedCount > 99 ? '99+' : String(selectedCount);
-    mastheadBadge.classList.toggle('is-visible', selectedCount > 0);
-    mastheadButton.title = selectionMode ? 'Exit selection mode' : 'Select videos';
 }
 
 /**
  * Update create modal controls.
  */
 function updateCreateModalState() {
-    if (!createVisibilityValue || !createVisibilityMenu || !createVisibilityButton) {
+    if (
+        !state.createVisibilityValue ||
+        !state.createVisibilityMenu ||
+        !state.createVisibilityButton
+    ) {
         return;
     }
 
-    createVisibilityValue.textContent = visibilityLabel(createVisibility);
-    createVisibilityButton.setAttribute('aria-expanded', createVisibilityMenuVisible ? 'true' : 'false');
-    createVisibilityMenu.classList.toggle('is-visible', createVisibilityMenuVisible);
+    state.createVisibilityValue.textContent = visibilityLabel(state.createVisibility);
+    state.createVisibilityButton.setAttribute(
+        'aria-expanded',
+        state.state.createVisibilityMenuVisible ? 'true' : 'false'
+    );
+    state.createVisibilityMenu.classList.toggle(
+        'is-visible',
+        state.state.createVisibilityMenuVisible
+    );
 
-    const options = createVisibilityMenu.querySelectorAll('.yt-commander-playlist-create-modal__visibility-option');
+    const options = state.createVisibilityMenu.querySelectorAll(
+        '.yt-commander-playlist-create-modal__visibility-option'
+    );
     options.forEach((option) => {
         const value = option.getAttribute('data-visibility') || '';
-        const selected = value === createVisibility;
+        const selected = value === state.createVisibility;
         option.classList.toggle('is-selected', selected);
         option.setAttribute('aria-selected', selected ? 'true' : 'false');
     });
 
-    const hasTitle = Boolean(createTitleInput?.value.trim());
-    const hasSelection = selectedVideoIds.size > 0;
+    const hasTitle = Boolean(state.createTitleInput?.value.trim());
+    const hasSelection = state.selectedVideoIds.size > 0;
 
-    if (createTitleInput) {
-        createTitleInput.disabled = createSubmitting;
+    if (state.createTitleInput) {
+        state.createTitleInput.disabled = state.createSubmitting;
     }
 
-    if (createVisibilityButton) {
-        createVisibilityButton.disabled = createSubmitting;
+    if (state.createVisibilityButton) {
+        state.createVisibilityButton.disabled = state.createSubmitting;
     }
 
-    if (createCollaborateInput) {
-        createCollaborateInput.disabled = createSubmitting;
+    if (state.createCollaborateInput) {
+        state.createCollaborateInput.disabled = state.createSubmitting;
     }
 
-    if (createCancelButton) {
-        createCancelButton.disabled = createSubmitting;
+    if (state.createCancelButton) {
+        state.createCancelButton.disabled = state.createSubmitting;
     }
 
-    if (createCreateButton) {
-        createCreateButton.disabled = createSubmitting || !hasTitle || !hasSelection;
+    if (state.createCreateButton) {
+        state.createCreateButton.disabled = state.createSubmitting || !hasTitle || !hasSelection;
     }
 }
 
@@ -800,8 +305,8 @@ function updateCreateModalState() {
  * Toggle action bar visibility based on mode.
  */
 function syncActionBarVisibility() {
-    const visible = isEnabled && selectionMode && isEligiblePage();
-    actionBar?.classList.toggle('is-visible', visible);
+    const visible = state.isEnabled && state.selectionMode && isEligiblePage();
+    state.actionBar?.classList.toggle('is-visible', visible);
 
     if (!visible) {
         closePlaylistPanel();
@@ -814,15 +319,15 @@ function syncActionBarVisibility() {
  * Reset action bar position to default centered position.
  */
 function resetActionBarPosition() {
-    if (!actionBar) {
+    if (!state.actionBar) {
         return;
     }
 
-    isDragPositioned = false;
-    actionBar.style.left = '';
-    actionBar.style.top = '';
-    actionBar.style.bottom = '';
-    actionBar.style.transform = '';
+    state.isDragPositioned = false;
+    state.actionBar.style.left = '';
+    state.actionBar.style.top = '';
+    state.actionBar.style.bottom = '';
+    state.actionBar.style.transform = '';
 }
 
 /**
@@ -831,27 +336,27 @@ function resetActionBarPosition() {
  * @param {'info'|'success'|'error'} kind
  */
 function setStatusMessage(message, kind = STATUS_KIND.INFO) {
-    if (statusTimer) {
-        clearTimeout(statusTimer);
-        statusTimer = null;
+    if (state.statusTimer) {
+        clearTimeout(state.statusTimer);
+        state.statusTimer = null;
     }
 
     const text = typeof message === 'string' ? message : '';
-    if (!playlistPanelStatus) {
+    if (!state.playlistPanelStatus) {
         return;
     }
 
-    playlistPanelStatus.textContent = text;
-    playlistPanelStatus.classList.remove('is-visible', 'is-info', 'is-success', 'is-error');
+    state.playlistPanelStatus.textContent = text;
+    state.playlistPanelStatus.classList.remove('is-visible', 'is-info', 'is-success', 'is-error');
     if (text) {
-        playlistPanelStatus.classList.add('is-visible', `is-${kind}`);
+        state.playlistPanelStatus.classList.add('is-visible', `is-${kind}`);
     }
 
     if (!text) {
         return;
     }
 
-    statusTimer = window.setTimeout(() => {
+    state.statusTimer = window.setTimeout(() => {
         clearStatusMessage();
     }, 4500);
 }
@@ -870,7 +375,7 @@ async function confirmPlaylistSelection(playlistId, videoIds, attempts = 3) {
         }
         try {
             const response = await sendBridgeRequest(ACTIONS.GET_PLAYLISTS, {
-                videoIds: [probeVideoId]
+                videoIds: [probeVideoId],
             });
             const playlists = Array.isArray(response?.playlists) ? response.playlists : [];
             const match = playlists.find((playlist) => playlist?.id === playlistId);
@@ -889,12 +394,12 @@ async function confirmPlaylistSelection(playlistId, videoIds, attempts = 3) {
  * Clear all status texts.
  */
 function clearStatusMessage() {
-    if (statusTimer) {
-        clearTimeout(statusTimer);
-        statusTimer = null;
+    if (state.statusTimer) {
+        clearTimeout(state.statusTimer);
+        state.statusTimer = null;
     }
 
-    [playlistPanelStatus, createStatus].forEach((node) => {
+    [state.playlistPanelStatus, state.createStatus].forEach((node) => {
         if (!node) {
             return;
         }
@@ -910,28 +415,33 @@ function clearStatusMessage() {
  * @param {string} label Current operation label
  */
 function showSaveProgress(processed, total, label) {
-    if (!progressBar || !progressBarFill || !progressBarLabel || !progressBarCount) {
+    if (
+        !state.progressBar ||
+        !state.progressBarFill ||
+        !state.progressBarLabel ||
+        !state.progressBarCount
+    ) {
         return;
     }
 
     const percentage = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
 
-    progressBar.hidden = false;
-    progressBarLabel.textContent = label || 'Saving...';
-    progressBarFill.style.width = `${percentage}%`;
-    progressBarCount.textContent = `${processed} / ${total}`;
+    state.progressBar.hidden = false;
+    state.progressBarLabel.textContent = label || 'Saving...';
+    state.progressBarFill.style.width = `${percentage}%`;
+    state.progressBarCount.textContent = `${processed} / ${total}`;
 }
 
 /**
  * Hide progress bar.
  */
 function hideSaveProgress() {
-    if (!progressBar) {
+    if (!state.progressBar) {
         return;
     }
 
     console.log('[Progress] Hiding');
-    progressBar.hidden = true;
+    state.progressBar.hidden = true;
 }
 
 function resolveActivePageRoot() {
@@ -981,15 +491,15 @@ function collectRenderedVideoIds() {
  * Reset action-bar counters to zero.
  */
 function resetActionCounters() {
-    if (actionCount) {
-        actionCount.textContent = '0';
+    if (state.actionCount) {
+        state.actionCount.textContent = '0';
     }
 
-    if (actionTotalCount) {
-        actionTotalCount.textContent = '0';
+    if (state.actionTotalCount) {
+        state.actionTotalCount.textContent = '0';
     }
 
-    cachedPageVideoCount = 0;
+    state.cachedPageVideoCount = 0;
 }
 
 /**
@@ -997,115 +507,141 @@ function resetActionCounters() {
  */
 function syncRemoveActionButton() {
     const canRemove = isPlaylistCollectionPage();
-    if (!actionRemoveButton) {
+    if (!state.actionRemoveButton) {
         return;
     }
 
     const label = getRemoveActionLabel();
-    actionRemoveButton.hidden = !canRemove;
-    actionRemoveButton.setAttribute('aria-label', label);
-    actionRemoveButton.setAttribute('title', label);
-    actionRemoveButton.setAttribute('data-tooltip', label);
+    state.actionRemoveButton.hidden = !canRemove;
+    state.actionRemoveButton.setAttribute('aria-label', label);
+    state.actionRemoveButton.setAttribute('title', label);
+    state.actionRemoveButton.setAttribute('data-tooltip', label);
 
-    if (actionRemoveWatchedButton) {
-        actionRemoveWatchedButton.hidden = !canRemove;
+    if (state.actionRemoveWatchedButton) {
+        state.actionRemoveWatchedButton.hidden = !canRemove;
     }
 }
 
 /**
- * Update action controls based on selection and loading/submitting states.
+ * Update action controls based on selection and loading/state.submitting states.
  */
 function updateActionUiState() {
     const isPlaylistPage = isPlaylistsPage();
-    const selectedVideoCount = selectedVideoIds.size;
-    const selectedPlaylistCount = selectedPlaylistIds.size;
-    const pageVideoCount = cachedPageVideoCount;
+    const selectedVideoCount = state.selectedVideoIds.size;
+    const selectedPlaylistCount = state.selectedPlaylistIds.size;
+    const pageVideoCount = state.cachedPageVideoCount;
     const pagePlaylistCount = collectRenderedPlaylistIds().length;
 
     const selectedCount = isPlaylistPage ? selectedPlaylistCount : selectedVideoCount;
     const pageCount = isPlaylistPage ? pagePlaylistCount : pageVideoCount;
 
-    if (actionCount) {
-        actionCount.textContent = selectedCount > 999 ? '999+' : String(selectedCount);
+    if (state.actionCount) {
+        state.actionCount.textContent = selectedCount > 999 ? '999+' : String(selectedCount);
     }
 
-    if (actionTotalCount) {
-        actionTotalCount.textContent = pageCount > 9999 ? '9999+' : String(pageCount);
+    if (state.actionTotalCount) {
+        state.actionTotalCount.textContent = pageCount > 9999 ? '9999+' : String(pageCount);
     }
 
-    if (playlistPanelCount) {
-        playlistPanelCount.textContent = `${selectedCount} selected`;
+    if (state.playlistPanelCount) {
+        state.playlistPanelCount.textContent = `${selectedCount} selected`;
     }
 
-    if (actionSaveButton) {
-        actionSaveButton.hidden = isPlaylistPage;
-        actionSaveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+    if (state.actionSaveButton) {
+        state.actionSaveButton.hidden = isPlaylistPage;
+        state.actionSaveButton.disabled =
+            selectedCount === 0 ||
+            state.loadingPlaylists ||
+            state.submitting ||
+            state.createSubmitting;
     }
 
-    if (actionQuickCreateButton) {
-        actionQuickCreateButton.hidden = isPlaylistPage;
-        actionQuickCreateButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+    if (state.actionQuickCreateButton) {
+        state.actionQuickCreateButton.hidden = isPlaylistPage;
+        state.actionQuickCreateButton.disabled =
+            selectedCount === 0 ||
+            state.loadingPlaylists ||
+            state.submitting ||
+            state.createSubmitting;
     }
 
-    if (actionSplitButton) {
-        actionSplitButton.hidden = isPlaylistPage;
-        actionSplitButton.disabled = selectedCount === 0 || submitting;
+    if (state.actionSplitButton) {
+        state.actionSplitButton.hidden = isPlaylistPage;
+        state.actionSplitButton.disabled = selectedCount === 0 || state.submitting;
     }
 
-    if (actionWatchLaterButton) {
-        actionWatchLaterButton.hidden = isPlaylistPage;
-        actionWatchLaterButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+    if (state.actionWatchLaterButton) {
+        state.actionWatchLaterButton.hidden = isPlaylistPage;
+        state.actionWatchLaterButton.disabled =
+            selectedCount === 0 ||
+            state.loadingPlaylists ||
+            state.submitting ||
+            state.createSubmitting;
     }
 
-    if (actionSelectAllButton) {
-        actionSelectAllButton.hidden = isPlaylistPage;
-        actionSelectAllButton.disabled = pageCount === 0 || loadingPlaylists || submitting || createSubmitting;
-        actionSelectAllButton.classList.toggle('is-active', selectAllMode);
+    if (state.actionSelectAllButton) {
+        state.actionSelectAllButton.hidden = isPlaylistPage;
+        state.actionSelectAllButton.disabled =
+            pageCount === 0 || state.loadingPlaylists || state.submitting || state.createSubmitting;
+        state.actionSelectAllButton.classList.toggle('is-active', state.selectAllMode);
     }
 
-    if (actionUnselectAllButton) {
-        actionUnselectAllButton.hidden = isPlaylistPage;
-        actionUnselectAllButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+    if (state.actionUnselectAllButton) {
+        state.actionUnselectAllButton.hidden = isPlaylistPage;
+        state.actionUnselectAllButton.disabled =
+            selectedCount === 0 ||
+            state.loadingPlaylists ||
+            state.submitting ||
+            state.createSubmitting;
     }
 
-    if (actionOpenAllButton) {
-        actionOpenAllButton.hidden = isPlaylistPage;
-        actionOpenAllButton.disabled = selectedCount === 0 || submitting;
+    if (state.actionOpenAllButton) {
+        state.actionOpenAllButton.hidden = isPlaylistPage;
+        state.actionOpenAllButton.disabled = selectedCount === 0 || state.submitting;
     }
 
     syncRemoveActionButton();
     const isViewPlaylistPage = isPlaylistCollectionPage();
-    if (actionRemoveButton) {
-        actionRemoveButton.hidden = !isViewPlaylistPage;
-        actionRemoveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+    if (state.actionRemoveButton) {
+        state.actionRemoveButton.hidden = !isViewPlaylistPage;
+        state.actionRemoveButton.disabled =
+            selectedCount === 0 ||
+            state.loadingPlaylists ||
+            state.submitting ||
+            state.createSubmitting;
     }
 
-    if (actionRemoveWatchedButton) {
-        actionRemoveWatchedButton.hidden = !isViewPlaylistPage;
-        actionRemoveWatchedButton.disabled = submitting || loadingPlaylists;
+    if (state.actionRemoveWatchedButton) {
+        state.actionRemoveWatchedButton.hidden = !isViewPlaylistPage;
+        state.actionRemoveWatchedButton.disabled = state.submitting || state.loadingPlaylists;
     }
 
-    if (actionDeletePlaylistsButton) {
-        actionDeletePlaylistsButton.hidden = !isPlaylistPage;
-        actionDeletePlaylistsButton.disabled = selectedPlaylistCount === 0 || submitting || loadingPlaylists;
+    if (state.actionDeletePlaylistsButton) {
+        state.actionDeletePlaylistsButton.hidden = !isPlaylistPage;
+        state.actionDeletePlaylistsButton.disabled =
+            selectedPlaylistCount === 0 || state.submitting || state.loadingPlaylists;
     }
 
-    if (playlistPanelCloseButton) {
-        playlistPanelCloseButton.disabled = submitting;
+    if (state.playlistPanelCloseButton) {
+        state.playlistPanelCloseButton.disabled = state.submitting;
     }
 
-    if (playlistPanelNewButton) {
-        playlistPanelNewButton.disabled = selectedCount === 0 || submitting || loadingPlaylists || createSubmitting;
+    if (state.playlistPanelNewButton) {
+        state.playlistPanelNewButton.disabled =
+            selectedCount === 0 ||
+            state.submitting ||
+            state.loadingPlaylists ||
+            state.createSubmitting;
     }
 
-    playlistPanel?.classList.toggle('is-busy', loadingPlaylists || submitting);
+    state.playlistPanel?.classList.toggle('is-busy', state.loadingPlaylists || state.submitting);
 
     if (selectedCount === 0) {
         closePlaylistPanel();
         closeCreateModal();
     }
 
-    updateMastheadButtonState();
+    updateMastheadButtonState(state);
     updateCreateModalState();
 }
 
@@ -1113,18 +649,18 @@ function updateActionUiState() {
  * Open playlist panel above action bar.
  */
 async function openPlaylistPanel() {
-    if (!selectionMode || selectedVideoIds.size === 0 || createSubmitting) {
+    if (!state.selectionMode || state.selectedVideoIds.size === 0 || state.createSubmitting) {
         return;
     }
 
     ensureActionUi();
 
-    if (!playlistPanel || !actionSaveButton) {
+    if (!state.playlistPanel || !state.actionSaveButton) {
         return;
     }
 
-    playlistPanel.classList.add('is-visible');
-    playlistPanelVisible = true;
+    state.playlistPanel.classList.add('is-visible');
+    state.playlistPanelVisible = true;
     updateActionUiState();
     positionPlaylistPanel();
     renderPlaylistLoading();
@@ -1135,23 +671,24 @@ async function openPlaylistPanel() {
  * Close playlist panel.
  */
 function closePlaylistPanel() {
-    playlistPanelVisible = false;
-    playlistPanel?.classList.remove('is-visible');
-    lastPlaylistProbeVideoId = '';
-    playlistOptions = [];
-    playlistMap.clear();
-    selectedPlaylistIds.clear();
+    state.playlistPanelVisible = false;
+    state.playlistPanel?.classList.remove('is-visible');
+    state.lastPlaylistProbeVideoId = '';
+    state.playlistOptions = [];
+    state.playlistMap.clear();
+    state.selectedPlaylistIds.clear();
 }
 
 /**
  * Render loading state in playlist panel.
  */
 function renderPlaylistLoading() {
-    if (!playlistPanelList) {
+    if (!state.playlistPanelList) {
         return;
     }
 
-    playlistPanelList.innerHTML = '<div class="yt-commander-playlist-panel__empty">Loading playlists...</div>';
+    state.playlistPanelList.innerHTML =
+        '<div class="yt-commander-playlist-panel__empty">Loading playlists...</div>';
     positionPlaylistPanel();
 }
 
@@ -1160,11 +697,11 @@ function renderPlaylistLoading() {
  * @param {string} message
  */
 function renderPlaylistEmpty(message) {
-    if (!playlistPanelList) {
+    if (!state.playlistPanelList) {
         return;
     }
 
-    playlistPanelList.innerHTML = `<div class="yt-commander-playlist-panel__empty">${message}</div>`;
+    state.playlistPanelList.innerHTML = `<div class="yt-commander-playlist-panel__empty">${message}</div>`;
     positionPlaylistPanel();
 }
 
@@ -1185,18 +722,18 @@ function readPlaylistInitial(title) {
  * Render playlist rows in panel.
  */
 function renderPlaylistOptions() {
-    if (!playlistPanelList) {
+    if (!state.playlistPanelList) {
         return;
     }
 
-    if (!Array.isArray(playlistOptions) || playlistOptions.length === 0) {
+    if (!Array.isArray(state.playlistOptions) || state.playlistOptions.length === 0) {
         renderPlaylistEmpty('No playlists found.');
         return;
     }
 
-    playlistPanelList.innerHTML = '';
+    state.playlistPanelList.innerHTML = '';
 
-    playlistOptions.forEach((playlist) => {
+    state.playlistOptions.forEach((playlist) => {
         const row = document.createElement('button');
         row.type = 'button';
         row.className = 'yt-commander-playlist-panel__item';
@@ -1243,7 +780,7 @@ function renderPlaylistOptions() {
         row.appendChild(thumb);
         row.appendChild(body);
         row.appendChild(bookmark);
-        playlistPanelList.appendChild(row);
+        state.playlistPanelList.appendChild(row);
     });
 
     syncPlaylistSelectionVisuals();
@@ -1256,11 +793,11 @@ function renderPlaylistOptions() {
  * @param {string} thumbnailUrl
  */
 function updatePlaylistRowThumbnail(playlistId, thumbnailUrl) {
-    if (!playlistPanelList || !playlistId || !thumbnailUrl) {
+    if (!state.playlistPanelList || !playlistId || !thumbnailUrl) {
         return;
     }
 
-    const row = playlistPanelList.querySelector(
+    const row = state.playlistPanelList.querySelector(
         `.yt-commander-playlist-panel__item[data-playlist-id="${playlistId}"]`
     );
     if (!row) {
@@ -1295,11 +832,15 @@ function updatePlaylistRowThumbnail(playlistId, thumbnailUrl) {
  * Fetch missing thumbnails for playlists shown in the panel.
  */
 async function loadPlaylistThumbnailsForPanel() {
-    if (!playlistPanelVisible || loadingPlaylists || !Array.isArray(playlistOptions)) {
+    if (
+        !state.playlistPanelVisible ||
+        state.loadingPlaylists ||
+        !Array.isArray(state.playlistOptions)
+    ) {
         return;
     }
 
-    const missing = playlistOptions
+    const missing = state.playlistOptions
         .filter((playlist) => playlist?.id && !playlist.thumbnailUrl)
         .map((playlist) => playlist.id);
 
@@ -1309,14 +850,14 @@ async function loadPlaylistThumbnailsForPanel() {
 
     try {
         const response = await sendBridgeRequest(ACTIONS.GET_PLAYLIST_THUMBNAILS, {
-            playlistIds: missing
+            playlistIds: missing,
         });
         const thumbnailsById = response?.thumbnailsById || {};
         Object.entries(thumbnailsById).forEach(([playlistId, thumbnailUrl]) => {
             if (typeof thumbnailUrl !== 'string' || !thumbnailUrl) {
                 return;
             }
-            const entry = playlistOptions.find((playlist) => playlist?.id === playlistId);
+            const entry = state.playlistOptions.find((playlist) => playlist?.id === playlistId);
             if (entry) {
                 entry.thumbnailUrl = thumbnailUrl;
             }
@@ -1331,14 +872,14 @@ async function loadPlaylistThumbnailsForPanel() {
  * Sync selected class for playlist rows.
  */
 function syncPlaylistSelectionVisuals() {
-    if (!playlistPanelList) {
+    if (!state.playlistPanelList) {
         return;
     }
 
-    const rows = playlistPanelList.querySelectorAll('.yt-commander-playlist-panel__item');
+    const rows = state.playlistPanelList.querySelectorAll('.yt-commander-playlist-panel__item');
     rows.forEach((row) => {
         const playlistId = row.getAttribute('data-playlist-id') || '';
-        const selected = selectedPlaylistIds.has(playlistId);
+        const selected = state.selectedPlaylistIds.has(playlistId);
         row.classList.toggle('is-selected', selected);
         row.setAttribute('aria-selected', selected ? 'true' : 'false');
     });
@@ -1348,38 +889,46 @@ function syncPlaylistSelectionVisuals() {
  * Load playlists from main-world API for panel.
  */
 async function loadPlaylistsForPanel() {
-    if (!playlistPanelVisible || selectedVideoIds.size === 0 || loadingPlaylists) {
+    if (
+        !state.playlistPanelVisible ||
+        state.selectedVideoIds.size === 0 ||
+        state.loadingPlaylists
+    ) {
         return;
     }
 
-    const selectedIds = Array.from(selectedVideoIds);
+    const selectedIds = Array.from(state.selectedVideoIds);
     const probeVideoId = selectedIds[0] || '';
 
-    if (probeVideoId && probeVideoId === lastPlaylistProbeVideoId && playlistOptions.length > 0) {
-        lastPlaylistProbeVideoId = '';
+    if (
+        probeVideoId &&
+        probeVideoId === state.lastPlaylistProbeVideoId &&
+        state.playlistOptions.length > 0
+    ) {
+        state.lastPlaylistProbeVideoId = '';
     }
 
-    loadingPlaylists = true;
+    state.loadingPlaylists = true;
     updateActionUiState();
     renderPlaylistLoading();
 
     try {
         const response = await sendBridgeRequest(ACTIONS.GET_PLAYLISTS, {
-            videoIds: selectedIds
+            videoIds: selectedIds,
         });
 
-        playlistOptions = Array.isArray(response?.playlists) ? response.playlists : [];
-        playlistMap.clear();
-        selectedPlaylistIds.clear();
-        lastPlaylistProbeVideoId = probeVideoId;
+        state.playlistOptions = Array.isArray(response?.playlists) ? response.playlists : [];
+        state.playlistMap.clear();
+        state.selectedPlaylistIds.clear();
+        state.lastPlaylistProbeVideoId = probeVideoId;
 
-        playlistOptions.forEach((playlist) => {
+        state.playlistOptions.forEach((playlist) => {
             if (!playlist?.id) {
                 return;
             }
-            playlistMap.set(playlist.id, playlist);
+            state.playlistMap.set(playlist.id, playlist);
             if (playlist.isSelected === true) {
-                selectedPlaylistIds.add(playlist.id);
+                state.selectedPlaylistIds.add(playlist.id);
             }
         });
 
@@ -1388,9 +937,12 @@ async function loadPlaylistsForPanel() {
     } catch (error) {
         logger.warn('Failed to load playlists', error);
         renderPlaylistEmpty('Failed to load playlists.');
-        setStatusMessage(error instanceof Error ? error.message : 'Failed to load playlists.', STATUS_KIND.ERROR);
+        setStatusMessage(
+            error instanceof Error ? error.message : 'Failed to load playlists.',
+            STATUS_KIND.ERROR
+        );
     } finally {
-        loadingPlaylists = false;
+        state.loadingPlaylists = false;
         updateActionUiState();
     }
 }
@@ -1400,40 +952,49 @@ async function loadPlaylistsForPanel() {
  * @param {string} playlistId
  */
 async function saveSelectionToPlaylist(playlistId) {
-    if (!playlistId || submitting || createSubmitting) {
+    if (!playlistId || state.submitting || state.createSubmitting) {
         return;
     }
 
-    const videoIds = Array.from(selectedVideoIds);
+    const videoIds = Array.from(state.selectedVideoIds);
     if (videoIds.length === 0) {
         setStatusMessage('Select at least one video.', STATUS_KIND.ERROR);
         return;
     }
 
-    submitting = true;
+    state.submitting = true;
     updateActionUiState();
     closePlaylistPanel();
 
-    const playlistTitle = playlistId === WATCH_LATER_PLAYLIST_ID
-        ? 'Watch later'
-        : (playlistMap.get(playlistId)?.title || 'playlist');
+    const playlistTitle =
+        playlistId === state.WATCH_LATER_PLAYLIST_ID
+            ? 'Watch later'
+            : state.playlistMap.get(playlistId)?.title || 'playlist';
     showSaveProgress(0, videoIds.length, playlistTitle);
 
     try {
-        const response = await sendBridgeRequest(ACTIONS.ADD_TO_PLAYLISTS, {
-            videoIds,
-            playlistIds: [playlistId],
-            playlistTitles: [playlistTitle]
-        }, (progress) => {
-            if (progress) {
-                showSaveProgress(progress.processed, progress.total, progress.label || playlistTitle);
+        const response = await sendBridgeRequest(
+            ACTIONS.ADD_TO_PLAYLISTS,
+            {
+                videoIds,
+                playlistIds: [playlistId],
+                playlistTitles: [playlistTitle],
+            },
+            (progress) => {
+                if (progress) {
+                    showSaveProgress(
+                        progress.processed,
+                        progress.total,
+                        progress.label || playlistTitle
+                    );
+                }
             }
-        });
+        );
 
         hideSaveProgress();
         const successCount = Number(response?.successCount) || 0;
         if (successCount > 0) {
-            selectedPlaylistIds.add(playlistId);
+            state.selectedPlaylistIds.add(playlistId);
             syncPlaylistSelectionVisuals();
             setStatusMessage(`Saved to ${playlistTitle}.`, STATUS_KIND.SUCCESS);
             resetSelectionOnly();
@@ -1444,9 +1005,12 @@ async function saveSelectionToPlaylist(playlistId) {
     } catch (error) {
         logger.warn('Failed to save selected videos', error);
         hideSaveProgress();
-        setStatusMessage(error instanceof Error ? error.message : 'Failed to save videos.', STATUS_KIND.ERROR);
+        setStatusMessage(
+            error instanceof Error ? error.message : 'Failed to save videos.',
+            STATUS_KIND.ERROR
+        );
     } finally {
-        submitting = false;
+        state.submitting = false;
         updateActionUiState();
     }
 }
@@ -1455,17 +1019,17 @@ async function saveSelectionToPlaylist(playlistId) {
  * Create a new playlist with a random title and save selected videos to it.
  */
 async function createQuickPlaylistAndSave() {
-    if (createSubmitting || submitting) {
+    if (state.createSubmitting || state.submitting) {
         return;
     }
 
-    const videoIds = Array.from(selectedVideoIds);
+    const videoIds = Array.from(state.selectedVideoIds);
     if (videoIds.length === 0) {
         setStatusMessage('Select at least one video.', STATUS_KIND.ERROR);
         return;
     }
 
-    createSubmitting = true;
+    state.createSubmitting = true;
     updateActionUiState();
     hideSaveProgress();
 
@@ -1473,51 +1037,61 @@ async function createQuickPlaylistAndSave() {
         const title = await generateQuickPlaylistTitle();
         setStatusMessage(`Creating "${title}"...`, STATUS_KIND.INFO);
 
-        const response = await sendBridgeRequest(ACTIONS.CREATE_PLAYLIST_AND_ADD, {
-            title,
-            privacyStatus: createVisibility || 'PRIVATE',
-            collaborate: false,
-            videoIds
-        }, (progress) => {
-            if (progress) {
-                showSaveProgress(progress.processed, progress.total, progress.label || title);
+        const response = await sendBridgeRequest(
+            ACTIONS.CREATE_PLAYLIST_AND_ADD,
+            {
+                title,
+                privacyStatus: state.createVisibility || 'PRIVATE',
+                collaborate: false,
+                videoIds,
+            },
+            (progress) => {
+                if (progress) {
+                    showSaveProgress(progress.processed, progress.total, progress.label || title);
+                }
             }
-        });
+        );
 
         hideSaveProgress();
         const addedCount = Number(response?.addedCount) || 0;
         const requestedCount = Number(response?.requestedVideoCount) || videoIds.length;
         const failureCount = Array.isArray(response?.failures) ? response.failures.length : 0;
 
-        lastPlaylistProbeVideoId = '';
-        playlistOptions = [];
-        selectedPlaylistIds.clear();
+        state.lastPlaylistProbeVideoId = '';
+        state.playlistOptions = [];
+        state.selectedPlaylistIds.clear();
 
         if (failureCount > 0) {
             const savedLabel = `${addedCount}/${requestedCount}`;
             setStatusMessage(`Created "${title}". Saved ${savedLabel} video(s).`, STATUS_KIND.INFO);
         } else {
-            setStatusMessage(`Created "${title}" and saved ${addedCount} video(s).`, STATUS_KIND.SUCCESS);
+            setStatusMessage(
+                `Created "${title}" and saved ${addedCount} video(s).`,
+                STATUS_KIND.SUCCESS
+            );
         }
 
         resetSelectionOnly();
     } catch (error) {
         logger.warn('Failed to create quick playlist', error);
         hideSaveProgress();
-        setStatusMessage(error instanceof Error ? error.message : 'Failed to create playlist.', STATUS_KIND.ERROR);
+        setStatusMessage(
+            error instanceof Error ? error.message : 'Failed to create playlist.',
+            STATUS_KIND.ERROR
+        );
     } finally {
-        createSubmitting = false;
+        state.createSubmitting = false;
         updateActionUiState();
     }
 }
 
 function schedulePostSaveReset() {
-    if (postSaveResetTimer) {
-        clearTimeout(postSaveResetTimer);
-        postSaveResetTimer = null;
+    if (state.postSaveResetTimer) {
+        clearTimeout(state.postSaveResetTimer);
+        state.postSaveResetTimer = null;
     }
-    postSaveResetTimer = window.setTimeout(() => {
-        postSaveResetTimer = null;
+    state.postSaveResetTimer = window.setTimeout(() => {
+        state.postSaveResetTimer = null;
         setSelectionMode(false);
     }, 650);
 }
@@ -1528,14 +1102,14 @@ function resetSelectionOnly() {
     resetActionCounters();
     clearStatusMessage();
     clearDeferredRescanTimer();
-    pendingContainers.clear();
-    renderScheduled = false;
-    decorateRetryCounts = new WeakMap();
-    playlistOptions = [];
-    playlistMap.clear();
-    selectedPlaylistIds.clear();
-    lastPlaylistProbeVideoId = '';
-    selectAllMode = false;
+    state.pendingContainers.clear();
+    state.renderScheduled = false;
+    state.decorateRetryCounts = new WeakMap();
+    state.playlistOptions = [];
+    state.playlistMap.clear();
+    state.selectedPlaylistIds.clear();
+    state.lastPlaylistProbeVideoId = '';
+    state.selectAllMode = false;
 }
 
 /**
@@ -1554,7 +1128,7 @@ function removeSelectedCardsFromDom(videoIds) {
             return;
         }
 
-        selectedVideoIds.delete(videoId);
+        state.selectedVideoIds.delete(videoId);
         document
             .querySelectorAll(`.${HOST_CLASS}[data-yt-commander-video-id="${videoId}"]`)
             .forEach((host) => {
@@ -1583,7 +1157,7 @@ function removeSelectedCardsFromDom(videoIds) {
  * Remove selected videos from the currently opened playlist page.
  */
 async function removeSelectionFromCurrentPlaylist() {
-    if (submitting || createSubmitting) {
+    if (state.submitting || state.createSubmitting) {
         return;
     }
 
@@ -1598,27 +1172,35 @@ async function removeSelectionFromCurrentPlaylist() {
         return;
     }
 
-    const videoIds = Array.from(selectedVideoIds);
+    const videoIds = Array.from(state.selectedVideoIds);
     if (videoIds.length === 0) {
         setStatusMessage('Select at least one video.', STATUS_KIND.ERROR);
         return;
     }
 
-    submitting = true;
+    state.submitting = true;
     updateActionUiState();
 
     const playlistLabel = playlistId === 'WL' ? 'Watch later' : 'playlist';
     showSaveProgress(0, videoIds.length, `Removing from ${playlistLabel}`);
 
     try {
-        const response = await sendBridgeRequest(ACTIONS.REMOVE_FROM_PLAYLIST, {
-            playlistId,
-            videoIds
-        }, (progress) => {
-            if (progress) {
-                showSaveProgress(progress.processed, progress.total, `Removing from ${playlistLabel}`);
+        const response = await sendBridgeRequest(
+            ACTIONS.REMOVE_FROM_PLAYLIST,
+            {
+                playlistId,
+                videoIds,
+            },
+            (progress) => {
+                if (progress) {
+                    showSaveProgress(
+                        progress.processed,
+                        progress.total,
+                        `Removing from ${playlistLabel}`
+                    );
+                }
             }
-        });
+        );
 
         hideSaveProgress();
         const removedVideoIds = Array.isArray(response?.removedVideoIds)
@@ -1638,13 +1220,15 @@ async function removeSelectionFromCurrentPlaylist() {
 
         resetSelectionOnly();
         window.location.reload();
-
     } catch (error) {
         logger.warn('Failed to remove selected videos from playlist', error);
         hideSaveProgress();
-        setStatusMessage(error instanceof Error ? error.message : 'Failed to remove videos.', STATUS_KIND.ERROR);
+        setStatusMessage(
+            error instanceof Error ? error.message : 'Failed to remove videos.',
+            STATUS_KIND.ERROR
+        );
     } finally {
-        submitting = false;
+        state.submitting = false;
         updateActionUiState();
     }
 }
@@ -1655,47 +1239,47 @@ async function removeSelectionFromCurrentPlaylist() {
  * @param {'info'|'success'|'error'} kind
  */
 function setCreateStatus(message, kind = STATUS_KIND.INFO) {
-    if (!createStatus) {
+    if (!state.createStatus) {
         return;
     }
 
     const text = typeof message === 'string' ? message : '';
-    createStatus.textContent = text;
-    createStatus.classList.remove('is-visible', 'is-info', 'is-success', 'is-error');
+    state.createStatus.textContent = text;
+    state.createStatus.classList.remove('is-visible', 'is-info', 'is-success', 'is-error');
 
     if (!text) {
         return;
     }
 
-    createStatus.classList.add('is-visible', `is-${kind}`);
+    state.createStatus.classList.add('is-visible', `is-${kind}`);
 }
 
 /**
  * Open create-playlist modal.
  */
 function openCreateModal() {
-    if (selectedVideoIds.size === 0 || createSubmitting) {
+    if (state.selectedVideoIds.size === 0 || state.createSubmitting) {
         return;
     }
 
     ensureActionUi();
 
-    createVisibility = 'PRIVATE';
-    createVisibilityMenuVisible = false;
-    if (createTitleInput) {
-        createTitleInput.value = '';
+    state.createVisibility = 'PRIVATE';
+    state.state.createVisibilityMenuVisible = false;
+    if (state.createTitleInput) {
+        state.createTitleInput.value = '';
     }
-    if (createCollaborateInput) {
-        createCollaborateInput.checked = false;
+    if (state.createCollaborateInput) {
+        state.createCollaborateInput.checked = false;
     }
     setCreateStatus('');
     updateCreateModalState();
 
-    createBackdrop?.classList.add('is-visible');
-    createModalVisible = true;
+    state.createBackdrop?.classList.add('is-visible');
+    state.createModalVisible = true;
 
     window.setTimeout(() => {
-        createTitleInput?.focus();
+        state.createTitleInput?.focus();
     }, 0);
 }
 
@@ -1704,13 +1288,13 @@ function openCreateModal() {
  * @param {boolean} [force]
  */
 function closeCreateModal(force = false) {
-    if (createSubmitting && !force) {
+    if (state.createSubmitting && !force) {
         return;
     }
 
-    createModalVisible = false;
-    createVisibilityMenuVisible = false;
-    createBackdrop?.classList.remove('is-visible');
+    state.createModalVisible = false;
+    state.state.createVisibilityMenuVisible = false;
+    state.createBackdrop?.classList.remove('is-visible');
     updateCreateModalState();
     setCreateStatus('');
 }
@@ -1719,47 +1303,51 @@ function closeCreateModal(force = false) {
  * Handle create playlist submission.
  */
 async function submitCreatePlaylist() {
-    if (createSubmitting) {
+    if (state.createSubmitting) {
         return;
     }
 
-    const title = createTitleInput?.value.trim() || '';
+    const title = state.createTitleInput?.value.trim() || '';
     if (!title) {
         setCreateStatus('Playlist title is required.', STATUS_KIND.ERROR);
         return;
     }
 
-    const videoIds = Array.from(selectedVideoIds);
+    const videoIds = Array.from(state.selectedVideoIds);
     if (videoIds.length === 0) {
         setCreateStatus('Select at least one video.', STATUS_KIND.ERROR);
         return;
     }
 
-    createSubmitting = true;
+    state.createSubmitting = true;
     updateActionUiState();
     updateCreateModalState();
     setCreateStatus('Creating playlist...', STATUS_KIND.INFO);
     showSaveProgress(0, videoIds.length, title);
 
     try {
-        const response = await sendBridgeRequest(ACTIONS.CREATE_PLAYLIST_AND_ADD, {
-            title,
-            privacyStatus: createVisibility,
-            collaborate: createCollaborateInput?.checked === true,
-            videoIds
-        }, (progress) => {
-            if (progress) {
-                showSaveProgress(progress.processed, progress.total, title);
+        const response = await sendBridgeRequest(
+            ACTIONS.CREATE_PLAYLIST_AND_ADD,
+            {
+                title,
+                privacyStatus: state.createVisibility,
+                collaborate: state.createCollaborateInput?.checked === true,
+                videoIds,
+            },
+            (progress) => {
+                if (progress) {
+                    showSaveProgress(progress.processed, progress.total, title);
+                }
             }
-        });
+        );
 
         const addedCount = Number(response?.addedCount) || 0;
         const requestedCount = Number(response?.requestedVideoCount) || videoIds.length;
         const failureCount = Array.isArray(response?.failures) ? response.failures.length : 0;
 
-        lastPlaylistProbeVideoId = '';
-        playlistOptions = [];
-        selectedPlaylistIds.clear();
+        state.lastPlaylistProbeVideoId = '';
+        state.playlistOptions = [];
+        state.selectedPlaylistIds.clear();
 
         closeCreateModal(true);
 
@@ -1769,13 +1357,19 @@ async function submitCreatePlaylist() {
             return;
         }
 
-        setStatusMessage(`Created "${title}" and saved ${addedCount} video(s).`, STATUS_KIND.SUCCESS);
+        setStatusMessage(
+            `Created "${title}" and saved ${addedCount} video(s).`,
+            STATUS_KIND.SUCCESS
+        );
         resetSelectionOnly();
     } catch (error) {
         logger.warn('Failed to create playlist', error);
-        setCreateStatus(error instanceof Error ? error.message : 'Failed to create playlist.', STATUS_KIND.ERROR);
+        setCreateStatus(
+            error instanceof Error ? error.message : 'Failed to create playlist.',
+            STATUS_KIND.ERROR
+        );
     } finally {
-        createSubmitting = false;
+        state.createSubmitting = false;
         updateActionUiState();
         updateCreateModalState();
     }
@@ -1802,8 +1396,8 @@ function findVideoLink(container) {
         }
 
         if (
-            link.id === 'thumbnail'
-            || link.querySelector('ytd-thumbnail, yt-thumbnail-view-model, yt-image, img')
+            link.id === 'thumbnail' ||
+            link.querySelector('ytd-thumbnail, yt-thumbnail-view-model, yt-image, img')
         ) {
             return link;
         }
@@ -1831,7 +1425,7 @@ function findCardHost(container) {
  * @param {string} videoId
  */
 function applySelectedState(host, videoId) {
-    const selected = selectedVideoIds.has(videoId);
+    const selected = state.selectedVideoIds.has(videoId);
     host.classList.toggle(HOST_SELECTED_CLASS, selected);
 
     const overlay = host.querySelector(`.${OVERLAY_CLASS}`);
@@ -1868,8 +1462,8 @@ function commitSelectionMutation(changedVideoIds) {
     changedVideoIds.forEach((videoId) => syncVideoSelectedState(videoId));
     updateActionUiState();
 
-    if (playlistPanelVisible && loadPlaylistsDebounced) {
-        loadPlaylistsDebounced().catch((error) => {
+    if (state.playlistPanelVisible && state.loadPlaylistsDebounced) {
+        state.loadPlaylistsDebounced().catch((error) => {
             logger.warn('Failed to refresh playlists', error);
         });
     }
@@ -1884,10 +1478,10 @@ function toggleVideoSelection(videoId) {
         return;
     }
 
-    if (selectedVideoIds.has(videoId)) {
-        selectedVideoIds.delete(videoId);
+    if (state.selectedVideoIds.has(videoId)) {
+        state.selectedVideoIds.delete(videoId);
     } else {
-        selectedVideoIds.add(videoId);
+        state.selectedVideoIds.add(videoId);
     }
 
     commitSelectionMutation([videoId]);
@@ -1911,8 +1505,8 @@ function selectVideoIds(videoIds) {
         }
 
         seen.add(videoId);
-        if (!selectedVideoIds.has(videoId)) {
-            selectedVideoIds.add(videoId);
+        if (!state.selectedVideoIds.has(videoId)) {
+            state.selectedVideoIds.add(videoId);
             changed.push(videoId);
         }
     });
@@ -1935,15 +1529,15 @@ function handleVideoSelectionInteraction(options) {
         return;
     }
 
-    if (selectAllMode) {
-        selectAllMode = false;
+    if (state.selectAllMode) {
+        state.selectAllMode = false;
     }
 
     const host = options?.host instanceof Element ? options.host : null;
     const shiftKey = Boolean(options?.shiftKey);
 
     if (shiftKey) {
-        const rangeIds = selectionRangeController.resolveRange(videoId, host);
+        const rangeIds = state.selectionRangeController.resolveRange(videoId, host);
         if (rangeIds.length > 0) {
             selectVideoIds(rangeIds);
         } else {
@@ -1953,7 +1547,7 @@ function handleVideoSelectionInteraction(options) {
         toggleVideoSelection(videoId);
     }
 
-    selectionRangeController.setAnchor(videoId, host);
+    state.selectionRangeController.setAnchor(videoId, host);
 }
 
 /**
@@ -1962,8 +1556,16 @@ function handleVideoSelectionInteraction(options) {
  * @param {Element} renderer
  */
 function handlePlaylistSelectionInteraction(playlistId, renderer) {
-    logger.debug('handlePlaylistSelectionInteraction called', { playlistId, hasRenderer: !!renderer });
-    logger.debug('PLAYLIST_ID_PATTERN.test result:', PLAYLIST_ID_PATTERN.test(playlistId), 'for ID:', playlistId);
+    logger.debug('handlePlaylistSelectionInteraction called', {
+        playlistId,
+        hasRenderer: !!renderer,
+    });
+    logger.debug(
+        'PLAYLIST_ID_PATTERN.test result:',
+        PLAYLIST_ID_PATTERN.test(playlistId),
+        'for ID:',
+        playlistId
+    );
     if (!PLAYLIST_ID_PATTERN.test(playlistId)) {
         logger.debug('Playlist ID pattern failed', playlistId);
         return;
@@ -1979,12 +1581,12 @@ function handlePlaylistSelectionInteraction(playlistId, renderer) {
  * @param {string} playlistId
  */
 function togglePlaylistSelection(playlistId) {
-    if (selectedPlaylistIds.has(playlistId)) {
-        selectedPlaylistIds.delete(playlistId);
-        logger.debug('Playlist deselected', playlistId, 'count:', selectedPlaylistIds.size);
+    if (state.selectedPlaylistIds.has(playlistId)) {
+        state.selectedPlaylistIds.delete(playlistId);
+        logger.debug('Playlist deselected', playlistId, 'count:', state.selectedPlaylistIds.size);
     } else {
-        selectedPlaylistIds.add(playlistId);
-        logger.debug('Playlist selected', playlistId, 'count:', selectedPlaylistIds.size);
+        state.selectedPlaylistIds.add(playlistId);
+        logger.debug('Playlist selected', playlistId, 'count:', state.selectedPlaylistIds.size);
     }
     updateActionUiState();
 }
@@ -1997,11 +1599,11 @@ function getPlaylistObserver() {
     if (!playlistObserver) {
         playlistObserver = new MutationObserver(() => {
             if (!playlistObserverActive) return;
-            
+
             playlistObserverActive = false;
             requestAnimationFrame(() => {
-                if (selectionMode && isPlaylistsPage()) {
-                    selectedPlaylistIds.forEach((playlistId) => {
+                if (state.selectionMode && isPlaylistsPage()) {
+                    state.selectedPlaylistIds.forEach((playlistId) => {
                         const link = document.querySelector(`a[href*="list=${playlistId}"]`);
                         if (link) {
                             const renderer = link.closest('ytd-rich-item-renderer');
@@ -2019,13 +1621,13 @@ function getPlaylistObserver() {
 }
 
 function observePlaylistsPage() {
-    if (!selectionMode || !isPlaylistsPage()) return;
-    
-    const observer = getPlaylistObserver();
+    if (!state.selectionMode || !isPlaylistsPage()) return;
+
+    const playlistObserver = getPlaylistObserver();
     const container = document.querySelector('ytd-rich-grid-renderer, #content, body');
     if (container) {
         try {
-            observer.observe(container, { childList: true, subtree: true });
+            state.observer.observe(container, { childList: true, subtree: true });
             playlistObserverActive = true;
         } catch (e) {}
     }
@@ -2033,16 +1635,16 @@ function observePlaylistsPage() {
 
 function applyPlaylistSelectedStateToRenderer(renderer, playlistId) {
     if (!renderer || !renderer.isConnected) return;
-    
-    const isSelected = selectedPlaylistIds.has(playlistId);
-    
+
+    const isSelected = state.selectedPlaylistIds.has(playlistId);
+
     renderer.classList.toggle('yt-commander-playlist-selected', isSelected);
 
     const overlay = renderer.querySelector(`.${OVERLAY_CLASS}`);
     if (overlay) {
         overlay.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
         overlay.setAttribute('data-state', isSelected ? 'selected' : 'idle');
-        
+
         const hint = overlay.querySelector('.yt-commander-playlist-overlay__hint');
         if (hint) {
             hint.textContent = isSelected ? 'Selected' : 'Select';
@@ -2054,20 +1656,20 @@ function schedulePlaylistStateUpdate(renderer, playlistId) {
     if (playlistStateTimers.has(renderer)) {
         clearTimeout(playlistStateTimers.get(renderer));
     }
-    
+
     const timer = setTimeout(() => {
         if (!renderer.isConnected) return;
         applyPlaylistSelectedStateToRenderer(renderer, playlistId);
         playlistStateTimers.delete(renderer);
     }, 100);
-    
+
     playlistStateTimers.set(renderer, timer);
 }
 
 function restorePlaylistSelectionState() {
-    if (!selectionMode || !isPlaylistsPage()) return;
-    
-    selectedPlaylistIds.forEach((playlistId) => {
+    if (!state.selectionMode || !isPlaylistsPage()) return;
+
+    state.selectedPlaylistIds.forEach((playlistId) => {
         const link = document.querySelector(`a[href*="list=${playlistId}"]`);
         if (link) {
             const renderer = link.closest('ytd-rich-item-renderer');
@@ -2097,10 +1699,10 @@ function applyPlaylistSelectedState(renderer, playlistId) {
  * Clear selected videos and update visuals.
  */
 function clearSelectedVideos() {
-    selectedVideoIds.clear();
-    selectedPlaylistIds.clear();
-    selectionRangeController.reset();
-    selectAllMode = false;
+    state.selectedVideoIds.clear();
+    state.selectedPlaylistIds.clear();
+    state.selectionRangeController.reset();
+    state.selectAllMode = false;
 
     document.querySelectorAll(`.${HOST_CLASS}`).forEach((host) => {
         const videoId = host.getAttribute('data-yt-commander-video-id') || '';
@@ -2127,28 +1729,28 @@ function clearSelectedVideos() {
  * Clear delayed fallback rescan timer.
  */
 function clearDeferredRescanTimer() {
-    if (!deferredRescanTimer) {
+    if (!state.deferredRescanTimer) {
         return;
     }
 
-    window.clearTimeout(deferredRescanTimer);
-    deferredRescanTimer = null;
+    window.clearTimeout(state.deferredRescanTimer);
+    state.deferredRescanTimer = null;
 }
 
 /**
  * Schedule one delayed full rescan for cards that hydrate after insertion.
  */
 function scheduleDeferredRescan() {
-    if (!isEnabled || !selectionMode || !isEligiblePage()) {
+    if (!state.isEnabled || !state.selectionMode || !isEligiblePage()) {
         return;
     }
 
-    if (deferredRescanTimer) {
+    if (state.deferredRescanTimer) {
         return;
     }
 
-    deferredRescanTimer = window.setTimeout(() => {
-        deferredRescanTimer = null;
+    state.deferredRescanTimer = window.setTimeout(() => {
+        state.deferredRescanTimer = null;
         queueFullRescan();
     }, DECORATE_RETRY_DELAY_MS);
 }
@@ -2180,7 +1782,7 @@ function sendBridgeRequest(action, payload, onProgress) {
  * @returns {boolean}
  */
 function decorateContainer(container) {
-    if (!selectionMode || !container || !container.isConnected) {
+    if (!state.selectionMode || !container || !container.isConnected) {
         return false;
     }
 
@@ -2219,7 +1821,7 @@ function decorateContainer(container) {
         overlay.addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();
-            
+
             if (isPlaylistsPage()) {
                 const link = host.querySelector('a[href*="list="]');
                 if (link) {
@@ -2233,13 +1835,13 @@ function decorateContainer(container) {
                 }
                 return;
             }
-            
+
             const id = overlay?.getAttribute('data-yt-commander-video-id');
             if (id) {
                 handleVideoSelectionInteraction({
                     videoId: id,
                     host,
-                    shiftKey: event.shiftKey
+                    shiftKey: event.shiftKey,
                 });
             }
         });
@@ -2249,7 +1851,7 @@ function decorateContainer(container) {
 
     overlay.setAttribute('data-yt-commander-video-id', videoId);
     applySelectedState(host, videoId);
-    decorateRetryCounts.delete(container);
+    state.decorateRetryCounts.delete(container);
     return true;
 }
 
@@ -2286,12 +1888,12 @@ function queueContainers(containers) {
 
     containers.forEach((container) => {
         if (container?.isConnected) {
-            pendingContainers.add(container);
+            state.pendingContainers.add(container);
         }
     });
 
-    if (!renderScheduled) {
-        renderScheduled = true;
+    if (!state.renderScheduled) {
+        state.renderScheduled = true;
         window.requestAnimationFrame(processPendingContainers);
     }
 }
@@ -2300,7 +1902,7 @@ function queueContainers(containers) {
  * Queue full-page renderer scan.
  */
 function queueFullRescan() {
-    if (!isEnabled || !selectionMode || !isEligiblePage()) {
+    if (!state.isEnabled || !state.selectionMode || !isEligiblePage()) {
         return;
     }
 
@@ -2316,10 +1918,10 @@ function queueFullRescan() {
  * Process queued containers.
  */
 function processPendingContainers() {
-    renderScheduled = false;
+    state.renderScheduled = false;
 
-    if (!isEnabled || !selectionMode || !isEligiblePage()) {
-        pendingContainers.clear();
+    if (!state.isEnabled || !state.selectionMode || !isEligiblePage()) {
+        state.pendingContainers.clear();
         return;
     }
 
@@ -2328,8 +1930,8 @@ function processPendingContainers() {
     const autoSelectedIds = new Set();
     let decoratedCount = 0;
 
-    for (const container of pendingContainers) {
-        pendingContainers.delete(container);
+    for (const container of state.pendingContainers) {
+        state.pendingContainers.delete(container);
         batch.push(container);
         count += 1;
         if (count >= PROCESS_CHUNK_SIZE) {
@@ -2344,30 +1946,34 @@ function processPendingContainers() {
             if (decorated) {
                 decoratedCount += 1;
                 const videoId = container.getAttribute('data-yt-commander-video-id') || '';
-                if (selectAllMode && VIDEO_ID_PATTERN.test(videoId) && !selectedVideoIds.has(videoId)) {
-                    selectedVideoIds.add(videoId);
+                if (
+                    state.selectAllMode &&
+                    VIDEO_ID_PATTERN.test(videoId) &&
+                    !state.selectedVideoIds.has(videoId)
+                ) {
+                    state.selectedVideoIds.add(videoId);
                     autoSelectedIds.add(videoId);
                 }
             }
-            decorateRetryCounts.delete(container);
+            state.decorateRetryCounts.delete(container);
             return;
         }
 
-        const retryCount = decorateRetryCounts.get(container) || 0;
+        const retryCount = state.decorateRetryCounts.get(container) || 0;
         if (retryCount < DECORATE_MAX_RETRIES) {
-            decorateRetryCounts.set(container, retryCount + 1);
-            pendingContainers.add(container);
+            state.decorateRetryCounts.set(container, retryCount + 1);
+            state.pendingContainers.add(container);
             hasRetryableHydrationMiss = true;
             return;
         }
 
-        decorateRetryCounts.delete(container);
+        state.decorateRetryCounts.delete(container);
     });
 
     if (autoSelectedIds.size > 0) {
         commitSelectionMutation(Array.from(autoSelectedIds));
     } else if (decoratedCount > 0) {
-        cachedPageVideoCount += decoratedCount;
+        state.cachedPageVideoCount += decoratedCount;
         updateActionUiState();
     }
 
@@ -2375,8 +1981,8 @@ function processPendingContainers() {
         scheduleDeferredRescan();
     }
 
-    if (pendingContainers.size > 0) {
-        renderScheduled = true;
+    if (state.pendingContainers.size > 0) {
+        state.renderScheduled = true;
         window.requestAnimationFrame(processPendingContainers);
     }
 }
@@ -2411,20 +2017,24 @@ function rejectPendingRequests(message) {
  */
 function setSelectionMode(active) {
     clearPostSaveResetTimer();
-    if (!isEnabled && active) {
+    if (!state.isEnabled && active) {
         return;
     }
 
-    const next = Boolean(active) && isEligiblePage() && isEnabled;
-    if (selectionMode === next) {
+    const next = Boolean(active) && isEligiblePage() && state.isEnabled;
+    if (state.selectionMode === next) {
         return;
     }
 
-    logger.debug('Selection mode changing', { from: selectionMode, to: next, isPlaylistsPage: isPlaylistsPage() });
-    selectionMode = next;
-    document.documentElement.classList.toggle(ROOT_SELECTION_CLASS, selectionMode);
+    logger.debug('Selection mode changing', {
+        from: state.selectionMode,
+        to: next,
+        isPlaylistsPage: isPlaylistsPage(),
+    });
+    state.selectionMode = next;
+    document.documentElement.classList.toggle(ROOT_SELECTION_CLASS, state.selectionMode);
 
-    if (!selectionMode) {
+    if (!state.selectionMode) {
         closePlaylistPanel();
         closeCreateModal(true);
         clearSelectedVideos();
@@ -2432,14 +2042,14 @@ function setSelectionMode(active) {
         resetActionCounters();
         clearStatusMessage();
         clearDeferredRescanTimer();
-        pendingContainers.clear();
-        renderScheduled = false;
-        decorateRetryCounts = new WeakMap();
-        playlistOptions = [];
-        playlistMap.clear();
-        selectedPlaylistIds.clear();
-        lastPlaylistProbeVideoId = '';
-        selectAllMode = false;
+        state.pendingContainers.clear();
+        state.renderScheduled = false;
+        state.decorateRetryCounts = new WeakMap();
+        state.playlistOptions = [];
+        state.playlistMap.clear();
+        state.selectedPlaylistIds.clear();
+        state.lastPlaylistProbeVideoId = '';
+        state.selectAllMode = false;
         playlistStateTimers.forEach((timer) => clearTimeout(timer));
         playlistStateTimers = new WeakMap();
         if (playlistObserver) {
@@ -2452,18 +2062,18 @@ function setSelectionMode(active) {
         }
     }
 
-    updateMastheadButtonState();
+    updateMastheadButtonState(state);
     syncActionBarVisibility();
 
-    if (selectionMode) {
+    if (state.selectionMode) {
         updateActionUiState();
     }
 }
 
 function clearPostSaveResetTimer() {
-    if (postSaveResetTimer) {
-        clearTimeout(postSaveResetTimer);
-        postSaveResetTimer = null;
+    if (state.postSaveResetTimer) {
+        clearTimeout(state.postSaveResetTimer);
+        state.postSaveResetTimer = null;
     }
 }
 
@@ -2475,11 +2085,11 @@ function handleMastheadButtonClick(event) {
     event.preventDefault();
     event.stopPropagation();
 
-    if (!isEnabled || !isEligiblePage()) {
+    if (!state.isEnabled || !isEligiblePage()) {
         return;
     }
 
-    setSelectionMode(!selectionMode);
+    setSelectionMode(!state.selectionMode);
 }
 
 /**
@@ -2490,7 +2100,7 @@ function handleActionExitButtonClick(event) {
     event.preventDefault();
     event.stopPropagation();
     closePlaylistPanel();
-    actionBar?.classList.remove('is-visible');
+    state.actionBar?.classList.remove('is-visible');
     setSelectionMode(false);
 }
 
@@ -2499,7 +2109,7 @@ function handleActionExitButtonClick(event) {
  * @param {MouseEvent} event
  */
 function handleDragStart(event) {
-    if (!actionBar || !actionBar.classList.contains('is-visible')) {
+    if (!state.actionBar || !state.actionBar.classList.contains('is-visible')) {
         return;
     }
 
@@ -2508,17 +2118,17 @@ function handleDragStart(event) {
         return;
     }
 
-    isDragging = true;
-    actionBar.classList.add('is-dragging');
+    state.isDragging = true;
+    state.actionBar.classList.add('is-dragging');
 
-    const rect = actionBar.getBoundingClientRect();
-    dragOffsetX = event.clientX - rect.left;
-    dragOffsetY = event.clientY - rect.top;
+    const rect = state.actionBar.getBoundingClientRect();
+    state.dragOffsetX = event.clientX - rect.left;
+    state.dragOffsetY = event.clientY - rect.top;
 
-    actionBar.style.left = `${rect.left}px`;
-    actionBar.style.transform = 'none';
-    actionBar.style.bottom = 'auto';
-    isDragPositioned = true;
+    state.actionBar.style.left = `${rect.left}px`;
+    state.actionBar.style.transform = 'none';
+    state.actionBar.style.bottom = 'auto';
+    state.isDragPositioned = true;
 }
 
 /**
@@ -2526,15 +2136,15 @@ function handleDragStart(event) {
  * @param {MouseEvent} event
  */
 function handleDragMove(event) {
-    if (!isDragging) {
+    if (!state.isDragging) {
         return;
     }
 
-    const x = event.clientX - dragOffsetX;
-    const y = event.clientY - dragOffsetY;
+    const x = event.clientX - state.dragOffsetX;
+    const y = event.clientY - state.dragOffsetY;
 
-    actionBar.style.left = `${Math.max(0, x)}px`;
-    actionBar.style.top = `${Math.max(0, y)}px`;
+    state.actionBar.style.left = `${Math.max(0, x)}px`;
+    state.actionBar.style.top = `${Math.max(0, y)}px`;
 }
 
 /**
@@ -2542,12 +2152,12 @@ function handleDragMove(event) {
  * @param {MouseEvent} event
  */
 function handleDragEnd(event) {
-    if (!isDragging) {
+    if (!state.isDragging) {
         return;
     }
 
-    isDragging = false;
-    actionBar?.classList.remove('is-dragging');
+    state.isDragging = false;
+    state.actionBar?.classList.remove('is-dragging');
 }
 
 /**
@@ -2557,7 +2167,7 @@ function handleDragEnd(event) {
 function handleActionWatchLaterClick(event) {
     event.preventDefault();
     event.stopPropagation();
-    saveSelectionToPlaylist(WATCH_LATER_PLAYLIST_ID).catch((error) => {
+    saveSelectionToPlaylist(state.WATCH_LATER_PLAYLIST_ID).catch((error) => {
         logger.warn('Failed to save to Watch later', error);
     });
 }
@@ -2593,142 +2203,55 @@ function handleActionQuickCreateClick(event) {
 function handleSplitClick(event) {
     event.preventDefault();
     event.stopPropagation();
-    const videoIds = Array.from(selectedVideoIds);
+    const videoIds = Array.from(state.selectedVideoIds);
     if (videoIds.length === 0) {
         return;
     }
-    ensureSplitModal();
-    splitBackdrop.classList.add('is-visible');
-    if (splitCountInput) {
-        splitCountInput.value = '';
-        splitCountInput.focus();
+    const splitHandlers = {
+        submitSplit,
+        closeSplitModal,
+        updateSplitModalState,
+    };
+    ensureSplitModal(state, splitHandlers);
+    state.splitBackdrop.classList.add('is-visible');
+    if (state.splitCountInput) {
+        state.splitCountInput.value = '';
+        state.splitCountInput.focus();
     }
-    updateSplitModalState();
-}
-
-function ensureSplitModal() {
-    if (splitBackdrop && splitBackdrop.isConnected) {
-        return;
-    }
-
-    splitBackdrop = document.createElement('div');
-    splitBackdrop.className = 'yt-commander-split-backdrop';
-
-    splitModal = document.createElement('div');
-    splitModal.className = 'yt-commander-split-modal';
-    splitModal.setAttribute('role', 'dialog');
-    splitModal.setAttribute('aria-modal', 'true');
-    splitModal.setAttribute('aria-label', 'Split into playlists');
-
-    const modalTitle = document.createElement('h3');
-    modalTitle.className = 'yt-commander-split-modal__title';
-    modalTitle.textContent = 'Split into playlists';
-
-    const infoText = document.createElement('p');
-    infoText.className = 'yt-commander-split-modal__info';
-    infoText.textContent = 'Videos per playlist:';
-
-    splitCountInput = document.createElement('input');
-    splitCountInput.type = 'number';
-    splitCountInput.className = 'yt-commander-split-modal__input';
-    splitCountInput.min = '1';
-    splitCountInput.placeholder = 'e.g. 20';
-    splitCountInput.addEventListener('input', updateSplitModalState);
-    splitCountInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            submitSplit();
-        }
-    });
-
-    splitStatus = document.createElement('div');
-    splitStatus.className = 'yt-commander-split-modal__status';
-    splitStatus.setAttribute('aria-live', 'polite');
-
-    const actions = document.createElement('div');
-    actions.className = 'yt-commander-split-modal__actions';
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.type = 'button';
-    cancelBtn.className = 'yt-commander-split-modal__button';
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.addEventListener('click', closeSplitModal);
-
-    const splitBtn = document.createElement('button');
-    splitBtn.type = 'button';
-    splitBtn.className = 'yt-commander-split-modal__button yt-commander-split-modal__button--primary';
-    splitBtn.textContent = 'Split';
-    splitBtn.addEventListener('click', submitSplit);
-
-    actions.appendChild(cancelBtn);
-    actions.appendChild(splitBtn);
-
-    splitModal.appendChild(modalTitle);
-    splitModal.appendChild(infoText);
-    splitModal.appendChild(splitCountInput);
-    splitModal.appendChild(splitStatus);
-    splitModal.appendChild(actions);
-
-    splitBackdrop.appendChild(splitModal);
-    document.body.appendChild(splitBackdrop);
-
-    splitBackdrop.addEventListener('click', (e) => {
-        if (e.target === splitBackdrop) {
-            closeSplitModal();
-        }
-    });
-}
-
-function closeSplitModal() {
-    if (splitBackdrop) {
-        splitBackdrop.classList.remove('is-visible');
-    }
-    if (splitStatus) {
-        splitStatus.textContent = '';
-        splitStatus.className = 'yt-commander-split-modal__status';
-    }
-    splitSubmitting = false;
-    updateSplitModalState();
-}
-
-function updateSplitModalState() {
-    const videoIds = Array.from(selectedVideoIds);
-    const count = parseInt(splitCountInput?.value, 10) || 0;
-    const canSplit = videoIds.length > 0 && count > 0 && !splitSubmitting;
-    const modal = splitModal?.querySelector('.yt-commander-split-modal__button--primary');
-    if (modal) {
-        modal.disabled = !canSplit;
-    }
+    updateSplitModalState(state);
 }
 
 async function submitSplit() {
-    if (splitSubmitting) {
+    if (state.splitSubmitting) {
         return;
     }
 
-    const videoIds = Array.from(selectedVideoIds);
-    const perPlaylist = parseInt(splitCountInput?.value, 10) || 0;
+    const videoIds = Array.from(state.selectedVideoIds);
+    const perPlaylist = parseInt(state.splitCountInput?.value, 10) || 0;
 
     if (videoIds.length === 0) {
-        setSplitStatus('Select videos first.', 'error');
+        setSplitStatusFn(state, 'Select videos first.', 'error');
         return;
     }
 
     if (perPlaylist <= 0) {
-        setSplitStatus('Enter videos per playlist.', 'error');
+        setSplitStatusFn(state, 'Enter videos per playlist.', 'error');
         return;
     }
 
     const numPlaylists = Math.ceil(videoIds.length / perPlaylist);
-    splitSubmitting = true;
-    updateSplitModalState();
-    closeSplitModal();
+    state.splitSubmitting = true;
+    updateSplitModalStateFn(state);
+    closeSplitModalFn(state);
 
     showSaveProgress(0, numPlaylists, 'Splitting into playlists...');
 
     try {
         let maxNum = 0;
         try {
-            const response = await sendBridgeRequest(ACTIONS.GET_PLAYLISTS, { videoIds: [videoIds[0]] });
+            const response = await sendBridgeRequest(ACTIONS.GET_PLAYLISTS, {
+                videoIds: [videoIds[0]],
+            });
             const playlists = Array.isArray(response?.playlists) ? response.playlists : [];
             playlists.forEach((playlist) => {
                 const title = playlist?.title || '';
@@ -2758,7 +2281,7 @@ async function submitSplit() {
                 title,
                 privacyStatus: 'PRIVATE',
                 collaborate: false,
-                videoIds: batch
+                videoIds: batch,
             });
 
             const addedCount = Number(playlistResponse?.addedCount) || 0;
@@ -2769,25 +2292,27 @@ async function submitSplit() {
         }
 
         hideSaveProgress();
-        setStatusMessage(`Split into ${created} playlists with ${totalAdded} videos.`, STATUS_KIND.SUCCESS);
+        setStatusMessage(
+            `Split into ${created} playlists with ${totalAdded} videos.`,
+            STATUS_KIND.SUCCESS
+        );
         resetSelectionOnly();
-
     } catch (error) {
         logger.warn('Failed to split playlists', error);
         hideSaveProgress();
-        setStatusMessage(error instanceof Error ? error.message : 'Failed to split playlists.', STATUS_KIND.ERROR);
+        setStatusMessage(
+            error instanceof Error ? error.message : 'Failed to split playlists.',
+            STATUS_KIND.ERROR
+        );
     } finally {
-        splitSubmitting = false;
+        state.splitSubmitting = false;
         updateActionUiState();
     }
 }
 
-function setSplitStatus(message, kind = 'info') {
-    if (!splitStatus) {
-        return;
-    }
-    splitStatus.textContent = message;
-    splitStatus.className = `yt-commander-split-modal__status is-${kind}`;
+function closeSplitModal() {
+    closeSplitModalFn(state);
+    updateSplitModalStateFn(state);
 }
 
 /**
@@ -2816,7 +2341,7 @@ async function handleActionRemoveWatchedClick(event) {
         return;
     }
 
-    submitting = true;
+    state.submitting = true;
     updateActionUiState();
     setStatusMessage('Scanning playlist for watched videos...', STATUS_KIND.INFO);
 
@@ -2842,31 +2367,40 @@ async function handleActionRemoveWatchedClick(event) {
 
         showSaveProgress(0, watchedIds.length, 'Removing watched videos');
 
-        const response = await sendBridgeRequest(ACTIONS.REMOVE_FROM_PLAYLIST, {
-            playlistId: currentPlaylistId,
-            videoIds: watchedIds
-        }, (progress) => {
-            if (progress) {
-                showSaveProgress(progress.processed, progress.total, 'Removing watched videos');
+        const response = await sendBridgeRequest(
+            ACTIONS.REMOVE_FROM_PLAYLIST,
+            {
+                playlistId: currentPlaylistId,
+                videoIds: watchedIds,
+            },
+            (progress) => {
+                if (progress) {
+                    showSaveProgress(progress.processed, progress.total, 'Removing watched videos');
+                }
             }
-        });
+        );
 
         hideSaveProgress();
         const removedCount = Number(response?.removedCount) || 0;
-        
+
         if (removedCount > 0) {
-            setStatusMessage(`Removed ${removedCount} watched video(s). Refreshing page...`, STATUS_KIND.SUCCESS);
+            setStatusMessage(
+                `Removed ${removedCount} watched video(s). Refreshing page...`,
+                STATUS_KIND.SUCCESS
+            );
             window.location.reload();
         } else {
             setStatusMessage('No videos were removed.', STATUS_KIND.INFO);
         }
-
     } catch (error) {
         logger.warn('Failed to remove watched videos', error);
         hideSaveProgress();
-        setStatusMessage(error instanceof Error ? error.message : 'Failed to remove watched videos.', STATUS_KIND.ERROR);
+        setStatusMessage(
+            error instanceof Error ? error.message : 'Failed to remove watched videos.',
+            STATUS_KIND.ERROR
+        );
     } finally {
-        submitting = false;
+        state.submitting = false;
         updateActionUiState();
     }
 }
@@ -2879,48 +2413,60 @@ async function handleActionDeletePlaylistsClick(event) {
     event.preventDefault();
     event.stopPropagation();
 
-    if (submitting) {
+    if (state.submitting) {
         return;
     }
 
-    const playlistIds = Array.from(selectedPlaylistIds);
+    const playlistIds = Array.from(state.selectedPlaylistIds);
     if (playlistIds.length === 0) {
         setStatusMessage('Select playlists to delete.', STATUS_KIND.ERROR);
         return;
     }
 
-    submitting = true;
+    state.submitting = true;
     updateActionUiState();
     showSaveProgress(0, playlistIds.length, 'Deleting playlists');
 
     try {
-        const response = await sendBridgeRequest(ACTIONS.DELETE_PLAYLISTS, {
-            playlistIds
-        }, (progress) => {
-            if (progress) {
-                showSaveProgress(progress.processed, progress.total, 'Deleting playlists');
+        const response = await sendBridgeRequest(
+            ACTIONS.DELETE_PLAYLISTS,
+            {
+                playlistIds,
+            },
+            (progress) => {
+                if (progress) {
+                    showSaveProgress(progress.processed, progress.total, 'Deleting playlists');
+                }
             }
-        });
+        );
 
         hideSaveProgress();
         const deletedCount = Number(response?.deletedCount) || 0;
         const failedCount = Number(response?.failedCount) || 0;
 
-        selectedPlaylistIds.clear();
+        state.selectedPlaylistIds.clear();
 
         if (failedCount > 0) {
-            setStatusMessage(`Deleted ${deletedCount} playlist(s). ${failedCount} failed.`, STATUS_KIND.ERROR);
+            setStatusMessage(
+                `Deleted ${deletedCount} playlist(s). ${failedCount} failed.`,
+                STATUS_KIND.ERROR
+            );
         } else {
-            setStatusMessage(`Deleted ${deletedCount} playlist(s). Refreshing...`, STATUS_KIND.SUCCESS);
+            setStatusMessage(
+                `Deleted ${deletedCount} playlist(s). Refreshing...`,
+                STATUS_KIND.SUCCESS
+            );
             window.location.reload();
         }
-
     } catch (error) {
         logger.warn('Failed to delete playlists', error);
         hideSaveProgress();
-        setStatusMessage(error instanceof Error ? error.message : 'Failed to delete playlists.', STATUS_KIND.ERROR);
+        setStatusMessage(
+            error instanceof Error ? error.message : 'Failed to delete playlists.',
+            STATUS_KIND.ERROR
+        );
     } finally {
-        submitting = false;
+        state.submitting = false;
         updateActionUiState();
     }
 }
@@ -2933,7 +2479,7 @@ function handleOpenInNewTab(event) {
     event.preventDefault();
     event.stopPropagation();
 
-    const videoIds = Array.from(selectedVideoIds);
+    const videoIds = Array.from(state.selectedVideoIds);
     if (videoIds.length === 0) {
         return;
     }
@@ -2954,7 +2500,7 @@ function handleActionSelectAllClick(event) {
     event.preventDefault();
     event.stopPropagation();
 
-    selectAllMode = true;
+    state.selectAllMode = true;
     selectVideoIds(collectRenderedVideoIds());
     updateActionUiState();
 }
@@ -2967,7 +2513,7 @@ function handleActionUnselectAllClick(event) {
     event.preventDefault();
     event.stopPropagation();
 
-    selectAllMode = false;
+    state.selectAllMode = false;
     clearSelectedVideos();
 }
 
@@ -2982,7 +2528,7 @@ function handlePlaylistListClick(event) {
     }
 
     const row = target.closest('.yt-commander-playlist-panel__item');
-    if (!row || !playlistPanelList?.contains(row)) {
+    if (!row || !state.playlistPanelList?.contains(row)) {
         return;
     }
 
@@ -3014,7 +2560,7 @@ function handlePlaylistNewButtonClick(event) {
  * @param {MouseEvent} event
  */
 function handleCreateBackdropMouseDown(event) {
-    if (event.target === createBackdrop) {
+    if (event.target === state.createBackdrop) {
         closeCreateModal();
     }
 }
@@ -3042,7 +2588,7 @@ function handleCreateVisibilityButtonClick(event) {
     event.preventDefault();
     event.stopPropagation();
 
-    createVisibilityMenuVisible = !createVisibilityMenuVisible;
+    state.state.createVisibilityMenuVisible = !state.state.createVisibilityMenuVisible;
     updateCreateModalState();
 }
 
@@ -3057,7 +2603,7 @@ function handleCreateVisibilityMenuClick(event) {
     }
 
     const option = target.closest('.yt-commander-playlist-create-modal__visibility-option');
-    if (!option || !createVisibilityMenu?.contains(option)) {
+    if (!option || !state.createVisibilityMenu?.contains(option)) {
         return;
     }
 
@@ -3066,12 +2612,12 @@ function handleCreateVisibilityMenuClick(event) {
 
     const value = option.getAttribute('data-visibility') || 'PRIVATE';
     if (value === 'PUBLIC' || value === 'UNLISTED' || value === 'PRIVATE') {
-        createVisibility = value;
+        state.createVisibility = value;
     } else {
-        createVisibility = 'PRIVATE';
+        state.createVisibility = 'PRIVATE';
     }
 
-    createVisibilityMenuVisible = false;
+    state.state.createVisibilityMenuVisible = false;
     updateCreateModalState();
 }
 
@@ -3098,14 +2644,14 @@ function handleDocumentMouseDown(event) {
         return;
     }
 
-    if (createModalVisible) {
-        if (createModal?.contains(target)) {
+    if (state.createModalVisible) {
+        if (state.createModal?.contains(target)) {
             if (
-                createVisibilityMenuVisible
-                && !createVisibilityButton?.contains(target)
-                && !createVisibilityMenu?.contains(target)
+                state.state.createVisibilityMenuVisible &&
+                !state.createVisibilityButton?.contains(target) &&
+                !state.createVisibilityMenu?.contains(target)
             ) {
-                createVisibilityMenuVisible = false;
+                state.state.createVisibilityMenuVisible = false;
                 updateCreateModalState();
             }
             return;
@@ -3115,11 +2661,11 @@ function handleDocumentMouseDown(event) {
         return;
     }
 
-    if (playlistPanelVisible) {
+    if (state.playlistPanelVisible) {
         if (
-            playlistPanel?.contains(target)
-            || actionBar?.contains(target)
-            || mastheadButton?.contains(target)
+            state.playlistPanel?.contains(target) ||
+            state.actionBar?.contains(target) ||
+            state.mastheadButton?.contains(target)
         ) {
             return;
         }
@@ -3133,7 +2679,7 @@ function handleDocumentMouseDown(event) {
  * @param {MouseEvent} event
  */
 function handleSelectionClickCapture(event) {
-    if (!selectionMode || !isEnabled || !isEligiblePage()) {
+    if (!state.selectionMode || !state.isEnabled || !isEligiblePage()) {
         return;
     }
     logger.debug('handleSelectionClickCapture called');
@@ -3144,10 +2690,10 @@ function handleSelectionClickCapture(event) {
     }
 
     if (
-        actionBar?.contains(target)
-        || playlistPanel?.contains(target)
-        || createModal?.contains(target)
-        || mastheadButton?.contains(target)
+        state.actionBar?.contains(target) ||
+        state.playlistPanel?.contains(target) ||
+        state.createModal?.contains(target) ||
+        state.mastheadButton?.contains(target)
     ) {
         return;
     }
@@ -3157,7 +2703,10 @@ function handleSelectionClickCapture(event) {
     }
 
     if (isPlaylistsPage()) {
-        logger.debug('Playlists page click detected', { targetTag: target.tagName, targetClass: target.className });
+        logger.debug('Playlists page click detected', {
+            targetTag: target.tagName,
+            targetClass: target.className,
+        });
         const playlistRenderer = target.closest('ytd-rich-item-renderer, yt-lockup-view-model');
         if (playlistRenderer) {
             logger.debug('Found playlist renderer');
@@ -3209,7 +2758,7 @@ function handleSelectionClickCapture(event) {
     handleVideoSelectionInteraction({
         videoId,
         host,
-        shiftKey: event.shiftKey
+        shiftKey: event.shiftKey,
     });
 }
 
@@ -3222,22 +2771,22 @@ function handleDocumentKeydown(event) {
         return;
     }
 
-    if (createModalVisible) {
+    if (state.createModalVisible) {
         event.preventDefault();
         closeCreateModal();
         return;
     }
 
-    if (playlistPanelVisible) {
+    if (state.playlistPanelVisible) {
         event.preventDefault();
         closePlaylistPanel();
         return;
     }
 
-    if (selectionMode) {
+    if (state.selectionMode) {
         event.preventDefault();
         closePlaylistPanel();
-        actionBar?.classList.remove('is-visible');
+        state.actionBar?.classList.remove('is-visible');
         setSelectionMode(false);
     }
 }
@@ -3246,13 +2795,13 @@ function handleDocumentKeydown(event) {
  * Handle route transitions.
  */
 function handleRouteChange() {
-    if (location.href === lastKnownUrl) {
+    if (location.href === state.lastKnownUrl) {
         return;
     }
 
-    lastKnownUrl = location.href;
+    state.lastKnownUrl = location.href;
     setSelectionMode(false);
-    updateMastheadVisibility();
+    updateMastheadVisibility(state, isEligiblePage);
     syncActionBarVisibility();
     syncRemoveActionButton();
 }
@@ -3265,19 +2814,19 @@ function handleResize() {
 }
 
 /**
- * Setup observer for SPA + feed updates.
+ * Setup state.observer for SPA + feed updates.
  */
 function setupObserver() {
-    if (observer || !document.body) {
+    if (state.observer || !document.body) {
         return;
     }
 
-    observer = createThrottledObserver((mutations) => {
-        ensureMastheadButton();
+    state.observer = createThrottledObserver((mutations) => {
+        ensureMastheadButton(state, handleMastheadButtonClick);
         ensureActionUi();
         handleRouteChange();
 
-        if (!isEnabled || !selectionMode || !isEligiblePage()) {
+        if (!state.isEnabled || !state.selectionMode || !isEligiblePage()) {
             return;
         }
 
@@ -3309,11 +2858,11 @@ function setupObserver() {
         queueContainers(found);
     }, 250);
 
-    observer.observe(document.body, {
+    state.observer.observe(document.body, {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ['href', 'video-id', 'data-video-id']
+        attributeFilter: ['href', 'video-id', 'data-video-id'],
     });
 }
 
@@ -3322,11 +2871,11 @@ function setupObserver() {
  */
 function setupListeners() {
     const onNavigate = () => {
-        ensureMastheadButton();
+        ensureMastheadButton(state, handleMastheadButtonClick);
         ensureActionUi();
         handleRouteChange();
 
-        if (selectionMode && isEnabled && isEligiblePage()) {
+        if (state.selectionMode && state.isEnabled && isEligiblePage()) {
             queueFullRescan();
         }
     };
@@ -3340,7 +2889,7 @@ function setupListeners() {
     document.addEventListener('mousedown', handleDocumentMouseDown, true);
     document.addEventListener('click', handleSelectionClickCapture, true);
     document.addEventListener('keydown', handleDocumentKeydown, true);
-    
+
     let playlistScrollThrottle = null;
     const handlePlaylistScroll = () => {
         if (!playlistScrollThrottle) {
@@ -3352,16 +2901,26 @@ function setupListeners() {
     };
     window.addEventListener('scroll', handlePlaylistScroll, { passive: true });
 
-    cleanupCallbacks.push(() => window.removeEventListener('message', handleBridgeResponse));
-    cleanupCallbacks.push(() => window.removeEventListener('message', handleBridgeProgress));
-    cleanupCallbacks.push(() => document.removeEventListener('yt-navigate-finish', onNavigate));
-    cleanupCallbacks.push(() => document.removeEventListener('yt-page-data-updated', onNavigate));
-    cleanupCallbacks.push(() => window.removeEventListener('popstate', onNavigate));
-    cleanupCallbacks.push(() => window.removeEventListener('resize', handleResize));
-    cleanupCallbacks.push(() => document.removeEventListener('mousedown', handleDocumentMouseDown, true));
-    cleanupCallbacks.push(() => document.removeEventListener('click', handleSelectionClickCapture, true));
-    cleanupCallbacks.push(() => document.removeEventListener('keydown', handleDocumentKeydown, true));
-    cleanupCallbacks.push(() => {
+    state.cleanupCallbacks.push(() => window.removeEventListener('message', handleBridgeResponse));
+    state.cleanupCallbacks.push(() => window.removeEventListener('message', handleBridgeProgress));
+    state.cleanupCallbacks.push(() =>
+        document.removeEventListener('yt-navigate-finish', onNavigate)
+    );
+    state.cleanupCallbacks.push(() =>
+        document.removeEventListener('yt-page-data-updated', onNavigate)
+    );
+    state.cleanupCallbacks.push(() => window.removeEventListener('popstate', onNavigate));
+    state.cleanupCallbacks.push(() => window.removeEventListener('resize', handleResize));
+    state.cleanupCallbacks.push(() =>
+        document.removeEventListener('mousedown', handleDocumentMouseDown, true)
+    );
+    state.cleanupCallbacks.push(() =>
+        document.removeEventListener('click', handleSelectionClickCapture, true)
+    );
+    state.cleanupCallbacks.push(() =>
+        document.removeEventListener('keydown', handleDocumentKeydown, true)
+    );
+    state.cleanupCallbacks.push(() => {
         clearTimeout(playlistScrollThrottle);
         window.removeEventListener('scroll', handlePlaylistScroll);
     });
@@ -3371,23 +2930,23 @@ function setupListeners() {
  * Initialize module.
  */
 function initPlaylistMultiSelect() {
-    if (isInitialized) {
+    if (state.isInitialized) {
         return;
     }
 
-    loadPlaylistsDebounced = debounce(loadPlaylistsForPanel, 300);
+    state.loadPlaylistsDebounced = debounce(loadPlaylistsForPanel, 300);
 
-    ensureMastheadButton();
+    ensureMastheadButton(state, handleMastheadButtonClick);
     ensureActionUi();
     setupListeners();
     setupObserver();
 
-    updateMastheadVisibility();
-    updateMastheadButtonState();
+    updateMastheadVisibility(state, isEligiblePage);
+    updateMastheadButtonState(state);
     updateActionUiState();
     syncActionBarVisibility();
 
-    isInitialized = true;
+    state.isInitialized = true;
     logger.info('Playlist multi-select initialized');
 }
 
@@ -3395,10 +2954,10 @@ function initPlaylistMultiSelect() {
  * Enable feature.
  */
 function enable() {
-    isEnabled = true;
-    ensureMastheadButton();
+    state.isEnabled = true;
+    ensureMastheadButton(state, handleMastheadButtonClick);
     ensureActionUi();
-    updateMastheadVisibility();
+    updateMastheadVisibility(state, isEligiblePage);
     syncActionBarVisibility();
     updateActionUiState();
     setupObserver();
@@ -3409,14 +2968,14 @@ function enable() {
  */
 function disable() {
     setSelectionMode(false);
-    isEnabled = false;
-    updateMastheadVisibility();
+    state.isEnabled = false;
+    updateMastheadVisibility(state, isEligiblePage);
     syncActionBarVisibility();
     rejectPendingRequests('Playlist request cancelled.');
 
-    if (observer) {
-        observer.disconnect();
-        observer = null;
+    if (state.observer) {
+        state.observer.disconnect();
+        state.observer = null;
     }
 }
 
@@ -3426,8 +2985,8 @@ function disable() {
 function cleanup() {
     disable();
 
-    while (cleanupCallbacks.length > 0) {
-        const teardown = cleanupCallbacks.pop();
+    while (state.cleanupCallbacks.length > 0) {
+        const teardown = state.cleanupCallbacks.pop();
         try {
             teardown();
         } catch (_error) {
@@ -3435,82 +2994,77 @@ function cleanup() {
         }
     }
 
-    pendingContainers.clear();
-    renderScheduled = false;
+    state.pendingContainers.clear();
+    state.renderScheduled = false;
     clearDeferredRescanTimer();
-    decorateRetryCounts = new WeakMap();
+    state.decorateRetryCounts = new WeakMap();
 
     clearStatusMessage();
 
-    if (actionBar) {
-        actionBar.remove();
+    if (state.actionBar) {
+        state.actionBar.remove();
     }
-    if (playlistPanel) {
-        playlistPanel.remove();
+    if (state.playlistPanel) {
+        state.playlistPanel.remove();
     }
-    if (createBackdrop) {
-        createBackdrop.remove();
+    if (state.createBackdrop) {
+        state.createBackdrop.remove();
     }
 
-    actionBar = null;
-    actionCount = null;
-    actionTotalCount = null;
-    actionSaveButton = null;
-    actionRemoveButton = null;
-    actionSelectAllButton = null;
-    actionUnselectAllButton = null;
-    actionExitButton = null;
+    state.actionBar = null;
+    state.actionCount = null;
+    state.actionTotalCount = null;
+    state.actionSaveButton = null;
+    state.actionRemoveButton = null;
+    state.actionSelectAllButton = null;
+    state.actionUnselectAllButton = null;
+    state.actionExitButton = null;
 
-    playlistPanel = null;
-    playlistPanelCount = null;
-    playlistPanelList = null;
-    playlistPanelStatus = null;
-    playlistPanelCloseButton = null;
-    playlistPanelNewButton = null;
+    state.playlistPanel = null;
+    state.playlistPanelCount = null;
+    state.playlistPanelList = null;
+    state.playlistPanelStatus = null;
+    state.playlistPanelCloseButton = null;
+    state.playlistPanelNewButton = null;
 
-    createBackdrop = null;
-    createModal = null;
-    createTitleInput = null;
-    createVisibilityButton = null;
-    createVisibilityValue = null;
-    createVisibilityMenu = null;
-    createCollaborateInput = null;
-    createCancelButton = null;
-    createCreateButton = null;
-    createStatus = null;
+    state.createBackdrop = null;
+    state.createModal = null;
+    state.createTitleInput = null;
+    state.createVisibilityButton = null;
+    state.createVisibilityValue = null;
+    state.createVisibilityMenu = null;
+    state.createCollaborateInput = null;
+    state.createCancelButton = null;
+    state.createCreateButton = null;
+    state.createStatus = null;
 
-    if (mastheadSlot) {
-        mastheadSlot.remove();
+    if (state.mastheadSlot) {
+        state.mastheadSlot.remove();
     }
-    mastheadSlot = null;
-    mastheadButton = null;
-    mastheadBadge = null;
+    state.mastheadSlot = null;
+    state.mastheadButton = null;
+    state.mastheadBadge = null;
 
-    selectedVideoIds.clear();
-    selectedPlaylistIds.clear();
-    playlistMap.clear();
-    playlistOptions = [];
+    state.selectedVideoIds.clear();
+    state.selectedPlaylistIds.clear();
+    state.playlistMap.clear();
+    state.playlistOptions = [];
 
-    playlistPanelVisible = false;
-    createModalVisible = false;
-    createVisibilityMenuVisible = false;
-    loadingPlaylists = false;
-    submitting = false;
-    createSubmitting = false;
-    createVisibility = 'PRIVATE';
-    selectAllMode = false;
+    state.playlistPanelVisible = false;
+    state.createModalVisible = false;
+    state.state.createVisibilityMenuVisible = false;
+    state.loadingPlaylists = false;
+    state.submitting = false;
+    state.createSubmitting = false;
+    state.createVisibility = 'PRIVATE';
+    state.selectAllMode = false;
 
-    lastPlaylistProbeVideoId = '';
+    state.lastPlaylistProbeVideoId = '';
 
     document.documentElement.classList.remove(ROOT_SELECTION_CLASS);
 
-    isInitialized = false;
+    state.isInitialized = false;
     logger.info('Playlist multi-select cleaned up');
 }
 
-export {
-    initPlaylistMultiSelect,
-    enable,
-    disable,
-    cleanup
-};
+export { initPlaylistMultiSelect, enable, disable, cleanup };
