@@ -256,25 +256,6 @@ let lastCardRange = null;
 let virtualScrollRaf = 0;
 let pendingVirtualForce = false;
 
-/**
- * Apply sidebar tooltip when collapsed or in chipbar mode.
- * @param {HTMLElement} el
- * @param {string} label
- * @param {{ tooltip?: string }} [options]
- */
-
-/**
- * Get single-letter initial.
- * @param {string} label
- * @returns {string}
- */
-
-/**
- * Normalize color to hex for color input controls.
- * @param {string} value
- * @returns {string}
- */
-
 function resetModalElements() {
     const existingOverlay = document.querySelector(`.${OVERLAY_CLASS}`);
     if (existingOverlay) {
@@ -444,71 +425,6 @@ function openUrlInBackground(url) {
     }
 }
 
-/**
- * Rebuild channel lookup maps.
- * @param {Array<object>} list
- */
-/**
- * Mark categories changed for memoized views.
- */
-/**
- * Mark assignments changed for memoized views.
- */
-/**
- * Memoized category counts.
- * @returns {Record<string, number>}
- */
-/**
- * Load stored category and assignment data.
- * @returns {Promise<void>}
- */
-
-/**
- * Persist categories + assignments.
- * @returns {Promise<void>}
- */
-
-/**
- * Persist view and filter settings.
- * @returns {Promise<void>}
- */
-
-/**
- * Read channel assignments.
- * @param {string} channelId
- * @returns {string[]}
- */
-/**
- * Update assignments for channel.
- * @param {string} channelId
- * @param {string[]} next
- */
-/**
- * Compute a stable hash for subscription IDs.
- * @param {Array<{channelId: string}>} list
- * @returns {string}
- */
-/**
- * Save snapshot to storage.
- * @param {Array<object>} list
- * @param {string} hash
- * @returns {Promise<void>}
- */
-
-/**
- * Hydrate snapshot from storage for fast rendering.
- * @returns {Promise<boolean>}
- */
-
-/**
- * Mark pending sync keys.
- * @param {string[]} keys
- * @returns {Promise<void>}
- */
-
-/**
- * Ensure masthead slot exists.
- */
 function ensureMastheadSlot() {
     if (mastheadSlot && mastheadSlot.isConnected) {
         return;
@@ -561,35 +477,6 @@ function updateMastheadVisibility() {
     }
     mastheadSlot.style.display = isEligiblePage() ? '' : 'none';
 }
-/**
- * Resolve channel identity near a subscribe renderer.
- * @param {Element|null} renderer
- * @returns {{channelId: string, handle: string, url: string}}
- */
-
-
-/**
- * Resolve channel ID from cached indexes.
- * @param {{channelId: string, handle: string, url: string}} identity
- * @returns {string}
- */
-
-
-
-
-
-
-
-
-/**
- * Build quick add button.
- * @param {{channelId: string, handle: string, url: string}} identity
- * @returns {HTMLButtonElement}
- */
-
-/**
- * Ensure quick add buttons on subscribe renderers.
- */
 
 async function handleQuickAddClick(event) {
     event.preventDefault();
@@ -650,100 +537,6 @@ async function handleQuickAddClick(event) {
 }
 
 /**
- * Ensure modal elements exist.
- */
-
-/**
- * Ensure category picker exists.
- */
-
-/**
- * Render category picker options.
- */
-
-/**
- * Show picker.
- * @param {HTMLElement} anchor
- * @param {string} mode
- * @param {string[]} channelIds
- */
-
-/**
- * Hide picker.
- */
-
-/**
- * Ensure tooltip portal exists.
- */
-
-/**
- * Position tooltip portal.
- */
-
-/**
- * Hide tooltip portal.
- */
-
-/**
- * Ensure confirm dialog exists.
- */
-
-/**
- * Show confirm dialog.
- * @param {{title?: string, message?: string, confirmLabel?: string, cancelLabel?: string}} options
- * @returns {Promise<boolean>}
- */
-
-/**
- * Close confirm dialog.
- * @param {boolean} accepted
- */
-
-/**
- * Position picker near anchor.
- */
-
-/**
- * Create a category.
- * @param {string} name
- * @param {string} [colorOverride]
- * @returns {{id: string, name: string, color: string}}
- */
-
-/**
- * Persist sidebar state.
- * @returns {Promise<void>}
- */
-
-/**
- * Remove category and associated assignments.
- * @param {string} categoryId
- * @returns {Promise<void>}
- */
-
-/**
- * Render status message.
- * @param {string} message
- * @param {string} [kind]
- */
-
-/**
- * Update selection UI.
- */
-
-/**
- * Toggle a channel selection state.
- * @param {string} channelId
- * @param {boolean} [nextState]
- */
-
-/**
- * Toggle a channel selection state.
- * @param {string} channelId
- * @param {boolean} [nextState]
- */
-
-/**
  * Handle selection interaction (shift+click range).
  * @param {string} channelId
  * @param {{shiftKey?: boolean}} [options]
@@ -773,13 +566,6 @@ function handleChannelSelectionInteraction(channelId, options = {}) {
     toggleChannelSelection(channelId);
     selectionAnchorId = channelId;
 }
-
-/**
- * Apply category update for channels.
- * @param {string[]} channelIds
- * @param {string} categoryId
- * @param {'add'|'remove'|'toggle'} mode
- */
 
 /**
  * Handle overlay click.
@@ -1395,12 +1181,6 @@ function updateCard(card, channel) {
     }
 }
 
-/**
- * Render card view.
- * @param {Array<object>} pageItems
- * @param {{totalCount?: number, topSpacerHeight?: number, bottomSpacerHeight?: number}} [options]
- */
-
 let filterMenuEl = null;
 
 function closeFilterMenu() {
@@ -1418,11 +1198,6 @@ function isSameRange(a, b) {
 }
 
 let measuredCardHeight = 0;
-
-/**
- * Filter channels by category.
- * @returns {Array<object>}
- */
 
 function handleMainScroll() {
     queueVirtualRender(false);
@@ -1617,4 +1392,3 @@ export async function getSubscriptionSnapshot() {
     const nextStored = await storageGet([STORAGE_KEYS.SNAPSHOT]);
     return nextStored?.[STORAGE_KEYS.SNAPSHOT] || { channels: [], fetchedAt: Date.now(), hash: '' };
 }
-
