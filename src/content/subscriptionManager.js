@@ -1,4 +1,4 @@
-import { createLogger } from './utils/logger.js';
+﻿import { createLogger } from './utils/logger.js';
 import { createBridgeClient } from './playlist-multi-select/bridge.js';
 import { resolveMastheadMountPoint, isEligiblePage } from './playlist-multi-select/pageContext.js';
 import { MASTHEAD_SLOT_CLASS, MASTHEAD_BUTTON_CLASS } from './playlist-multi-select/constants.js';

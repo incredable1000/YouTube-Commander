@@ -625,24 +625,18 @@ class YouTubeAudioTrackManager {
 
     cleanup() {
         this.cancelPendingWork();
-
         this.observers.forEach((observer) => observer.disconnect());
         this.observers = [];
-
         document.removeEventListener('yt-navigate-finish', this.handleYtNavigateFinish);
         document.removeEventListener('yt-page-data-updated', this.handleYtPageDataUpdated);
         window.removeEventListener('popstate', this.handlePopState);
-
         document.removeEventListener('play', this.handleVideoPlay, true);
         document.removeEventListener('loadedmetadata', this.handleLoadedMetadata, true);
         document.removeEventListener('canplay', this.handleCanPlay, true);
-
         window.removeEventListener('focus', this.handleWindowFocus);
         document.removeEventListener('visibilitychange', this.handleVisibilityChange);
         window.removeEventListener('pageshow', this.handlePageShow);
-
         window.removeEventListener('message', this.handleSettingsMessage);
-
         this.isInitialized = false;
     }
 }

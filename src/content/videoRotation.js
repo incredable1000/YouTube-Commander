@@ -1,8 +1,7 @@
-﻿/**
+/**
  * Video Rotation
  * Lightweight and resilient rotation controls for YouTube watch/shorts players.
  */
-
 import {
     getActiveVideo,
     getActivePlayer,
@@ -25,7 +24,6 @@ import {
 } from './videoRotation/utils.js';
 
 const logger = createLogger('VideoRotation');
-
 const STORAGE_KEY = 'ytCommanderVideoRotations';
 const STORAGE_WRITE_DEBOUNCE_MS = 280;
 const OBSERVER_THROTTLE_MS = 650;
@@ -171,7 +169,7 @@ function createRotationButton() {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'ytp-button custom-rotation-button';
-    button.title = 'Rotate video 90°';
+    button.title = 'Rotate video 90�';
     button.setAttribute('aria-label', 'Rotate video 90 degrees');
 
     const svgIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -275,11 +273,11 @@ function rotateVideo() {
     persistCurrentVideoRotation();
     showRotationIndicator();
 
-    logger.debug(`Video rotated to ${currentRotation}°`);
+    logger.debug(`Video rotated to ${currentRotation}�`);
 }
 
 /**
- * Reset active video rotation to 0°.
+ * Reset active video rotation to 0�.
  */
 function resetRotation() {
     if (!isEnabled) {

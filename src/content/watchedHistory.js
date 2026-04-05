@@ -582,23 +582,4 @@ window.ytCommanderWatchedHistory = {
     getSyncAccountIdentity,
 };
 
-export {
-    initWatchedHistory,
-    addToWatchedHistory,
-    isVideoWatched,
-    getAllWatchedVideos,
-    getPendingSyncVideoIds,
-    ackSyncedVideoIdsLocal as ackSyncedVideoIds,
-    getPendingSyncCount,
-    seedSyncQueueFromHistory,
-    getWatchedVideoCount,
-    getWatchedCount,
-    clearWatchedHistory,
-    exportWatchedHistory,
-    importWatchedHistory,
-    getSyncAccountIdentity,
-    updateSettings,
-    enable,
-    disable,
-    cleanup,
-};
+export { initWatchedHistory, addToWatchedHistory, isVideoWatched, getAllWatchedVideos, getPendingSyncVideoIds, ackSyncedVideoIdsLocal as ackSyncedVideoIds, getPendingSyncCount, seedSyncQueueFromHistory, getWatchedVideoCount, getWatchedCount, clearWatchedHistory, exportWatchedHistory, importWatchedHistory, getSyncAccountIdentity, updateSettings, enable, disable, cleanup };
