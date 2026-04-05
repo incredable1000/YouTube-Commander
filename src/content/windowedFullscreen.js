@@ -53,6 +53,12 @@ import {
     shouldHandleWindowedShortcut as checkWindowedShortcutEligibility,
 } from './windowed-fullscreen/shortcuts-utils.js';
 import { isEligiblePage as checkEligiblePage } from './windowed-fullscreen/mode-utils.js';
+import { registerEventListeners, stopRuntime } from './windowed-fullscreen/tracking-utils.js';
+import {
+    cleanupStaleOverlayRoots,
+    removeDuplicateRootPlayers,
+    focusPlayerForKeyboardControls,
+} from './windowed-fullscreen/overlay-utils.js';
 
 const logger = createLogger('WindowedFullscreen');
 
@@ -88,51 +94,6 @@ function ensureOverlayHost() {
     }
     overlayHost = createWindowedOverlayHost(OVERLAY_CLASS);
     return overlayHost;
-}
-
-function cleanupStaleOverlayRoots(rootToKeep = mountedRootPlayer) {
-    if (
-        !(overlayHost instanceof Element) ||
-        !overlayHost.isConnected ||
-        !(rootToKeep instanceof Element) ||
-        !overlayHost.contains(rootToKeep)
-    ) {
-        return;
-    }
-
-    let removedFocusedRoot = false;
-
-    findRootPlayers().forEach((root) => {
-        if (!(root instanceof Element) || !overlayHost.contains(root) || root === rootToKeep) {
-            return;
-        }
-
-        if (root.contains(document.activeElement)) {
-            removedFocusedRoot = true;
-        }
-
-        root.classList.remove(PLAYER_ACTIVE_CLASS);
-        root.remove();
-    });
-
-    if (removedFocusedRoot) {
-        focusPlayerForKeyboardControls();
-    }
-}
-
-function removeDuplicateRootPlayers(rootToKeep = mountedRootPlayer) {
-    if (!(rootToKeep instanceof Element)) {
-        return;
-    }
-
-    findRootPlayers().forEach((root) => {
-        if (!(root instanceof Element) || root === rootToKeep || root.closest('ytd-miniplayer')) {
-            return;
-        }
-
-        root.classList.remove(PLAYER_ACTIVE_CLASS);
-        root.remove();
-    });
 }
 
 async function initWindowedFullscreen() {
@@ -210,29 +171,6 @@ function ensureButton() {
     }
 
     updateButtonState(windowedButton, isWindowed);
-}
-
-function focusPlayerForKeyboardControls() {
-    const player =
-        getLivePlayerElement(getLiveRootPlayer(mountedRootPlayer), mountedRootPlayer) ||
-        (activePlayer instanceof HTMLElement ? activePlayer : null);
-    if (player instanceof HTMLElement) {
-        try {
-            player.focus({ preventScroll: true });
-            return;
-        } catch (_error) {
-            // Fallback below.
-        }
-    }
-
-    const video = document.querySelector('video.html5-main-video');
-    if (video instanceof HTMLElement) {
-        try {
-            video.focus({ preventScroll: true });
-        } catch (_error) {
-            // No-op.
-        }
-    }
 }
 
 function toggleWindowedMode() {
@@ -441,7 +379,12 @@ function handleKeydown(event) {
     event.preventDefault();
     event.stopPropagation();
     toggleWindowedMode();
-    focusPlayerForKeyboardControls();
+    focusPlayerForKeyboardControls(
+        mountedRootPlayer,
+        getLiveRootPlayer,
+        getLivePlayerElement,
+        activePlayer
+    );
 }
 
 function applyAutoWindowedMode() {
@@ -472,7 +415,12 @@ function applyAutoWindowedMode() {
     enterWindowedMode();
 
     if (isWindowed) {
-        focusPlayerForKeyboardControls();
+        focusPlayerForKeyboardControls(
+            mountedRootPlayer,
+            getLiveRootPlayer,
+            getLivePlayerElement,
+            activePlayer
+        );
         lastAutoWindowedVideoId = watchVideoId;
         resetAutoWarmup();
     }
@@ -509,30 +457,10 @@ function startRuntimeTracking() {
         syncUiState();
     };
 
-    document.addEventListener('yt-navigate-finish', handleRouteOrPlayerChange);
-    document.addEventListener('yt-page-data-updated', handleRouteOrPlayerChange);
-    window.addEventListener('popstate', handleRouteOrPlayerChange);
-    window.addEventListener('resize', handleRouteOrPlayerChange, { passive: true });
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('keydown', handleKeydown, true);
-
-    runtimeCleanupCallbacks.push(() =>
-        document.removeEventListener('yt-navigate-finish', handleRouteOrPlayerChange)
-    );
-    runtimeCleanupCallbacks.push(() =>
-        document.removeEventListener('yt-page-data-updated', handleRouteOrPlayerChange)
-    );
-    runtimeCleanupCallbacks.push(() =>
-        window.removeEventListener('popstate', handleRouteOrPlayerChange)
-    );
-    runtimeCleanupCallbacks.push(() =>
-        window.removeEventListener('resize', handleRouteOrPlayerChange)
-    );
-    runtimeCleanupCallbacks.push(() =>
-        document.removeEventListener('fullscreenchange', handleFullscreenChange)
-    );
-    runtimeCleanupCallbacks.push(() =>
-        document.removeEventListener('keydown', handleKeydown, true)
+    registerEventListeners(
+        { document, window },
+        { handleRouteOrPlayerChange, handleFullscreenChange, handleKeydown },
+        runtimeCleanupCallbacks
     );
 
     observer = createThrottledObserver(() => {
@@ -555,20 +483,9 @@ function startRuntimeTracking() {
 }
 
 function stopRuntimeTracking() {
-    if (observer) {
-        observer.disconnect();
-        observer = null;
-    }
-
-    if (ensureTimer) {
-        clearInterval(ensureTimer);
-        ensureTimer = null;
-    }
-
-    while (runtimeCleanupCallbacks.length > 0) {
-        const teardown = runtimeCleanupCallbacks.pop();
-        teardown();
-    }
+    stopRuntime(observer, ensureTimer, runtimeCleanupCallbacks);
+    observer = null;
+    ensureTimer = null;
 }
 
 function findControlsHost() {
