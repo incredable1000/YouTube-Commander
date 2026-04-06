@@ -1,6 +1,6 @@
 /**
  * Auto Skip Ads
- * Automatically skips YouTube ads by clicking skip buttons and speeding up playback.
+ * Automatically clicks the skip ad button when it appears.
  */
 
 import { createLogger } from './utils/logger.js';
@@ -11,72 +11,69 @@ const SKIP_BUTTON_SELECTORS = [
     '.ytp-ad-skip-button-modern',
     '.ytp-skip-ad-button',
     '.ytp-ad-skip-button',
-    'button[aria-label^="Skip ad"]',
-    'button[aria-label*="Skip"]'
+    '[aria-label*="Skip"][aria-label*="ad"]',
+    'button.ytp-ad-skip-button'
 ];
 
 let checkIntervalId = null;
-let isAdPlaying = false;
 
 function isAdShowing() {
-    const video = document.querySelector('video');
-    return video && (
-        document.querySelector('.ad-showing') ||
-        document.querySelector('.ad-interrupting') ||
-        document.querySelector('.ytp-ad-player-overlay') ||
-        video.classList.contains('ad-showing')
-    );
+    return !!document.querySelector('.ytp-ad-player-overlay');
+}
+
+function getSkipButton() {
+    for (const selector of SKIP_BUTTON_SELECTORS) {
+        const button = document.querySelector(selector);
+        if (button && button.offsetParent !== null) {
+            return button;
+        }
+    }
+    return null;
 }
 
 function clickSkipButton() {
-    for (const selector of SKIP_BUTTON_SELECTORS) {
-        const button = document.querySelector(selector);
-        if (button && button.offsetParent !== null && !button.disabled) {
-            const rect = button.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) {
-                button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
-                button.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
-                button.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, cancelable: true }));
-                button.click();
-                logger.info('Skip button clicked');
-                return true;
-            }
-        }
+    const button = getSkipButton();
+    if (!button) {
+        return false;
     }
-    return false;
+
+    const rect = button.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+        return false;
+    }
+
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    const elementsAtPoint = document.elementsFromPoint(centerX, centerY);
+    if (!elementsAtPoint.includes(button)) {
+        logger.debug('Skip button not top element at point');
+        return false;
+    }
+
+    const mouseEvents = [
+        new MouseEvent('mouseover', { bubbles: true, cancelable: true, clientX: centerX, clientY: centerY }),
+        new MouseEvent('mouseenter', { bubbles: true, cancelable: true, clientX: centerX, clientY: centerY }),
+        new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: centerX, clientY: centerY }),
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: centerX, clientY: centerY, button: 0, buttons: 1 }),
+        new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: centerX, clientY: centerY, button: 0, buttons: 0 })
+    ];
+
+    mouseEvents.forEach(event => button.dispatchEvent(event));
+    button.click();
+
+    logger.info('Skip button clicked via mouse events');
+    return true;
 }
 
-function speedUpAd() {
-    const video = document.querySelector('video.html5-main-video');
-    if (!video || video.paused) {
+function checkAndSkip() {
+    if (!isAdShowing()) {
         return;
     }
 
-    const maxRate = /firefox/i.test(navigator.userAgent) ? 200 : 16;
-    if (video.playbackRate < maxRate) {
-        video.playbackRate = maxRate;
-        logger.debug(`Ad speed set to ${maxRate}x`);
-    }
-}
-
-function skipAd() {
-    const adShowing = isAdShowing();
-    
-    if (!adShowing) {
-        if (isAdPlaying) {
-            isAdPlaying = false;
-            const video = document.querySelector('video.html5-main-video');
-            if (video) {
-                video.playbackRate = 1;
-            }
-        }
-        return;
-    }
-
-    isAdPlaying = true;
-
-    if (!clickSkipButton()) {
-        speedUpAd();
+    const button = getSkipButton();
+    if (button) {
+        clickSkipButton();
     }
 }
 
@@ -85,16 +82,8 @@ function startChecking() {
         return;
     }
 
-    checkIntervalId = setInterval(skipAd, 250);
+    checkIntervalId = setInterval(checkAndSkip, 200);
     logger.info('Ad checking started');
-
-    document.addEventListener('yt-navigate-finish', () => {
-        const video = document.querySelector('video.html5-main-video');
-        if (video) {
-            video.playbackRate = 1;
-        }
-        isAdPlaying = false;
-    });
 }
 
 function stopChecking() {
@@ -102,12 +91,6 @@ function stopChecking() {
         clearInterval(checkIntervalId);
         checkIntervalId = null;
     }
-
-    const video = document.querySelector('video.html5-main-video');
-    if (video) {
-        video.playbackRate = 1;
-    }
-    
     logger.info('Ad checking stopped');
 }
 
@@ -117,6 +100,8 @@ function initAutoSkipAds() {
     } else {
         startChecking();
     }
+
+    document.addEventListener('yt-navigate-finish', stopChecking);
 }
 
 initAutoSkipAds();
