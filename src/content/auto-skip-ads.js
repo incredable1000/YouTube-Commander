@@ -1,6 +1,6 @@
 /**
  * Auto Skip Ads
- * Automatically clicks the skip ad button by injecting script into page context.
+ * Automatically clicks the skip ad button when it appears.
  */
 
 (function() {
@@ -10,7 +10,8 @@
         '.ytp-ad-skip-button-modern',
         '.ytp-skip-ad-button', 
         '.ytp-ad-skip-button',
-        '[aria-label*="Skip"][aria-label*="ad"]'
+        '[aria-label*="Skip ad"]',
+        'button.ytp-ad-skip-button'
     ];
     
     function isAdShowing() {
@@ -18,9 +19,9 @@
     }
     
     function getSkipButton() {
-        for (const selector of SKIP_BUTTON_SELECTORS) {
-            const btn = document.querySelector(selector);
-            if (btn && btn.offsetParent !== null) {
+        const buttons = document.querySelectorAll(SKIP_BUTTON_SELECTORS.join(','));
+        for (const btn of buttons) {
+            if (btn && btn.offsetParent !== null && btn.getBoundingClientRect().width > 0) {
                 return btn;
             }
         }
@@ -33,19 +34,41 @@
         const btn = getSkipButton();
         if (btn) {
             btn.click();
-            console.log('[AutoSkipAds] Clicked skip button');
+            console.log('[AutoSkipAds] Clicked!');
         }
     }
     
     function start() {
-        setInterval(skipAd, 200);
-        document.addEventListener('yt-navigate-finish', skipAd);
+        console.log('[AutoSkipAds] Starting...');
+        
+        const observer = new MutationObserver(() => {
+            if (isAdShowing()) {
+                console.log('[AutoSkipAds] Ad detected, checking for skip button...');
+                skipAd();
+            }
+        });
+        
+        observer.observe(document.body, { childList: true, subtree: true });
+        
+        setInterval(skipAd, 300);
+        
+        document.addEventListener('yt-navigate-finish', () => {
+            console.log('[AutoSkipAds] Navigation finished');
+        });
+        
         console.log('[AutoSkipAds] Started');
     }
     
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', start);
-    } else {
-        start();
+    function waitForPlayer(callback) {
+        const check = () => {
+            if (document.querySelector('.html5-video-player') || document.querySelector('#movie_player')) {
+                callback();
+            } else {
+                setTimeout(check, 500);
+            }
+        };
+        check();
     }
+    
+    waitForPlayer(start);
 })();
