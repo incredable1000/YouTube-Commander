@@ -98,12 +98,13 @@ async function initializeMainWorldModules() {
             import('./playlistApi.js').catch(e => { logger.warn('Failed to import playlistApi:', e); throw e; }),
             import('./subscriptionLabels.js').catch(e => { logger.warn('Failed to import subscriptionLabels:', e); throw e; }),
             import('./shortsVolumeBridge.js').catch(e => { logger.warn('Failed to import shortsVolumeBridge:', e); throw e; }),
-            import('./subscriptionSyncIdentityBridge.js').catch(e => { logger.warn('Failed to import subscriptionSyncIdentityBridge:', e); throw e; })
+            import('./subscriptionSyncIdentityBridge.js').catch(e => { logger.warn('Failed to import subscriptionSyncIdentityBridge:', e); throw e; }),
+            import('./auto-skip-ads.js').catch(e => { logger.warn('Failed to import auto-skip-ads:', e); throw e; })
         ]);
         
         // Initialize successfully imported modules
         modules.forEach((result, index) => {
-            const moduleName = ['qualityControls', 'audioTrackControls', 'playlistApi', 'subscriptionLabels', 'shortsVolumeBridge', 'subscriptionSyncIdentityBridge'][index];
+            const moduleName = ['qualityControls', 'audioTrackControls', 'playlistApi', 'subscriptionLabels', 'shortsVolumeBridge', 'subscriptionSyncIdentityBridge', 'auto-skip-ads'][index];
             
             if (result.status === 'fulfilled') {
                 logger.info(`${moduleName} module loaded successfully`);
