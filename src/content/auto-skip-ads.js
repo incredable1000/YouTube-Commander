@@ -1,11 +1,7 @@
 /**
  * Auto Skip Ads
- * Automatically clicks the skip ad button when it appears.
+ * Automatically clicks the skip ad button by injecting script into page context.
  */
-
-import { createLogger } from './utils/logger.js';
-
-const logger = createLogger('AutoSkipAds');
 
 const SKIP_BUTTON_SELECTORS = [
     '.ytp-ad-skip-button-modern',
@@ -17,97 +13,60 @@ const SKIP_BUTTON_SELECTORS = [
 
 let checkIntervalId = null;
 
-function isAdShowing() {
-    return !!document.querySelector('.ytp-ad-player-overlay');
+function injectScript() {
+    const script = document.createElement('script');
+    script.textContent = `
+        (function() {
+            let intervalId = null;
+            
+            function isAdShowing() {
+                return !!document.querySelector('.ytp-ad-player-overlay');
+            }
+            
+            function getSkipButton() {
+                const selectors = ${JSON.stringify(SKIP_BUTTON_SELECTORS)};
+                for (const selector of selectors) {
+                    const btn = document.querySelector(selector);
+                    if (btn && btn.offsetParent !== null) {
+                        return btn;
+                    }
+                }
+                return null;
+            }
+            
+            function skipAd() {
+                if (!isAdShowing()) return;
+                
+                const btn = getSkipButton();
+                if (btn) {
+                    btn.click();
+                    console.log('[AutoSkipAds] Clicked skip button');
+                }
+            }
+            
+            function start() {
+                if (intervalId) return;
+                intervalId = setInterval(skipAd, 200);
+                document.addEventListener('yt-navigate-finish', skipAd);
+                console.log('[AutoSkipAds] Started');
+            }
+            
+            function stop() {
+                if (intervalId) {
+                    clearInterval(intervalId);
+                    intervalId = null;
+                }
+            }
+            
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', start);
+            } else {
+                start();
+            }
+        })();
+    `;
+    document.documentElement.appendChild(script);
+    script.remove();
 }
 
-function getSkipButton() {
-    for (const selector of SKIP_BUTTON_SELECTORS) {
-        const button = document.querySelector(selector);
-        if (button && button.offsetParent !== null) {
-            return button;
-        }
-    }
-    return null;
-}
-
-function clickSkipButton() {
-    const button = getSkipButton();
-    if (!button) {
-        return false;
-    }
-
-    const rect = button.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) {
-        return false;
-    }
-
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-
-    const elementsAtPoint = document.elementsFromPoint(centerX, centerY);
-    if (!elementsAtPoint.includes(button)) {
-        logger.debug('Skip button not top element at point');
-        return false;
-    }
-
-    const mouseEvents = [
-        new MouseEvent('mouseover', { bubbles: true, cancelable: true, clientX: centerX, clientY: centerY }),
-        new MouseEvent('mouseenter', { bubbles: true, cancelable: true, clientX: centerX, clientY: centerY }),
-        new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: centerX, clientY: centerY }),
-        new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: centerX, clientY: centerY, button: 0, buttons: 1 }),
-        new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: centerX, clientY: centerY, button: 0, buttons: 0 })
-    ];
-
-    mouseEvents.forEach(event => button.dispatchEvent(event));
-    button.click();
-
-    logger.info('Skip button clicked via mouse events');
-    return true;
-}
-
-function checkAndSkip() {
-    if (!isAdShowing()) {
-        return;
-    }
-
-    const button = getSkipButton();
-    if (button) {
-        clickSkipButton();
-    }
-}
-
-function startChecking() {
-    if (checkIntervalId) {
-        return;
-    }
-
-    checkIntervalId = setInterval(checkAndSkip, 200);
-    logger.info('Ad checking started');
-}
-
-function stopChecking() {
-    if (checkIntervalId) {
-        clearInterval(checkIntervalId);
-        checkIntervalId = null;
-    }
-    logger.info('Ad checking stopped');
-}
-
-function initAutoSkipAds() {
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', startChecking);
-    } else {
-        startChecking();
-    }
-
-    document.addEventListener('yt-navigate-finish', stopChecking);
-}
-
-initAutoSkipAds();
-
-export {
-    initAutoSkipAds,
-    startChecking,
-    stopChecking
-};
+injectScript();
