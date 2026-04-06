@@ -1,119 +1,128 @@
 /**
  * Auto Skip Ads
- * Automatically clicks the skip ad button when it becomes available.
+ * Automatically skips YouTube ads by clicking skip buttons and speeding up playback.
  */
 
 import { createLogger } from './utils/logger.js';
 
 const logger = createLogger('AutoSkipAds');
 
-const SKIP_BUTTON_SELECTOR = '.ytp-ad-skip-button, .ytp-ad-skip-button-modern';
-const AD_OVERLAY_SELECTOR = '.ytp-ad-player-overlay';
-const AD_CONTAINER_SELECTOR = '.ytp-ad-player-overlay-instream-info';
+const SKIP_BUTTON_SELECTORS = [
+    '.ytp-ad-skip-button-modern',
+    '.ytp-skip-ad-button',
+    '.ytp-ad-skip-button',
+    'button[aria-label^="Skip ad"]',
+    'button[aria-label*="Skip"]'
+];
 
-let observer = null;
-let skipTimeoutId = null;
+let checkIntervalId = null;
+let isAdPlaying = false;
+
+function isAdShowing() {
+    const video = document.querySelector('video');
+    return video && (
+        document.querySelector('.ad-showing') ||
+        document.querySelector('.ad-interrupting') ||
+        document.querySelector('.ytp-ad-player-overlay') ||
+        video.classList.contains('ad-showing')
+    );
+}
 
 function clickSkipButton() {
-    const skipButton = document.querySelector(SKIP_BUTTON_SELECTOR);
-    if (skipButton && skipButton.offsetParent !== null) {
-        skipButton.click();
-        logger.info('Ad skipped automatically');
-        return true;
+    for (const selector of SKIP_BUTTON_SELECTORS) {
+        const button = document.querySelector(selector);
+        if (button && button.offsetParent !== null && !button.disabled) {
+            const rect = button.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+                button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
+                button.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
+                button.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, cancelable: true }));
+                button.click();
+                logger.info('Skip button clicked');
+                return true;
+            }
+        }
     }
     return false;
 }
 
-function attemptSkip() {
-    if (clickSkipButton()) {
+function speedUpAd() {
+    const video = document.querySelector('video.html5-main-video');
+    if (!video || video.paused) {
         return;
     }
 
-    const adContainer = document.querySelector(AD_CONTAINER_SELECTOR);
-    if (!adContainer) {
-        return;
+    const maxRate = /firefox/i.test(navigator.userAgent) ? 200 : 16;
+    if (video.playbackRate < maxRate) {
+        video.playbackRate = maxRate;
+        logger.debug(`Ad speed set to ${maxRate}x`);
     }
-
-    skipTimeoutId = setTimeout(attemptSkip, 100);
 }
 
-function onAdDetected() {
-    if (skipTimeoutId) {
-        clearTimeout(skipTimeoutId);
-        skipTimeoutId = null;
-    }
-
-    logger.debug('Ad detected, waiting for skip button');
-    attemptSkip();
-}
-
-function startObserver() {
-    if (observer) {
-        return;
-    }
-
-    observer = new MutationObserver((mutations) => {
-        for (const mutation of mutations) {
-            for (const node of mutation.addedNodes) {
-                if (node.nodeType !== Node.ELEMENT_NODE) {
-                    continue;
-                }
-
-                if (node.matches && (node.matches(AD_OVERLAY_SELECTOR) || node.matches(AD_CONTAINER_SELECTOR))) {
-                    onAdDetected();
-                    return;
-                }
-
-                const adOverlay = node.querySelector(AD_OVERLAY_SELECTOR);
-                if (adOverlay) {
-                    onAdDetected();
-                    return;
-                }
+function skipAd() {
+    const adShowing = isAdShowing();
+    
+    if (!adShowing) {
+        if (isAdPlaying) {
+            isAdPlaying = false;
+            const video = document.querySelector('video.html5-main-video');
+            if (video) {
+                video.playbackRate = 1;
             }
         }
-    });
+        return;
+    }
 
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
+    isAdPlaying = true;
 
-    logger.info('Ad observer started');
+    if (!clickSkipButton()) {
+        speedUpAd();
+    }
 }
 
-function stopObserver() {
-    if (observer) {
-        observer.disconnect();
-        observer = null;
+function startChecking() {
+    if (checkIntervalId) {
+        return;
     }
 
-    if (skipTimeoutId) {
-        clearTimeout(skipTimeoutId);
-        skipTimeoutId = null;
+    checkIntervalId = setInterval(skipAd, 250);
+    logger.info('Ad checking started');
+
+    document.addEventListener('yt-navigate-finish', () => {
+        const video = document.querySelector('video.html5-main-video');
+        if (video) {
+            video.playbackRate = 1;
+        }
+        isAdPlaying = false;
+    });
+}
+
+function stopChecking() {
+    if (checkIntervalId) {
+        clearInterval(checkIntervalId);
+        checkIntervalId = null;
     }
 
-    logger.info('Ad observer stopped');
+    const video = document.querySelector('video.html5-main-video');
+    if (video) {
+        video.playbackRate = 1;
+    }
+    
+    logger.info('Ad checking stopped');
 }
 
 function initAutoSkipAds() {
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', startObserver);
+        document.addEventListener('DOMContentLoaded', startChecking);
     } else {
-        startObserver();
+        startChecking();
     }
-
-    document.addEventListener('yt-navigate-finish', () => {
-        if (skipTimeoutId) {
-            clearTimeout(skipTimeoutId);
-            skipTimeoutId = null;
-        }
-    });
 }
 
 initAutoSkipAds();
 
 export {
     initAutoSkipAds,
-    startObserver,
-    stopObserver
+    startChecking,
+    stopChecking
 };
