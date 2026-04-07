@@ -1,26 +1,24 @@
 /**
  * Auto Skip Ads
- * Automatically clicks the skip ad button by injecting script into page context.
+ * Automatically clicks the skip ad button using window.eval in page context.
  */
 
 (function() {
     'use strict';
     
     console.log('[AutoSkipAds] Loading...');
-    console.log('[AutoSkipAds] Document state:', document.readyState);
     
     var code = [
-        '(function() {',
-        '    "use strict";',
-        '    console.log("[AutoSkipAds] Injected script running");',
+        'window._autoSkipInit = function() {',
+        '    console.log("[AutoSkipAds] Injected: Starting");',
+        '    var SELECTORS = [".ytp-skip-ad-button", "#skip-button\\\\:2", ".ytp-ad-skip-button-modern"];',
         '    function isAdShowing() {',
         '        return !!(document.querySelector(".ad-showing") || document.querySelector(".ytp-ad-player-overlay"));',
         '    }',
         '    function getSkipButton() {',
-        '        var s = [".ytp-skip-ad-button", "#skip-button\\\\:2", ".ytp-ad-skip-button-modern"];',
-        '        for (var i = 0; i < s.length; i++) {',
-        '            var b = document.querySelector(s[i]);',
-        '            if (b && b.offsetParent !== null) return b;',
+        '        for (var i = 0; i < SELECTORS.length; i++) {',
+        '            var btn = document.querySelector(SELECTORS[i]);',
+        '            if (btn && btn.offsetParent !== null) return btn;',
         '        }',
         '        return null;',
         '    }',
@@ -29,33 +27,19 @@
         '        var btn = getSkipButton();',
         '        if (btn) { btn.click(); console.log("[AutoSkipAds] Clicked!"); }',
         '    }',
-        '    function init() {',
-        '        console.log("[AutoSkipAds] Injected: Starting");',
-        '        setInterval(skip, 200);',
-        '        new MutationObserver(function() { if (isAdShowing()) skip(); })',
-        '            .observe(document.body, { childList: true, subtree: true });',
-        '    }',
-        '    if (document.readyState === "loading") {',
-        '        document.addEventListener("DOMContentLoaded", init);',
-        '    } else { init(); }',
-        '})();'
+        '    setInterval(skip, 200);',
+        '    new MutationObserver(function() { if (isAdShowing()) skip(); })',
+        '        .observe(document.body, { childList: true, subtree: true });',
+        '};',
+        'window._autoSkipInit();'
     ].join('\n');
     
-    console.log('[AutoSkipAds] Creating script element');
-    var script = document.createElement('script');
-    script.textContent = code;
-    console.log('[AutoSkipAds] Script text length:', code.length);
+    console.log('[AutoSkipAds] Code length:', code.length);
     
-    var parent = document.head || document.documentElement;
-    console.log('[AutoSkipAds] Parent element:', parent ? parent.tagName : 'null');
-    
-    parent.appendChild(script);
-    console.log('[AutoSkipAds] Script appended');
-    
-    parent.removeChild(script);
-    console.log('[AutoSkipAds] Script removed, injection complete');
-    
-    setTimeout(function() {
-        window.__autoSkipInjected = true;
-    }, 100);
+    try {
+        window.eval(code);
+        console.log('[AutoSkipAds] eval completed');
+    } catch (e) {
+        console.error('[AutoSkipAds] eval error:', e);
+    }
 })();
