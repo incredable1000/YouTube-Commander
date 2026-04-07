@@ -45,12 +45,6 @@
       "matches": ["https://www.youtube.com/*"],
       "js": ["content/subscriptionAutomation.js"],
       "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://www.youtube.com/*"],
-      "js": ["content/auto-skip-ads.js"],
-      "world": "MAIN",
-      "run_at": "document_idle"
     }
   ]
 }

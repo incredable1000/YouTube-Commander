@@ -20,11 +20,24 @@
     
     console.log('[AutoSkipAds] 2 - code length:', code.length);
     
+    // Try to create a Trusted Types policy
+    try {
+        if (window.trustedTypes && trustedTypes.createPolicy) {
+            var policy = trustedTypes.createPolicy('ytSkipAds', {
+                createScript: function(s) { return s; }
+            });
+            code = policy.createScript(code);
+            console.log('[AutoSkipAds] 3 - Created Trusted Type policy');
+        }
+    } catch (e) {
+        console.log('[AutoSkipAds] 3 - Policy creation failed: ' + e.message);
+    }
+    
     try {
         var ie = eval;
         (ie)(code);
-        console.log('[AutoSkipAds] 3 - SUCCESS');
+        console.log('[AutoSkipAds] 4 - SUCCESS');
     } catch (e) {
-        console.log('[AutoSkipAds] 4 - ERROR: ' + e.name + ': ' + e.message);
+        console.log('[AutoSkipAds] 5 - ERROR: ' + e.name + ': ' + e.message);
     }
 })();

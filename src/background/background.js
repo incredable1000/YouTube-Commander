@@ -3300,6 +3300,156 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
 });
 
+const AUTO_SKIP_STORAGE_KEY = 'autoSkipEnabled';
+
+const AUTO_SKIP_SELECTORS = [
+    '.ytp-skip-ad-button',
+    '#skip-button\\:2',
+    '.ytp-ad-skip-button-modern',
+    '.ytp-ad-skip-button'
+];
+
+const AUTO_SKIP_AD_SELECTORS = [
+    '.ad-showing',
+    '.ytp-ad-player-overlay',
+    '.ytp-ad-module'
+];
+
+const AUTO_SKIP_SCRIPT = function() {
+    if (window.__ytCommanderAutoSkipInjected) {
+        return;
+    }
+    window.__ytCommanderAutoSkipInjected = true;
+    
+    console.log('[AutoSkipAds] Script injected successfully');
+    
+    function isAdPlaying() {
+        for (const selector of ['.ad-showing', '.ytp-ad-player-overlay']) {
+            const el = document.querySelector(selector);
+            if (el && el.offsetParent !== null) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    function getSkipButton() {
+        for (const selector of ['.ytp-skip-ad-button', '#skip-button\\:2', '.ytp-ad-skip-button-modern', '.ytp-ad-skip-button']) {
+            try {
+                const el = document.querySelector(selector);
+                if (el && el.offsetParent !== null && el.getBoundingClientRect().height > 0) {
+                    return el;
+                }
+            } catch (e) {}
+        }
+        return null;
+    }
+    
+    function trySkip() {
+        if (!isAdPlaying()) return;
+        const btn = getSkipButton();
+        if (btn) {
+            btn.click();
+            console.log('[AutoSkipAds] Clicked skip button!');
+        }
+    }
+    
+    setInterval(trySkip, 250);
+    
+    new MutationObserver(function() {
+        setTimeout(trySkip, 500);
+    }).observe(document.body, { childList: true, subtree: true });
+    
+    document.addEventListener('click', function(e) {
+        if (isAdPlaying()) {
+            setTimeout(trySkip, 300);
+        }
+    }, true);
+    
+    console.log('[AutoSkipAds] Auto-skip initialized');
+};
+
+async function injectAutoSkipScript(tabId) {
+    try {
+        await new Promise((resolve, reject) => {
+            chrome.scripting.executeScript({
+                target: { tabId: tabId },
+                func: AUTO_SKIP_SCRIPT,
+                world: 'MAIN'
+            }, (results) => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                } else {
+                    resolve(results);
+                }
+            });
+        });
+        console.log('[AutoSkipAds] Successfully injected into tab', tabId);
+        return true;
+    } catch (error) {
+        console.error('[AutoSkipAds] Failed to inject into tab', tabId, error.message);
+        return false;
+    }
+}
+
+chrome.tabs.onCreated.addListener(async (tab) => {
+    if (!tab.id || !tab.url) return;
+    if (!tab.url.includes('youtube.com')) return;
+    
+    const result = await chrome.storage.local.get([AUTO_SKIP_STORAGE_KEY]);
+    if (result[AUTO_SKIP_STORAGE_KEY] === false) return;
+    
+    setTimeout(async () => {
+        await injectAutoSkipScript(tab.id);
+    }, 2000);
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    if (changeInfo.status !== 'complete') return;
+    if (!tab?.url || !tab.url.includes('youtube.com')) return;
+    
+    const result = await chrome.storage.local.get([AUTO_SKIP_STORAGE_KEY]);
+    if (result[AUTO_SKIP_STORAGE_KEY] === false) return;
+    
+    await injectAutoSkipScript(tabId);
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'GET_AUTO_SKIP_ENABLED') {
+        chrome.storage.local.get([AUTO_SKIP_STORAGE_KEY], (result) => {
+            sendResponse({ enabled: result[AUTO_SKIP_STORAGE_KEY] !== false });
+        });
+        return true;
+    }
+    
+    if (message.type === 'SET_AUTO_SKIP_ENABLED') {
+        chrome.storage.local.set({ [AUTO_SKIP_STORAGE_KEY]: message.enabled }, () => {
+            sendResponse({ success: true });
+        });
+        return true;
+    }
+    
+    return false;
+});
+
+async function initializeAutoSkipOnExistingTabs() {
+    const result = await chrome.storage.local.get([AUTO_SKIP_STORAGE_KEY]);
+    if (result[AUTO_SKIP_STORAGE_KEY] === false) return;
+    
+    try {
+        const tabs = await chrome.tabs.query({ url: 'https://www.youtube.com/*' });
+        for (const tab of tabs) {
+            if (tab.id) {
+                await injectAutoSkipScript(tab.id);
+            }
+        }
+    } catch (error) {
+        console.error('[AutoSkipAds] Failed to initialize on existing tabs', error);
+    }
+}
+
 scheduleAutomation().catch((error) => {
     console.error('[YT-Commander][Automation] Initial schedule error:', error);
 });
+
+initializeAutoSkipOnExistingTabs();
