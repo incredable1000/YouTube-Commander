@@ -8,65 +8,58 @@
     
     console.log('[AutoSkipAds] Loading...');
     
-    const code = `
-        (function() {
-            var SELECTORS = [
-                '.ytp-skip-ad-button',
-                '#skip-button\\\\:2',
-                '.ytp-ad-skip-button-modern'
-            ];
+    function inject() {
+        try {
+            var code = [
+                '(function() {',
+                '    function isAdShowing() {',
+                '        return !!(document.querySelector(".ad-showing") || document.querySelector(".ytp-ad-player-overlay"));',
+                '    }',
+                '    function getSkipButton() {',
+                '        var selectors = [".ytp-skip-ad-button", "#skip-button\\\\:2", ".ytp-ad-skip-button-modern"];',
+                '        for (var i = 0; i < selectors.length; i++) {',
+                '            var btn = document.querySelector(selectors[i]);',
+                '            if (btn && btn.offsetParent !== null) return btn;',
+                '        }',
+                '        return null;',
+                '    }',
+                '    function skipAd() {',
+                '        if (!isAdShowing()) return;',
+                '        var btn = getSkipButton();',
+                '        if (btn) { btn.click(); console.log("[AutoSkipAds] Clicked!"); }',
+                '    }',
+                '    function start() {',
+                '        console.log("[AutoSkipAds] Started");',
+                '        setInterval(skipAd, 200);',
+                '        new MutationObserver(function(m) { if (isAdShowing()) skipAd(); })',
+                '            .observe(document.body, { childList: true, subtree: true });',
+                '    }',
+                '    if (document.readyState === "loading") {',
+                '        document.addEventListener("DOMContentLoaded", start);',
+                '    } else { start(); }',
+                '})();'
+            ].join('\n');
             
-            function isAdShowing() {
-                return !!(document.querySelector('.ad-showing') || 
-                       document.querySelector('.ytp-ad-player-overlay'));
-            }
+            var script = document.createElement('script');
+            script.textContent = code;
+            var parent = document.head || document.documentElement;
+            parent.appendChild(script);
+            parent.removeChild(script);
             
-            function getSkipButton() {
-                for (var i = 0; i < SELECTORS.length; i++) {
-                    var btn = document.querySelector(SELECTORS[i]);
-                    if (btn && btn.offsetParent !== null) {
-                        return btn;
-                    }
-                }
-                return null;
-            }
-            
-            function skipAd() {
-                if (!isAdShowing()) return;
-                
-                var btn = getSkipButton();
-                if (btn) {
-                    btn.click();
-                    console.log('[AutoSkipAds] Clicked!');
-                }
-            }
-            
-            function start() {
-                console.log('[AutoSkipAds] Started');
-                
-                setInterval(skipAd, 200);
-                
-                var observer = new MutationObserver(function() {
-                    if (isAdShowing()) {
-                        skipAd();
-                    }
-                });
-                
-                observer.observe(document.body, { childList: true, subtree: true });
-            }
-            
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', start);
-            } else {
-                start();
-            }
-        })();
-    `;
+            console.log('[AutoSkipAds] Injected successfully');
+        } catch (e) {
+            console.error('[AutoSkipAds] Injection failed:', e);
+        }
+    }
     
-    var script = document.createElement('script');
-    script.textContent = code;
-    (document.head || document.documentElement).appendChild(script);
-    script.remove();
+    // Try immediately
+    inject();
     
-    console.log('[AutoSkipAds] Script injected');
+    // Also try after a short delay as fallback
+    setTimeout(function() {
+        if (!window.__autoSkipInjected) {
+            inject();
+            window.__autoSkipInjected = true;
+        }
+    }, 1000);
 })();
