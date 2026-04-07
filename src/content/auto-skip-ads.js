@@ -6,18 +6,16 @@
 (function() {
     'use strict';
     
-    const SKIP_BUTTON_SELECTORS = [
-        '.ytp-skip-ad-button',
-        '#skip-button\\:2',
-        '.ytp-ad-skip-button-modern'
-    ];
-    
     const script = document.createElement('script');
     script.textContent = `
         (function() {
             'use strict';
             
-            const SELECTORS = ${JSON.stringify(SKIP_BUTTON_SELECTORS)};
+            const SELECTORS = [
+                '.ytp-skip-ad-button',
+                '#skip-button\\:2',
+                '.ytp-ad-skip-button-modern'
+            ];
             
             function isAdShowing() {
                 return !!document.querySelector('.ad-showing') || 
@@ -41,6 +39,8 @@
                 if (btn) {
                     btn.click();
                     console.log('[AutoSkipAds] Clicked!');
+                } else {
+                    console.log('[AutoSkipAds] No button found');
                 }
             }
             
