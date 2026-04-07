@@ -6,6 +6,8 @@
 (function() {
     'use strict';
     
+    console.log('[AutoSkipAds] Loading...');
+    
     const script = document.createElement('script');
     script.textContent = `
         (function() {
@@ -39,8 +41,6 @@
                 if (btn) {
                     btn.click();
                     console.log('[AutoSkipAds] Clicked!');
-                } else {
-                    console.log('[AutoSkipAds] No button found');
                 }
             }
             
@@ -67,7 +67,7 @@
     `;
     
     script.id = 'yt-commander-auto-skip';
-    document.documentElement.appendChild(script);
+    (document.head || document.documentElement).appendChild(script);
     script.remove();
     
     console.log('[AutoSkipAds] Script injected');
