@@ -7,21 +7,21 @@
     'use strict';
     
     const SKIP_BUTTON_SELECTORS = [
+        '.ytp-skip-ad-button',
+        '#skip-button\\:2',
         '.ytp-ad-skip-button-modern',
-        '.ytp-skip-ad-button', 
-        '.ytp-ad-skip-button',
-        '[aria-label*="Skip ad"]',
-        'button.ytp-ad-skip-button'
+        '.ytp-ad-skip-button'
     ];
     
     function isAdShowing() {
-        return !!document.querySelector('.ytp-ad-player-overlay');
+        return !!document.querySelector('.ad-showing') || 
+               !!document.querySelector('.ytp-ad-player-overlay');
     }
     
     function getSkipButton() {
-        const buttons = document.querySelectorAll(SKIP_BUTTON_SELECTORS.join(','));
-        for (const btn of buttons) {
-            if (btn && btn.offsetParent !== null && btn.getBoundingClientRect().width > 0) {
+        for (const selector of SKIP_BUTTON_SELECTORS) {
+            const btn = document.querySelector(selector);
+            if (btn && btn.offsetParent !== null) {
                 return btn;
             }
         }
@@ -34,7 +34,7 @@
         const btn = getSkipButton();
         if (btn) {
             btn.click();
-            console.log('[AutoSkipAds] Clicked!');
+            console.log('[AutoSkipAds] Clicked skip button!');
         }
     }
     
@@ -43,14 +43,13 @@
         
         const observer = new MutationObserver(() => {
             if (isAdShowing()) {
-                console.log('[AutoSkipAds] Ad detected, checking for skip button...');
                 skipAd();
             }
         });
         
         observer.observe(document.body, { childList: true, subtree: true });
         
-        setInterval(skipAd, 300);
+        setInterval(skipAd, 200);
         
         document.addEventListener('yt-navigate-finish', () => {
             console.log('[AutoSkipAds] Navigation finished');
