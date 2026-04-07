@@ -1,6 +1,6 @@
 /**
  * Auto Skip Ads
- * Automatically clicks the skip ad button using window.eval in page context.
+ * Automatically clicks the skip ad button using eval in page context.
  */
 
 (function() {
@@ -37,9 +37,9 @@
     console.log('[AutoSkipAds] Code length:', code.length);
     
     try {
-        window.eval(code);
+        eval(code);
         console.log('[AutoSkipAds] eval completed');
     } catch (e) {
-        console.error('[AutoSkipAds] eval error:', e);
+        console.error('[AutoSkipAds] eval error:', e.message, e.stack);
     }
 })();
