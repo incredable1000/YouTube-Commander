@@ -21,11 +21,10 @@
     console.log('[AutoSkipAds] code ready, length:', code.length);
     
     try {
-        // Try eval with indirect call
-        var indirectEval = eval;
-        indirectEval(code);
-        console.log('[AutoSkipAds] indirect eval worked!');
+        var ie = eval;
+        (ie)(code);
+        console.log('[AutoSkipAds] Done');
     } catch (e) {
-        console.error('[AutoSkipAds] eval failed:', e.message);
+        console.error('[AutoSkipAds] Error:', e.name, e.message);
     }
 })();
