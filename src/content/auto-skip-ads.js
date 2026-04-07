@@ -8,25 +8,22 @@
     
     console.log('[AutoSkipAds] Loading...');
     
-    const script = document.createElement('script');
-    script.textContent = `
+    const code = `
         (function() {
-            'use strict';
-            
-            const SELECTORS = [
+            var SELECTORS = [
                 '.ytp-skip-ad-button',
-                '#skip-button\\:2',
+                '#skip-button\\\\:2',
                 '.ytp-ad-skip-button-modern'
             ];
             
             function isAdShowing() {
-                return !!document.querySelector('.ad-showing') || 
-                       !!document.querySelector('.ytp-ad-player-overlay');
+                return !!(document.querySelector('.ad-showing') || 
+                       document.querySelector('.ytp-ad-player-overlay'));
             }
             
             function getSkipButton() {
-                for (const selector of SELECTORS) {
-                    const btn = document.querySelector(selector);
+                for (var i = 0; i < SELECTORS.length; i++) {
+                    var btn = document.querySelector(SELECTORS[i]);
                     if (btn && btn.offsetParent !== null) {
                         return btn;
                     }
@@ -37,7 +34,7 @@
             function skipAd() {
                 if (!isAdShowing()) return;
                 
-                const btn = getSkipButton();
+                var btn = getSkipButton();
                 if (btn) {
                     btn.click();
                     console.log('[AutoSkipAds] Clicked!');
@@ -49,7 +46,7 @@
                 
                 setInterval(skipAd, 200);
                 
-                const observer = new MutationObserver(() => {
+                var observer = new MutationObserver(function() {
                     if (isAdShowing()) {
                         skipAd();
                     }
@@ -66,7 +63,8 @@
         })();
     `;
     
-    script.id = 'yt-commander-auto-skip';
+    var script = document.createElement('script');
+    script.textContent = code;
     (document.head || document.documentElement).appendChild(script);
     script.remove();
     
