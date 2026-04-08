@@ -314,6 +314,8 @@ function triggerAutoAdvance(reason, options = {}) {
                 retry: isRetry
             });
             scheduleContextCheck();
+            clearAutoAdvanceAttempt();
+            return;
         }
         scheduleRetry();
     };
