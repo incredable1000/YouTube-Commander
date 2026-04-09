@@ -61,23 +61,6 @@ import { createSelectionRangeController } from './playlist-multi-select/selectio
 import { isVideoWatched } from './watchedHistory.js';
 
 const logger = createLogger('PlaylistMultiSelect');
-
-/**
- * Trigger YouTube's internal SPA refresh without a full page reload.
- * This dispatches navigation events that cause YouTube to re-fetch playlist data.
- */
-function triggerYoutubeSoftRefresh() {
-    const app = document.querySelector('ytd-app');
-    if (app) {
-        app.dispatchEvent(new CustomEvent('yt-navigate-start'));
-        setTimeout(() => {
-            app.dispatchEvent(new CustomEvent('yt-navigate-finish'));
-        }, 100);
-    } else {
-        window.location.reload();
-    }
-}
-
 const bridgeClient = createBridgeClient({
     source: BRIDGE_SOURCE,
     requestType: REQUEST_TYPE,
@@ -1649,12 +1632,12 @@ async function removeSelectionFromCurrentPlaylist() {
         }
 
         setStatusMessage(
-            `Removed ${removedCount} video(s) from ${playlistLabel}. Refreshing...`,
+            `Removed ${removedCount} video(s) from ${playlistLabel}. Refreshing page...`,
             STATUS_KIND.SUCCESS
         );
 
         resetSelectionOnly();
-        triggerYoutubeSoftRefresh();
+        window.location.reload();
 
     } catch (error) {
         logger.warn('Failed to remove selected videos from playlist', error);
@@ -2872,8 +2855,8 @@ async function handleActionRemoveWatchedClick(event) {
         const removedCount = Number(response?.removedCount) || 0;
         
         if (removedCount > 0) {
-            setStatusMessage(`Removed ${removedCount} watched video(s). Refreshing...`, STATUS_KIND.SUCCESS);
-            triggerYoutubeSoftRefresh();
+            setStatusMessage(`Removed ${removedCount} watched video(s). Refreshing page...`, STATUS_KIND.SUCCESS);
+            window.location.reload();
         } else {
             setStatusMessage('No videos were removed.', STATUS_KIND.INFO);
         }
@@ -2929,7 +2912,7 @@ async function handleActionDeletePlaylistsClick(event) {
             setStatusMessage(`Deleted ${deletedCount} playlist(s). ${failedCount} failed.`, STATUS_KIND.ERROR);
         } else {
             setStatusMessage(`Deleted ${deletedCount} playlist(s). Refreshing...`, STATUS_KIND.SUCCESS);
-            triggerYoutubeSoftRefresh();
+            window.location.reload();
         }
 
     } catch (error) {
