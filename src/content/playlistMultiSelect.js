@@ -61,6 +61,33 @@ import { createSelectionRangeController } from './playlist-multi-select/selectio
 import { isVideoWatched } from './watchedHistory.js';
 
 const logger = createLogger('PlaylistMultiSelect');
+
+const YTC_REFRESH_PARAM = 'ytc_refresh';
+
+/**
+ * Trigger YouTube's SPA to re-fetch data by manipulating the URL.
+ * Adds a temporary query param, which YouTube's router detects and triggers data refresh.
+ * Then removes the param to keep URL clean.
+ */
+function triggerYoutubeSoftRefresh() {
+    const url = new URL(window.location.href);
+    
+    if (url.searchParams.has(YTC_REFRESH_PARAM)) {
+        url.searchParams.delete(YTC_REFRESH_PARAM);
+        window.history.replaceState(window.history.state, '', url.toString());
+        return;
+    }
+    
+    url.searchParams.set(YTC_REFRESH_PARAM, Date.now().toString());
+    window.history.replaceState(window.history.state, '', url.toString());
+    
+    setTimeout(() => {
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete(YTC_REFRESH_PARAM);
+        window.history.replaceState(window.history.state, '', cleanUrl.toString());
+    }, 500);
+}
+
 const bridgeClient = createBridgeClient({
     source: BRIDGE_SOURCE,
     requestType: REQUEST_TYPE,
@@ -1632,12 +1659,12 @@ async function removeSelectionFromCurrentPlaylist() {
         }
 
         setStatusMessage(
-            `Removed ${removedCount} video(s) from ${playlistLabel}. Refreshing page...`,
+            `Removed ${removedCount} video(s) from ${playlistLabel}. Refreshing...`,
             STATUS_KIND.SUCCESS
         );
 
         resetSelectionOnly();
-        window.location.reload();
+        triggerYoutubeSoftRefresh();
 
     } catch (error) {
         logger.warn('Failed to remove selected videos from playlist', error);
@@ -2855,8 +2882,8 @@ async function handleActionRemoveWatchedClick(event) {
         const removedCount = Number(response?.removedCount) || 0;
         
         if (removedCount > 0) {
-            setStatusMessage(`Removed ${removedCount} watched video(s). Refreshing page...`, STATUS_KIND.SUCCESS);
-            window.location.reload();
+            setStatusMessage(`Removed ${removedCount} watched video(s). Refreshing...`, STATUS_KIND.SUCCESS);
+            triggerYoutubeSoftRefresh();
         } else {
             setStatusMessage('No videos were removed.', STATUS_KIND.INFO);
         }
@@ -2912,7 +2939,7 @@ async function handleActionDeletePlaylistsClick(event) {
             setStatusMessage(`Deleted ${deletedCount} playlist(s). ${failedCount} failed.`, STATUS_KIND.ERROR);
         } else {
             setStatusMessage(`Deleted ${deletedCount} playlist(s). Refreshing...`, STATUS_KIND.SUCCESS);
-            window.location.reload();
+            triggerYoutubeSoftRefresh();
         }
 
     } catch (error) {
