@@ -491,9 +491,7 @@ function showSeekIndicator(direction, seconds) {
     state.totalSeconds += seconds;
     updateIndicatorElement(state.element, direction, state.totalSeconds);
 
-    state.element.classList.remove('is-active');
-    void state.element.offsetWidth;
-    state.element.classList.add('is-active');
+    state.element.style.display = '';
 
     if (state.hideTimer) {
         clearTimeout(state.hideTimer);
@@ -547,7 +545,7 @@ function hideSeekIndicator(direction) {
         return;
     }
 
-    state.element.classList.remove('is-active');
+    state.element.style.display = 'none';
 
     if (state.hideTimer) {
         clearTimeout(state.hideTimer);
@@ -555,12 +553,6 @@ function hideSeekIndicator(direction) {
     }
 
     state.removeTimer = setTimeout(() => {
-        if (state.element && state.element.parentNode) {
-            state.element.remove();
-        }
-
-        state.element = null;
-        state.player = null;
         state.totalSeconds = 0;
         state.removeTimer = null;
     }, INDICATOR_REMOVE_DELAY_MS);
