@@ -1,8 +1,11 @@
 /**
  * Seek indicator DOM helpers.
- * Creates YouTube-style seek overlay with custom values.
  */
 
+/**
+ * Create default indicator state object.
+ * @returns {{element: HTMLDivElement|null, player: Element|null, totalSeconds: number, hideTimer: number|null, removeTimer: number|null}}
+ */
 export function createIndicatorState() {
     return {
         element: null,
@@ -13,34 +16,86 @@ export function createIndicatorState() {
     };
 }
 
+/**
+ * Create indicator DOM structure.
+ * @param {'forward'|'backward'} direction
+ * @returns {HTMLDivElement}
+ */
 export function createIndicatorElement(direction) {
-    const overlay = document.createElement('div');
-    overlay.className = 'ytc-seek-overlay';
+    const root = document.createElement('div');
+    root.className = `modern-seek-indicator ${direction}`;
 
-    const container = document.createElement('div');
-    container.className = `ytc-seek-indicator ${direction}`;
+    const content = document.createElement('div');
+    content.className = 'modern-seek-indicator__content';
 
-    const arrow = document.createElement('div');
-    arrow.className = 'ytc-seek-arrow';
-    arrow.innerHTML = direction === 'backward'
-        ? '<svg viewBox="0 0 22 32" width="22" height="24"><path d="M 18 4 L 6 16 L 18 28" stroke="white" stroke-width="4" stroke-linecap="round" fill="none"></path></svg>'
-        : '<svg viewBox="0 0 22 32" width="22" height="24"><path d="M 4 4 L 16 16 L 4 28" stroke="white" stroke-width="4" stroke-linecap="round" fill="none"></path></svg>';
+    const valueRow = document.createElement('div');
+    valueRow.className = 'modern-seek-indicator__value-row';
 
-    const duration = document.createElement('div');
-    duration.className = 'ytc-seek-duration';
+    const amount = document.createElement('div');
+    amount.className = 'modern-seek-indicator__amount';
 
-    container.appendChild(arrow);
-    container.appendChild(duration);
-    overlay.appendChild(container);
+    const chevrons = document.createElement('div');
+    chevrons.className = 'modern-seek-indicator__chevrons';
+    chevrons.appendChild(createChevronGroup(direction, 'modern-seek-indicator__chevrons-static'));
 
-    updateIndicatorElement(overlay, direction, 0);
-    return overlay;
+    valueRow.appendChild(amount);
+    valueRow.appendChild(chevrons);
+    content.appendChild(valueRow);
+    root.appendChild(content);
+
+    updateIndicatorElement(root, direction, 0);
+
+    return root;
 }
 
+/**
+ * Update indicator label text.
+ * @param {HTMLDivElement} element
+ * @param {'forward'|'backward'} direction
+ * @param {number} totalSeconds
+ */
 export function updateIndicatorElement(element, direction, totalSeconds) {
-    const duration = element.querySelector('.ytc-seek-duration');
-    if (duration) {
-        const sign = direction === 'forward' ? '+' : '-';
-        duration.textContent = `${sign} ${totalSeconds}`;
+    const amount = element.querySelector('.modern-seek-indicator__amount');
+    const chevrons = element.querySelector('.modern-seek-indicator__chevrons');
+    if (!amount) {
+        return;
     }
+
+    const prefix = direction === 'forward' ? '+' : '-';
+    amount.textContent = `${prefix}${totalSeconds}`;
+
+    if (chevrons) {
+        chevrons.querySelectorAll('.modern-seek-indicator__chevrons-burst').forEach((node) => {
+            node.remove();
+        });
+
+        const burst = createChevronGroup(direction, 'modern-seek-indicator__chevrons-burst');
+        chevrons.appendChild(burst);
+
+        const cleanup = () => {
+            if (burst.parentNode) {
+                burst.remove();
+            }
+        };
+
+        burst.addEventListener('animationend', cleanup, { once: true });
+        window.setTimeout(cleanup, 900);
+    }
+}
+
+/**
+ * Create a chevron group for the seek indicator.
+ * @param {'forward'|'backward'} direction
+ * @param {string} className
+ * @returns {HTMLDivElement}
+ */
+function createChevronGroup(direction, className) {
+    const group = document.createElement('div');
+    group.className = className;
+
+    const chevron = document.createElement('span');
+    chevron.className = 'modern-seek-indicator__chevron';
+    group.appendChild(chevron);
+
+    return group;
 }
