@@ -33,7 +33,8 @@ import {
 import {
     createIndicatorElement,
     createIndicatorState,
-    updateIndicatorElement
+    updateIndicatorElement,
+    triggerNativeSeekOverlay
 } from './seek-controls/indicatorDom.js';
 
 const logger = createLogger('SeekControls');
@@ -453,17 +454,12 @@ function performSeek(seconds, direction) {
 }
 
 /**
- * Show YouTube-like seek indicator and accumulate repeated seeks.
+ * Show YouTube-like seek indicator using native overlay.
  * @param {'forward'|'backward'} direction
  * @param {number} seconds
  */
 function showSeekIndicator(direction, seconds) {
     if (!isEnabled || isShortsPage()) {
-        return;
-    }
-
-    const player = getActivePlayer();
-    if (!player) {
         return;
     }
 
@@ -474,26 +470,8 @@ function showSeekIndicator(direction, seconds) {
         state.removeTimer = null;
     }
 
-    if (!state.element || !state.element.isConnected || state.player !== player) {
-        if (state.element && state.element.parentNode) {
-            state.element.remove();
-        }
-
-        state.element = createIndicatorElement(direction);
-        state.player = player;
-        state.totalSeconds = 0;
-
-        player.appendChild(state.element);
-    }
-
-    applyIndicatorInset(state.element, player);
-
     state.totalSeconds += seconds;
-    updateIndicatorElement(state.element, direction, state.totalSeconds);
-
-    state.element.classList.remove('is-active');
-    void state.element.offsetWidth;
-    state.element.classList.add('is-active');
+    triggerNativeSeekOverlay(state.totalSeconds, direction);
 
     if (state.hideTimer) {
         clearTimeout(state.hideTimer);
@@ -505,49 +483,11 @@ function showSeekIndicator(direction, seconds) {
 }
 
 /**
- * Position seek indicator inside letterbox/pillarbox when possible.
- * @param {HTMLDivElement} element
- * @param {Element} player
- */
-function applyIndicatorInset(element, player) {
-    if (!element || !player) {
-        return;
-    }
-    const video = player.querySelector('video');
-    if (!video) {
-        element.style.removeProperty('--ytc-seek-indicator-inset');
-        return;
-    }
-    const playerRect = player.getBoundingClientRect();
-    const videoRect = video.getBoundingClientRect();
-    if (!playerRect.width || !videoRect.width) {
-        element.style.removeProperty('--ytc-seek-indicator-inset');
-        return;
-    }
-    const leftBar = Math.max(0, videoRect.left - playerRect.left);
-    const rightBar = Math.max(0, playerRect.right - videoRect.right);
-    const barWidth = Math.min(leftBar, rightBar);
-    if (barWidth > 6) {
-        const inset = Math.max(12, Math.round(barWidth + 8));
-        element.style.setProperty('--ytc-seek-indicator-inset', `${inset}px`);
-        return;
-    }
-    element.style.removeProperty('--ytc-seek-indicator-inset');
-}
-
-/**
  * Hide indicator and reset accumulated state.
  * @param {'forward'|'backward'} direction
  */
 function hideSeekIndicator(direction) {
     const state = indicatorStates[direction];
-
-    if (!state.element) {
-        state.totalSeconds = 0;
-        return;
-    }
-
-    state.element.classList.remove('is-active');
 
     if (state.hideTimer) {
         clearTimeout(state.hideTimer);
@@ -555,12 +495,6 @@ function hideSeekIndicator(direction) {
     }
 
     state.removeTimer = setTimeout(() => {
-        if (state.element && state.element.parentNode) {
-            state.element.remove();
-        }
-
-        state.element = null;
-        state.player = null;
         state.totalSeconds = 0;
         state.removeTimer = null;
     }, INDICATOR_REMOVE_DELAY_MS);
