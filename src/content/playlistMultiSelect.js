@@ -2203,6 +2203,8 @@ function decorateContainer(container) {
     host.setAttribute('data-yt-commander-video-id', videoId);
 
     let overlay = host.querySelector(`.${OVERLAY_CLASS}`);
+    const isNewOverlay = !overlay;
+    
     if (!overlay) {
         overlay = document.createElement('button');
         overlay.type = 'button';
@@ -2250,7 +2252,7 @@ function decorateContainer(container) {
     overlay.setAttribute('data-yt-commander-video-id', videoId);
     applySelectedState(host, videoId);
     decorateRetryCounts.delete(container);
-    return true;
+    return isNewOverlay;
 }
 
 /**
