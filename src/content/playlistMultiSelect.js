@@ -61,6 +61,56 @@ import { createSelectionRangeController } from './playlist-multi-select/selectio
 import { isVideoWatched } from './watchedHistory.js';
 
 const logger = createLogger('PlaylistMultiSelect');
+
+/**
+ * Injects a script into the page's main world to access YouTube's internal state.
+ * Attempts to force YouTube's playlist component to re-render without a page reload.
+ */
+function triggerInternalRefresh() {
+    const script = document.createElement('script');
+    script.textContent = `
+        (function() {
+            // Try multiple YouTube internal refresh mechanisms
+            const app = document.querySelector('ytd-app');
+            if (app && app.__dataHost) {
+                // Trigger Polymer data re-evaluation
+                app.__dataHost.$serverState = null;
+                app.__dataHost.notify();
+            }
+            
+            // Try the playlist-specific renderer
+            const playlist = document.querySelector('ytd-playlist-video-list-renderer');
+            if (playlist) {
+                // Force data refresh
+                if (typeof playlist.refresh === 'function') {
+                    playlist.refresh();
+                }
+                // Dispatch internal event
+                playlist.dispatchEvent(new CustomEvent('yt-data-sync', { bubbles: true }));
+            }
+            
+            // Trigger YouTube's internal service request to re-fetch data
+            if (window.ytcfg && window.ytcfg.get) {
+                const playerApi = document.querySelector('ytd-playlist-panel-renderer') || 
+                                  document.querySelector('ytd-playlist-video-list-renderer');
+                if (playerApi && playerApi.updateVideoUrl) {
+                    playerApi.updateVideoUrl(window.location.href);
+                }
+            }
+            
+            // Dispatch YouTube's navigation events
+            if (app) {
+                app.dispatchEvent(new CustomEvent('yt-navigate-start'));
+                setTimeout(function() {
+                    app.dispatchEvent(new CustomEvent('yt-navigate-finish'));
+                }, 50);
+            }
+        })();
+    `;
+    (document.head || document.documentElement).appendChild(script);
+    script.remove();
+}
+
 const bridgeClient = createBridgeClient({
     source: BRIDGE_SOURCE,
     requestType: REQUEST_TYPE,
@@ -1637,7 +1687,7 @@ async function removeSelectionFromCurrentPlaylist() {
         );
 
         resetSelectionOnly();
-        window.location.reload();
+        triggerInternalRefresh();
 
     } catch (error) {
         logger.warn('Failed to remove selected videos from playlist', error);
@@ -2856,7 +2906,7 @@ async function handleActionRemoveWatchedClick(event) {
         
         if (removedCount > 0) {
             setStatusMessage(`Removed ${removedCount} watched video(s). Refreshing...`, STATUS_KIND.SUCCESS);
-            window.location.reload();
+            triggerInternalRefresh();
         } else {
             setStatusMessage('No videos were removed.', STATUS_KIND.INFO);
         }
@@ -2912,7 +2962,7 @@ async function handleActionDeletePlaylistsClick(event) {
             setStatusMessage(`Deleted ${deletedCount} playlist(s). ${failedCount} failed.`, STATUS_KIND.ERROR);
         } else {
             setStatusMessage(`Deleted ${deletedCount} playlist(s). Refreshing...`, STATUS_KIND.SUCCESS);
-            window.location.reload();
+            triggerInternalRefresh();
         }
 
     } catch (error) {
