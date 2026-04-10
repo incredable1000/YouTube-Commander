@@ -1,5 +1,6 @@
 /**
  * Seek indicator DOM helpers.
+ * Uses YouTube's native seek overlay structure with custom values.
  */
 
 /**
@@ -17,31 +18,49 @@ export function createIndicatorState() {
 }
 
 /**
- * Create indicator DOM structure.
+ * Create YouTube-native seek overlay DOM structure.
+ * Uses the same structure as YouTube's default seek indicator but allows custom values.
  * @param {'forward'|'backward'} direction
  * @returns {HTMLDivElement}
  */
 export function createIndicatorElement(direction) {
     const root = document.createElement('div');
-    root.className = `modern-seek-indicator ${direction}`;
+    root.className = 'ytp-seek-overlay';
+    root.dataset.layer = '4';
 
-    const content = document.createElement('div');
-    content.className = 'modern-seek-indicator__content';
+    const backwardAnim = document.createElement('div');
+    backwardAnim.className = 'ytp-seek-overlay-animation ytp-seek-overlay-animation-back';
 
-    const valueRow = document.createElement('div');
-    valueRow.className = 'modern-seek-indicator__value-row';
+    const backwardArrow = document.createElement('div');
+    backwardArrow.className = 'ytp-seek-overlay-arrow ytp-seek-overlay-arrow-persistent';
+    backwardArrow.innerHTML = `<svg viewBox="0 0 22 32" width="22" height="24"><path d="M 18 4 L 6 16 L 18 28" stroke="white" stroke-width="4" stroke-linecap="round" fill="none"></path></svg>`;
 
-    const amount = document.createElement('div');
-    amount.className = 'modern-seek-indicator__amount';
+    const backwardDuration = document.createElement('div');
+    backwardDuration.className = 'ytp-seek-overlay-duration';
 
-    const chevrons = document.createElement('div');
-    chevrons.className = 'modern-seek-indicator__chevrons';
-    chevrons.appendChild(createChevronGroup(direction, 'modern-seek-indicator__chevrons-static'));
+    backwardAnim.appendChild(backwardArrow);
+    backwardAnim.appendChild(backwardDuration);
 
-    valueRow.appendChild(amount);
-    valueRow.appendChild(chevrons);
-    content.appendChild(valueRow);
-    root.appendChild(content);
+    const forwardAnim = document.createElement('div');
+    forwardAnim.className = 'ytp-seek-overlay-animation ytp-seek-overlay-animation-forward';
+
+    const forwardDuration = document.createElement('div');
+    forwardDuration.className = 'ytp-seek-overlay-duration';
+
+    const forwardArrow = document.createElement('div');
+    forwardArrow.className = 'ytp-seek-overlay-arrow ytp-seek-overlay-arrow-persistent';
+    forwardArrow.innerHTML = `<svg viewBox="0 0 22 32" width="22" height="24"><path d="M 4 4 L 16 16 L 4 28" stroke="white" stroke-width="4" stroke-linecap="round" fill="none"></path></svg>`;
+
+    forwardAnim.appendChild(forwardDuration);
+    forwardAnim.appendChild(forwardArrow);
+
+    const message = document.createElement('div');
+    message.className = 'ytp-seek-overlay-message';
+    message.innerHTML = '<div class="ytp-seek-overlay-message-icon"></div><div class="ytp-seek-overlay-message-text"></div>';
+
+    root.appendChild(backwardAnim);
+    root.appendChild(forwardAnim);
+    root.appendChild(message);
 
     updateIndicatorElement(root, direction, 0);
 
@@ -49,53 +68,33 @@ export function createIndicatorElement(direction) {
 }
 
 /**
- * Update indicator label text.
+ * Update indicator text with custom seconds value.
  * @param {HTMLDivElement} element
  * @param {'forward'|'backward'} direction
  * @param {number} totalSeconds
  */
 export function updateIndicatorElement(element, direction, totalSeconds) {
-    const amount = element.querySelector('.modern-seek-indicator__amount');
-    const chevrons = element.querySelector('.modern-seek-indicator__chevrons');
-    if (!amount) {
-        return;
+    const durations = element.querySelectorAll('.ytp-seek-overlay-duration');
+    const backwardDuration = element.querySelector('.ytp-seek-overlay-animation-back .ytp-seek-overlay-duration');
+    const forwardDuration = element.querySelector('.ytp-seek-overlay-animation-forward .ytp-seek-overlay-duration');
+
+    const prefix = direction === 'forward' ? '+' : '−';
+    const text = `${prefix} ${totalSeconds}`;
+
+    if (backwardDuration) {
+        backwardDuration.textContent = text;
+    }
+    if (forwardDuration) {
+        forwardDuration.textContent = text;
     }
 
-    const prefix = direction === 'forward' ? '+' : '-';
-    amount.textContent = `${prefix}${totalSeconds}`;
+    const backwardAnim = element.querySelector('.ytp-seek-overlay-animation-back');
+    const forwardAnim = element.querySelector('.ytp-seek-overlay-animation-forward');
 
-    if (chevrons) {
-        chevrons.querySelectorAll('.modern-seek-indicator__chevrons-burst').forEach((node) => {
-            node.remove();
-        });
-
-        const burst = createChevronGroup(direction, 'modern-seek-indicator__chevrons-burst');
-        chevrons.appendChild(burst);
-
-        const cleanup = () => {
-            if (burst.parentNode) {
-                burst.remove();
-            }
-        };
-
-        burst.addEventListener('animationend', cleanup, { once: true });
-        window.setTimeout(cleanup, 900);
+    if (backwardAnim) {
+        backwardAnim.classList.toggle('ytp-seek-overlay-hidden', direction !== 'backward');
     }
-}
-
-/**
- * Create a chevron group for the seek indicator.
- * @param {'forward'|'backward'} direction
- * @param {string} className
- * @returns {HTMLDivElement}
- */
-function createChevronGroup(direction, className) {
-    const group = document.createElement('div');
-    group.className = className;
-
-    const chevron = document.createElement('span');
-    chevron.className = 'modern-seek-indicator__chevron';
-    group.appendChild(chevron);
-
-    return group;
+    if (forwardAnim) {
+        forwardAnim.classList.toggle('ytp-seek-overlay-hidden', direction !== 'forward');
+    }
 }
