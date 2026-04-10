@@ -486,12 +486,10 @@ function showSeekIndicator(direction, seconds) {
         player.appendChild(state.element);
     }
 
-    applyIndicatorInset(state.element, player);
-
     state.totalSeconds += seconds;
     updateIndicatorElement(state.element, direction, state.totalSeconds);
 
-    state.element.style.display = '';
+    triggerOverlayAnimation(state.element);
 
     if (state.hideTimer) {
         clearTimeout(state.hideTimer);
@@ -500,6 +498,22 @@ function showSeekIndicator(direction, seconds) {
     state.hideTimer = setTimeout(() => {
         hideSeekIndicator(direction);
     }, INDICATOR_HIDE_DELAY_MS);
+}
+
+/**
+ * Trigger the overlay animation by re-applying visibility.
+ * @param {HTMLElement} overlay
+ */
+function triggerOverlayAnimation(overlay) {
+    overlay.style.display = 'block';
+    overlay.style.opacity = '1';
+
+    const animations = overlay.querySelectorAll('.ytp-seek-overlay-animation');
+    animations.forEach(anim => {
+        anim.style.animation = 'none';
+        anim.offsetHeight;
+        anim.style.animation = '';
+    });
 }
 
 /**
@@ -546,6 +560,7 @@ function hideSeekIndicator(direction) {
     }
 
     state.element.style.display = 'none';
+    state.element.style.opacity = '0';
 
     if (state.hideTimer) {
         clearTimeout(state.hideTimer);

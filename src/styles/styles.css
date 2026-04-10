@@ -183,6 +183,49 @@
     transform: translateY(-50%) scale(1);
 }
 
+/* YouTube native seek overlay override */
+.ytp-seek-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 24;
+    pointer-events: none;
+}
+
+.ytp-seek-overlay .ytp-seek-overlay-animation {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #fff;
+    font-family: 'YouTube Noto', Roboto, Arial, sans-serif;
+    font-size: 18px;
+    font-weight: 500;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+
+.ytp-seek-overlay .ytp-seek-overlay-animation-back {
+    left: 48px;
+}
+
+.ytp-seek-overlay .ytp-seek-overlay-animation-forward {
+    right: 48px;
+}
+
+.ytp-seek-overlay .ytp-seek-overlay-arrow {
+    display: flex;
+    align-items: center;
+}
+
+.ytp-seek-overlay .ytp-seek-overlay-duration {
+    min-width: 1.2em;
+    text-align: center;
+}
+
 @keyframes yt-seek-chevron-forward {
     0% {
         opacity: 0;
