@@ -501,19 +501,16 @@ function showSeekIndicator(direction, seconds) {
 }
 
 /**
- * Trigger the overlay animation by re-applying visibility.
+ * Trigger the overlay animation by recreating the element.
  * @param {HTMLElement} overlay
  */
 function triggerOverlayAnimation(overlay) {
-    overlay.style.display = 'block';
-    overlay.style.opacity = '1';
-
-    const animations = overlay.querySelectorAll('.ytp-seek-overlay-animation');
-    animations.forEach(anim => {
-        anim.style.animation = 'none';
-        anim.offsetHeight;
-        anim.style.animation = '';
-    });
+    const indicator = overlay.querySelector('.ytc-seek-indicator');
+    if (indicator) {
+        indicator.style.animation = 'none';
+        indicator.offsetHeight;
+        indicator.style.animation = '';
+    }
 }
 
 /**
