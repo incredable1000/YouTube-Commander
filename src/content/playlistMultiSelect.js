@@ -150,6 +150,7 @@ const cleanupCallbacks = [];
 const playlistMap = new Map();
 const selectionRangeController = createSelectionRangeController();
 let decorateRetryCounts = new WeakMap();
+const countedContainers = new WeakSet();
 let cachedPageVideoCount = 0;
 
 const DECORATE_MAX_RETRIES = 3;
@@ -990,6 +991,7 @@ function resetActionCounters() {
     }
 
     cachedPageVideoCount = 0;
+    countedContainers = new WeakSet();
 }
 
 /**
@@ -2343,8 +2345,9 @@ function processPendingContainers() {
     batch.forEach((container) => {
         const decorated = decorateContainer(container);
         if (decorated || !container?.isConnected) {
-            if (decorated) {
-                decoratedCount += 1;
+            if (decorated && !countedContainers.has(container)) {
+                countedContainers.add(container);
+                cachedPageVideoCount += 1;
                 const videoId = container.getAttribute('data-yt-commander-video-id') || '';
                 if (selectAllMode && VIDEO_ID_PATTERN.test(videoId) && !selectedVideoIds.has(videoId)) {
                     selectedVideoIds.add(videoId);
@@ -2368,10 +2371,8 @@ function processPendingContainers() {
 
     if (autoSelectedIds.size > 0) {
         commitSelectionMutation(Array.from(autoSelectedIds));
-    } else if (decoratedCount > 0) {
-        cachedPageVideoCount += decoratedCount;
-        updateActionUiState();
     }
+    updateActionUiState();
 
     if (hasRetryableHydrationMiss) {
         scheduleDeferredRescan();
