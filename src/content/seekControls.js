@@ -486,14 +486,10 @@ function showSeekIndicator(direction, seconds) {
         player.appendChild(state.element);
     }
 
-    applyIndicatorInset(state.element, player);
-
     state.totalSeconds += seconds;
     updateIndicatorElement(state.element, direction, state.totalSeconds);
 
-    state.element.classList.remove('is-active');
-    void state.element.offsetWidth;
-    state.element.classList.add('is-active');
+    triggerOverlayAnimation(state.element);
 
     if (state.hideTimer) {
         clearTimeout(state.hideTimer);
@@ -502,6 +498,19 @@ function showSeekIndicator(direction, seconds) {
     state.hideTimer = setTimeout(() => {
         hideSeekIndicator(direction);
     }, INDICATOR_HIDE_DELAY_MS);
+}
+
+/**
+ * Trigger the overlay animation by recreating the element.
+ * @param {HTMLElement} overlay
+ */
+function triggerOverlayAnimation(overlay) {
+    const indicator = overlay.querySelector('.ytc-seek-indicator');
+    if (indicator) {
+        indicator.style.animation = 'none';
+        indicator.offsetHeight;
+        indicator.style.animation = '';
+    }
 }
 
 /**
@@ -547,7 +556,8 @@ function hideSeekIndicator(direction) {
         return;
     }
 
-    state.element.classList.remove('is-active');
+    state.element.style.display = 'none';
+    state.element.style.opacity = '0';
 
     if (state.hideTimer) {
         clearTimeout(state.hideTimer);
@@ -555,12 +565,6 @@ function hideSeekIndicator(direction) {
     }
 
     state.removeTimer = setTimeout(() => {
-        if (state.element && state.element.parentNode) {
-            state.element.remove();
-        }
-
-        state.element = null;
-        state.player = null;
         state.totalSeconds = 0;
         state.removeTimer = null;
     }, INDICATOR_REMOVE_DELAY_MS);
