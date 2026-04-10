@@ -223,12 +223,12 @@
 }
 
 .ytp-seek-overlay-animation-back {
-    right: var(--ytc-seek-indicator-inset, clamp(14px, 1.6vw, 24px));
-    flex-direction: row-reverse;
+    left: var(--ytc-seek-indicator-inset, clamp(14px, 1.6vw, 24px));
+    flex-direction: row;
 }
 
 .ytp-seek-overlay-animation-forward {
-    left: var(--ytc-seek-indicator-inset, clamp(14px, 1.6vw, 24px));
+    right: var(--ytc-seek-indicator-inset, clamp(14px, 1.6vw, 24px));
 }
 
 .ytp-seek-overlay-duration {

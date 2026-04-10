@@ -29,10 +29,10 @@ export function createIndicatorElement(direction) {
     root.dataset.layer = '4';
 
     const backwardAnim = document.createElement('div');
-    backwardAnim.className = 'ytp-seek-overlay-animation ytp-seek-overlay-animation-back';
+    backwardAnim.className = 'ytp-seek-overlay-animation-back';
 
     const backwardArrow = document.createElement('div');
-    backwardArrow.className = 'ytp-seek-overlay-arrow ytp-seek-overlay-arrow-persistent';
+    backwardArrow.className = 'ytp-seek-overlay-arrow';
     backwardArrow.innerHTML = `<svg viewBox="0 0 22 32" width="22" height="24"><path d="M 18 4 L 6 16 L 18 28" stroke="white" stroke-width="4" stroke-linecap="round" fill="none"></path></svg>`;
 
     const backwardDuration = document.createElement('div');
@@ -42,13 +42,13 @@ export function createIndicatorElement(direction) {
     backwardAnim.appendChild(backwardDuration);
 
     const forwardAnim = document.createElement('div');
-    forwardAnim.className = 'ytp-seek-overlay-animation ytp-seek-overlay-animation-forward';
+    forwardAnim.className = 'ytp-seek-overlay-animation-forward';
 
     const forwardDuration = document.createElement('div');
     forwardDuration.className = 'ytp-seek-overlay-duration';
 
     const forwardArrow = document.createElement('div');
-    forwardArrow.className = 'ytp-seek-overlay-arrow ytp-seek-overlay-arrow-persistent';
+    forwardArrow.className = 'ytp-seek-overlay-arrow';
     forwardArrow.innerHTML = `<svg viewBox="0 0 22 32" width="22" height="24"><path d="M 4 4 L 16 16 L 4 28" stroke="white" stroke-width="4" stroke-linecap="round" fill="none"></path></svg>`;
 
     forwardAnim.appendChild(forwardDuration);
