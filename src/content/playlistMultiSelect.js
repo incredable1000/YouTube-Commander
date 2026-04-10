@@ -1021,7 +1021,7 @@ function updateActionUiState() {
     const isPlaylistPage = isPlaylistsPage();
     const selectedVideoCount = selectedVideoIds.size;
     const selectedPlaylistCount = selectedPlaylistIds.size;
-    const pageVideoCount = cachedPageVideoCount;
+    const pageVideoCount = collectRenderedVideoIds().length;
     const pagePlaylistCount = collectRenderedPlaylistIds().length;
 
     const selectedCount = isPlaylistPage ? selectedPlaylistCount : selectedVideoCount;
