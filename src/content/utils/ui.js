@@ -176,44 +176,43 @@ export function createIndicator({
 /**
  * Create rotation indicator
  * @param {number} angle - Rotation angle
+ * @param {{trigger?: 'rotate'|'reset'}} [options]
  * @returns {HTMLElement} Rotation indicator element
  */
-export function createRotationIndicator(angle) {
-    const iconContainer = document.createElement('div');
-    iconContainer.style.cssText = `
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 8px;
-    `;
-    
+export function createRotationIndicator(angle, options = {}) {
+    const normalizedAngle = Number.isFinite(Number(angle)) ? Number(angle) : 0;
+    const trigger = options.trigger === 'reset' ? 'reset' : 'rotate';
+    const isOriginal = normalizedAngle === 0;
+
+    const bezel = document.createElement('div');
+    bezel.className = 'yt-commander-rotation-bezel';
+    bezel.setAttribute('aria-hidden', 'true');
+
+    const label = document.createElement('div');
+    label.className = 'yt-commander-rotation-bezel__label';
+    label.textContent = isOriginal ? 'Original' : `${normalizedAngle}\u00b0`;
+    bezel.appendChild(label);
+
+    const iconBubble = document.createElement('div');
+    iconBubble.className = 'yt-commander-rotation-bezel__icon-bubble';
+
     const rotationIcon = createIcon({
         viewBox: '0 0 24 24',
-        width: '32',
-        height: '32',
+        width: '44',
+        height: '44',
         path: 'M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z',
-        fill: 'white'
+        fill: 'currentColor'
     });
-    
-    iconContainer.appendChild(rotationIcon);
-    
-    const text = document.createElement('div');
-    text.textContent = `${angle}°`;
-    text.style.cssText = `
-        font-size: 14px;
-        text-align: center;
-        font-weight: bold;
-    `;
-    
-    const content = document.createElement('div');
-    content.appendChild(iconContainer);
-    content.appendChild(text);
-    
-    return createIndicator({
-        content: content,
-        className: 'rotation-indicator',
-        duration: 2000
-    });
+    rotationIcon.classList.add('yt-commander-rotation-bezel__icon');
+
+    iconBubble.appendChild(rotationIcon);
+    bezel.appendChild(iconBubble);
+
+    if (trigger === 'reset') {
+        bezel.classList.add('is-reset');
+    }
+
+    return bezel;
 }
 
 /**
@@ -260,15 +259,20 @@ export function showIndicatorOnPlayer(indicator, player = null) {
         }
     }
     
+    player.appendChild(indicator);
+
+    if (indicator.classList.contains('yt-commander-rotation-bezel')) {
+        return;
+    }
+
     // Position indicator based on video player dimensions
     const video = player.querySelector('video');
     if (video) {
         const videoRect = video.getBoundingClientRect();
-        const verticalCenter = (videoRect.height - 110) / 2;
+        const indicatorHeight = Math.max(indicator.getBoundingClientRect().height || 0, 110);
+        const verticalCenter = Math.max(0, (videoRect.height - indicatorHeight) / 2);
         indicator.style.top = `${verticalCenter}px`;
     }
-    
-    player.appendChild(indicator);
 }
 
 /**
@@ -296,3 +300,4 @@ export function ensureAnimations() {
     
     document.head.appendChild(style);
 }
+

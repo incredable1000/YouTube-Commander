@@ -21,10 +21,12 @@ import { computeRotationFitScale } from './videoRotation/fitScale.js';
 const logger = createLogger('VideoRotation');
 
 const ROTATION_ANGLES = [0, 90, 180, 270];
-const STORAGE_KEY = 'ytCommanderVideoRotations';
+const SESSION_STORAGE_KEY = 'ytCommanderVideoRotationsSession';
 const STORAGE_WRITE_DEBOUNCE_MS = 280;
 const OBSERVER_THROTTLE_MS = 650;
 const DEFAULT_ROTATION_SHORTCUT = 'r';
+const INDICATOR_DURATION_MS = 1100;
+const ZERO_ANGLE_CLEANUP_MS = 270;
 
 let isInitialized = false;
 let initPromise = null;
@@ -43,6 +45,9 @@ let activeVideoMetricsCleanup = null;
 
 let rotationMap = new Map();
 let storageWriteTimer = null;
+let rotationIndicator = null;
+let rotationIndicatorTimer = null;
+let zeroAngleCleanupTimer = null;
 
 /**
  * Initialize rotation feature.
@@ -83,24 +88,18 @@ async function initVideoRotation() {
 }
 
 /**
- * Load stored per-video rotation state.
+ * Load session-only per-video rotation state.
  */
 async function loadRotationMap() {
     try {
-        const result = await new Promise((resolve) => {
-            chrome.storage.local.get([STORAGE_KEY], (data) => {
-                if (chrome.runtime?.lastError) {
-                    logger.warn('Failed to load rotation map', chrome.runtime.lastError.message);
-                    resolve({});
-                    return;
-                }
-                resolve(data || {});
-            });
-        });
-
-        const raw = result[STORAGE_KEY];
+        const rawJson = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
         rotationMap = new Map();
 
+        if (!rawJson) {
+            return;
+        }
+
+        const raw = JSON.parse(rawJson);
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
             Object.entries(raw).forEach(([videoId, angle]) => {
                 if (isValidVideoId(videoId)) {
@@ -120,7 +119,7 @@ async function loadRotationMap() {
 }
 
 /**
- * Debounced write of rotation state to local storage.
+ * Debounced write of rotation state to session storage.
  */
 function scheduleRotationMapPersist() {
     if (storageWriteTimer) {
@@ -130,12 +129,17 @@ function scheduleRotationMapPersist() {
     storageWriteTimer = setTimeout(() => {
         storageWriteTimer = null;
 
-        const serialized = Object.fromEntries(rotationMap.entries());
-        chrome.storage.local.set({ [STORAGE_KEY]: serialized }, () => {
-            if (chrome.runtime?.lastError) {
-                logger.warn('Failed to persist rotation map', chrome.runtime.lastError.message);
+        try {
+            if (rotationMap.size === 0) {
+                window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+                return;
             }
-        });
+
+            const serialized = JSON.stringify(Object.fromEntries(rotationMap.entries()));
+            window.sessionStorage.setItem(SESSION_STORAGE_KEY, serialized);
+        } catch (error) {
+            logger.warn('Failed to persist session rotation map', error);
+        }
     }, STORAGE_WRITE_DEBOUNCE_MS);
 }
 
@@ -224,6 +228,7 @@ function syncActiveVideoContext(forceReapply = false) {
         activeVideoMetricsCleanup();
         activeVideoMetricsCleanup = null;
     }
+    cancelZeroAngleCleanup();
 
     if (activeVideo && activeVideo !== nextVideo) {
         clearVideoRotation(activeVideo);
@@ -281,11 +286,23 @@ function rotateVideo() {
 
     const currentIndex = ROTATION_ANGLES.indexOf(currentRotation);
     const nextIndex = (currentIndex + 1) % ROTATION_ANGLES.length;
+    const previousRotation = currentRotation;
 
     currentRotation = ROTATION_ANGLES[nextIndex];
-    applyVideoRotation(activeVideo, currentRotation);
+
+    if (currentRotation === 0 && previousRotation === 270) {
+        applyVideoRotation(activeVideo, 0, {
+            visualAngle: 360,
+            animateToZero: true
+        });
+        scheduleZeroAngleCleanup(activeVideo);
+    } else {
+        cancelZeroAngleCleanup();
+        applyVideoRotation(activeVideo, currentRotation);
+    }
+
     persistCurrentVideoRotation();
-    showRotationIndicator();
+    showRotationIndicator('rotate');
 
     logger.debug(`Video rotated to ${currentRotation}°`);
 }
@@ -304,48 +321,75 @@ function resetRotation() {
         return;
     }
 
+    if (currentRotation === 0) {
+        showRotationIndicator('reset');
+        return;
+    }
+
     currentRotation = 0;
-    applyVideoRotation(activeVideo, 0);
+    applyVideoRotation(activeVideo, 0, {
+        visualAngle: 360,
+        animateToZero: true
+    });
+    scheduleZeroAngleCleanup(activeVideo);
     persistCurrentVideoRotation();
-    showRotationIndicator();
+    showRotationIndicator('reset');
 }
 
 /**
  * Apply rotation style using CSS rotate property.
  * @param {HTMLVideoElement} video
  * @param {number} angle
+ * @param {{visualAngle?: number, animateToZero?: boolean}} [options]
  */
-function applyVideoRotation(video, angle) {
+function applyVideoRotation(video, angle, options = {}) {
     if (!video) {
         return;
     }
 
     const normalized = normalizeAngle(angle);
+    const visualAngle = Number.isFinite(options.visualAngle) ? Number(options.visualAngle) : normalized;
+    const animateToZero = options.animateToZero === true;
 
-    if (normalized === 0) {
+    if (normalized === 0 && !animateToZero) {
         clearVideoRotation(video);
         return;
     }
 
-    const scale = computeRotationFitScale(video, normalized, getActivePlayer());
+    const scale = normalized === 0
+        ? 1
+        : computeRotationFitScale(video, normalized, getActivePlayer());
 
     video.classList.add('yt-commander-rotatable');
+    video.classList.remove('yt-commander-rotatable-instant');
     video.style.transformOrigin = 'center center';
-    video.style.transform = `rotate(${normalized}deg) scale(${scale})`;
+    video.style.transform = `rotate(${visualAngle}deg) scale(${scale})`;
 }
 
 /**
  * Clear rotation style.
  * @param {HTMLVideoElement} video
+ * @param {{instant?: boolean}} [options]
  */
-function clearVideoRotation(video) {
+function clearVideoRotation(video, options = {}) {
     if (!video) {
         return;
+    }
+
+    const instant = options.instant === true;
+    if (instant) {
+        video.classList.add('yt-commander-rotatable-instant');
     }
 
     video.style.transform = '';
     video.style.transformOrigin = '';
     video.classList.remove('yt-commander-rotatable');
+
+    if (instant) {
+        // Force style flush before restoring animated class behavior.
+        void video.offsetWidth;
+        video.classList.remove('yt-commander-rotatable-instant');
+    }
 }
 
 /**
@@ -368,16 +412,31 @@ function persistCurrentVideoRotation() {
 /**
  * Show rotation indicator on current player.
  */
-function showRotationIndicator() {
+function showRotationIndicator(trigger = 'rotate') {
     const player = getActivePlayer();
     if (!player) {
         return;
     }
 
-    const indicator = createRotationIndicator(currentRotation);
-    if (indicator) {
-        showIndicatorOnPlayer(indicator, player);
+    clearRotationIndicator();
+
+    const indicator = createRotationIndicator(currentRotation, { trigger });
+    if (!indicator) {
+        return;
     }
+
+    rotationIndicator = indicator;
+    showIndicatorOnPlayer(indicator, player);
+
+    window.requestAnimationFrame(() => {
+        if (indicator === rotationIndicator) {
+            indicator.classList.add('is-visible');
+        }
+    });
+
+    rotationIndicatorTimer = window.setTimeout(() => {
+        clearRotationIndicator();
+    }, INDICATOR_DURATION_MS);
 }
 
 /**
@@ -505,6 +564,9 @@ function disable() {
         clearVideoRotation(activeVideo);
     }
 
+    clearRotationIndicator();
+    cancelZeroAngleCleanup();
+
     activeVideo = null;
     activeVideoId = null;
     currentRotation = 0;
@@ -540,6 +602,49 @@ function cleanup() {
     initPromise = null;
 
     logger.info('Video rotation cleaned up');
+}
+
+/**
+ * Remove active rotation indicator and clear timers.
+ */
+function clearRotationIndicator() {
+    if (rotationIndicatorTimer) {
+        clearTimeout(rotationIndicatorTimer);
+        rotationIndicatorTimer = null;
+    }
+
+    if (rotationIndicator) {
+        rotationIndicator.remove();
+        rotationIndicator = null;
+    }
+}
+
+/**
+ * Cancel pending post-animation cleanup.
+ */
+function cancelZeroAngleCleanup() {
+    if (zeroAngleCleanupTimer) {
+        clearTimeout(zeroAngleCleanupTimer);
+        zeroAngleCleanupTimer = null;
+    }
+}
+
+/**
+ * Cleanup 360deg visual transform after a forward rotate-to-zero animation.
+ * @param {HTMLVideoElement} video
+ */
+function scheduleZeroAngleCleanup(video) {
+    cancelZeroAngleCleanup();
+
+    zeroAngleCleanupTimer = setTimeout(() => {
+        zeroAngleCleanupTimer = null;
+
+        if (!video || video !== activeVideo || currentRotation !== 0) {
+            return;
+        }
+
+        clearVideoRotation(video, { instant: true });
+    }, ZERO_ANGLE_CLEANUP_MS);
 }
 
 /**

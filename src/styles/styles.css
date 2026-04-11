@@ -303,102 +303,107 @@ body.yt-commander-windowed-lock #columns {
     height: 24px;
     fill: #fff;
     opacity: 0.9;
-    transition: opacity 0.2s, transform 0.3s;
+    transition: opacity 0.2s ease, fill 0.2s ease;
     pointer-events: none;
 }
 
 .custom-rotation-button:hover svg {
     opacity: 1;
-    transform: rotate(90deg);
 }
 
 /* Rotation transition is scoped to videos we explicitly rotate. */
 .yt-commander-rotatable {
-    transition: transform 0.25s ease-in-out !important;
+    transition: transform 0.26s cubic-bezier(0.4, 0, 0.2, 1) !important;
     will-change: transform;
 }
 
-/* Rotation Indicator Styles */
-.custom-rotation-indicator {
+.yt-commander-rotatable-instant {
+    transition: none !important;
+}
+
+/* Rotation Indicator Styles (native-like bezel). */
+.yt-commander-rotation-bezel {
     position: absolute;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    animation: rotationFadeInOut 2s cubic-bezier(0.4, 0, 1, 1);
+    inset: 0;
+    color: #fff;
+    opacity: 0;
+    transition: opacity 0.16s ease;
     pointer-events: none;
-    width: 110px;
+    z-index: 10040;
+}
+
+.yt-commander-rotation-bezel.is-visible {
+    opacity: 1;
+}
+
+.yt-commander-rotation-bezel__label {
+    position: absolute;
     left: 50%;
-    transform: translateX(-50%);
-}
-
-.rotation-indicator-circle {
-    width: 110px;
-    height: 110px;
-    background: rgba(28, 28, 28, 0.5);
-    border-radius: 50%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    gap: 4px;
-    padding-top: 6px;
-}
-
-.rotation-indicator-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    animation: rotationSpin 1s ease-in-out;
-}
-
-.rotation-indicator-icon svg {
-    width: 32px;
-    height: 32px;
-    fill: white;
-    opacity: 0.9;
-}
-
-.rotation-indicator-text {
-    color: rgba(255, 255, 255, 0.9);
+    top: max(8%, 26px);
+    min-width: 74px;
+    height: 46px;
+    padding: 0 14px;
+    border-radius: 4px;
+    transform: translateX(-50%) translateY(-5px);
+    background: rgba(0, 0, 0, 0.74);
+    color: rgba(255, 255, 255, 0.96);
     font-family: "YouTube Noto", Roboto, Arial, sans-serif;
-    font-size: 13px;
+    font-size: 30px;
     font-weight: 500;
+    line-height: 46px;
     letter-spacing: 0.2px;
-    margin-bottom: 4px;
     text-align: center;
-    line-height: 1.2;
+    white-space: nowrap;
+    opacity: 0.9;
+    transition: transform 0.16s ease, opacity 0.16s ease;
 }
 
-@keyframes rotationSpin {
+.yt-commander-rotation-bezel.is-visible .yt-commander-rotation-bezel__label {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.yt-commander-rotation-bezel.is-reset .yt-commander-rotation-bezel__label {
+    font-size: 20px;
+    padding: 0 18px;
+    min-width: 102px;
+}
+
+.yt-commander-rotation-bezel__icon-bubble {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 118px;
+    height: 118px;
+    border-radius: 999px;
+    transform: translate(-50%, -50%) scale(0.95);
+    color: rgba(255, 255, 255, 0.95);
+    background: rgba(0, 0, 0, 0.56);
+    opacity: 0.94;
+    transition: transform 0.16s ease, opacity 0.16s ease;
+}
+
+.yt-commander-rotation-bezel.is-visible .yt-commander-rotation-bezel__icon-bubble {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
+
+.yt-commander-rotation-bezel__icon {
+    width: 46px;
+    height: 46px;
+    fill: currentColor;
+    animation: ytcRotationBezelSpin 0.46s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+@keyframes ytcRotationBezelSpin {
     0% {
+        transform: rotate(-65deg);
+    }
+    100% {
         transform: rotate(0deg);
-    }
-    100% {
-        transform: rotate(90deg);
-    }
-}
-
-@keyframes rotationFadeInOut {
-    0% {
-        opacity: 0;
-        transform: translateX(-50%) scale(0.5);
-    }
-    10% {
-        opacity: 1;
-        transform: translateX(-50%) scale(1.1);
-    }
-    20% {
-        transform: translateX(-50%) scale(1);
-    }
-    50% {
-        opacity: 1;
-        transform: translateX(-50%) scale(1);
-    }
-    100% {
-        opacity: 0;
-        transform: translateX(-50%) scale(0.9);
     }
 }
 
