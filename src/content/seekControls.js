@@ -21,8 +21,6 @@ import {
     BUTTON_WAIT_TIMEOUT_MS,
     CONTROL_VISIBILITY_HOLD_MS,
     FLAT_SEEK_SETTING_KEYS,
-    INDICATOR_HIDE_DELAY_MS,
-    INDICATOR_REMOVE_DELAY_MS,
     SEEK_CONFIG
 } from './seek-controls/constants.js';
 import {
@@ -31,10 +29,8 @@ import {
     normalizeSettings
 } from './seek-controls/settings.js';
 import {
-    createIndicatorElement,
-    createIndicatorState,
-    updateIndicatorElement,
-    triggerNativeSeekOverlay
+    triggerNativeSeekOverlay,
+    clearNativeSeekOverlay
 } from './seek-controls/indicatorDom.js';
 
 const logger = createLogger('SeekControls');
@@ -60,11 +56,6 @@ let buttonEnsureTimer = null;
 let controlsVisibilityTimer = null;
 let controlsVisibilityPlayer = null;
 let controlsVisibilityRestoreAutohide = false;
-
-const indicatorStates = {
-    forward: createIndicatorState(),
-    backward: createIndicatorState()
-};
 
 /**
  * Initialize seek controls.
@@ -448,7 +439,7 @@ function performSeek(seconds, direction) {
     applySeekTime(video, targetTime);
     showPlayerSeekFeedback(player);
     syncProgressUiAfterSeek(video, player);
-    showSeekIndicator(direction, seekSeconds);
+    showSeekIndicator(direction, seekSeconds, currentTime);
 
     logger.debug(`Seek ${direction} ${seekSeconds}s: ${currentTime.toFixed(2)} -> ${targetTime.toFixed(2)}`);
 }
@@ -457,105 +448,21 @@ function performSeek(seconds, direction) {
  * Show YouTube-like seek indicator using native overlay.
  * @param {'forward'|'backward'} direction
  * @param {number} seconds
+ * @param {number} currentTime
  */
-function showSeekIndicator(direction, seconds) {
+function showSeekIndicator(direction, seconds, currentTime) {
     if (!isEnabled || isShortsPage()) {
         return;
     }
 
-    const state = indicatorStates[direction];
-
-    if (state.removeTimer) {
-        clearTimeout(state.removeTimer);
-        state.removeTimer = null;
-    }
-
-    state.totalSeconds += seconds;
-    triggerNativeSeekOverlay(state.totalSeconds, direction);
-
-    if (state.hideTimer) {
-        clearTimeout(state.hideTimer);
-    }
-
-    state.hideTimer = setTimeout(() => {
-        hideSeekIndicator(direction);
-    }, INDICATOR_HIDE_DELAY_MS);
-}
-
-/**
- * Position seek indicator inside letterbox/pillarbox when possible.
- * @param {HTMLDivElement} element
- * @param {Element} player
- */
-function applyIndicatorInset(element, player) {
-    if (!element || !player) {
-        return;
-    }
-    const video = player.querySelector('video');
-    if (!video) {
-        element.style.removeProperty('--ytc-seek-indicator-inset');
-        return;
-    }
-    const playerRect = player.getBoundingClientRect();
-    const videoRect = video.getBoundingClientRect();
-    if (!playerRect.width || !videoRect.width) {
-        element.style.removeProperty('--ytc-seek-indicator-inset');
-        return;
-    }
-    const leftBar = Math.max(0, videoRect.left - playerRect.left);
-    const rightBar = Math.max(0, playerRect.right - videoRect.right);
-    const barWidth = Math.min(leftBar, rightBar);
-    if (barWidth > 6) {
-        const inset = Math.max(12, Math.round(barWidth + 8));
-        element.style.setProperty('--ytc-seek-indicator-inset', `${inset}px`);
-        return;
-    }
-    element.style.removeProperty('--ytc-seek-indicator-inset');
-}
-
-/**
- * Hide indicator and reset accumulated state.
- * @param {'forward'|'backward'} direction
- */
-function hideSeekIndicator(direction) {
-    const state = indicatorStates[direction];
-
-    if (state.hideTimer) {
-        clearTimeout(state.hideTimer);
-        state.hideTimer = null;
-    }
-
-    state.removeTimer = setTimeout(() => {
-        state.totalSeconds = 0;
-        state.removeTimer = null;
-    }, INDICATOR_REMOVE_DELAY_MS);
+    triggerNativeSeekOverlay(seconds, direction, currentTime);
 }
 
 /**
  * Remove all active seek indicators immediately.
  */
 function clearSeekIndicators() {
-    ['forward', 'backward'].forEach((direction) => {
-        const state = indicatorStates[direction];
-
-        if (state.hideTimer) {
-            clearTimeout(state.hideTimer);
-            state.hideTimer = null;
-        }
-
-        if (state.removeTimer) {
-            clearTimeout(state.removeTimer);
-            state.removeTimer = null;
-        }
-
-        if (state.element && state.element.parentNode) {
-            state.element.remove();
-        }
-
-        state.element = null;
-        state.player = null;
-        state.totalSeconds = 0;
-    });
+    clearNativeSeekOverlay();
 
     if (controlsVisibilityTimer) {
         clearTimeout(controlsVisibilityTimer);

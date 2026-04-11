@@ -174,57 +174,6 @@ export function createIndicator({
 }
 
 /**
- * Create seek indicator with arrows
- * @param {string} direction - 'forward' or 'backward'
- * @param {number} seconds - Number of seconds
- * @returns {HTMLElement} Seek indicator element
- */
-export function createSeekIndicator(direction, seconds) {
-    const iconsContainer = document.createElement('div');
-    iconsContainer.className = 'seek-indicator-icons';
-    iconsContainer.style.cssText = `
-        display: flex;
-        align-items: center;
-        margin-bottom: 8px;
-    `;
-    
-    // Create three arrows
-    for (let i = 0; i < 3; i++) {
-        const arrow = document.createElement('div');
-        arrow.className = `seek-indicator-arrow ${direction}`;
-        arrow.style.cssText = `
-            width: 0;
-            height: 0;
-            margin: 0 2px;
-            border-style: solid;
-            ${direction === 'forward' 
-                ? 'border-left: 8px solid #fff; border-top: 6px solid transparent; border-bottom: 6px solid transparent;'
-                : 'border-right: 8px solid #fff; border-top: 6px solid transparent; border-bottom: 6px solid transparent;'
-            }
-        `;
-        iconsContainer.appendChild(arrow);
-    }
-    
-    const text = document.createElement('div');
-    text.className = 'seek-indicator-text';
-    text.textContent = `${seconds} seconds`;
-    text.style.cssText = `
-        font-size: 12px;
-        text-align: center;
-    `;
-    
-    const content = document.createElement('div');
-    content.appendChild(iconsContainer);
-    content.appendChild(text);
-    
-    return createIndicator({
-        content: content,
-        className: `seek-indicator ${direction}`,
-        duration: 2000
-    });
-}
-
-/**
  * Create rotation indicator
  * @param {number} angle - Rotation angle
  * @returns {HTMLElement} Rotation indicator element
@@ -342,15 +291,6 @@ export function ensureAnimations() {
         
         .custom-indicator {
             animation: fadeInOut 2s ease-in-out;
-        }
-        
-        .seek-indicator-arrow {
-            animation: pulse 0.5s ease-in-out infinite alternate;
-        }
-        
-        @keyframes pulse {
-            0% { opacity: 0.6; }
-            100% { opacity: 1; }
         }
     `;
     
