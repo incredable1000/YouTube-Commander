@@ -3243,6 +3243,33 @@ async function handleFileImport(event) {
 
 
 /**
+ * Resolve hidden select/input associated with a custom dropdown.
+ * Supports both nested controls and sibling controls with matching id sans "Dropdown".
+ * @param {HTMLElement} dropdown
+ * @returns {HTMLSelectElement|null}
+ */
+function getBoundDropdownControl(dropdown) {
+    if (!dropdown) {
+        return null;
+    }
+
+    const nestedControl = dropdown.querySelector('select');
+    if (nestedControl) {
+        return nestedControl;
+    }
+
+    if (typeof dropdown.id === 'string' && dropdown.id.endsWith('Dropdown')) {
+        const controlId = dropdown.id.replace(/Dropdown$/, '');
+        const siblingControl = document.getElementById(controlId);
+        if (siblingControl && siblingControl.tagName === 'SELECT') {
+            return siblingControl;
+        }
+    }
+
+    return null;
+}
+
+/**
  * Initialize custom dropdown components.
  */
 function initializeCustomDropdowns() {
@@ -3250,7 +3277,7 @@ function initializeCustomDropdowns() {
         const trigger = dropdown.querySelector('.ytc-dropdown-trigger');
         const menu = dropdown.querySelector('.ytc-dropdown-menu');
         const label = dropdown.querySelector('.ytc-dropdown-label');
-        const hiddenSelect = dropdown.querySelector('select');
+        const hiddenSelect = getBoundDropdownControl(dropdown);
         const options = menu.querySelectorAll('.ytc-dropdown-option');
         
         if (!trigger || !menu || !label) return;
@@ -3298,23 +3325,30 @@ function initializeCustomDropdowns() {
                 }
                 
                 closeDropdown();
-                
+
+                if (dropdown.id === 'maxQualityDropdown') {
+                    saveSyncSettings(true);
+                    return;
+                }
+
+                if (dropdown.id !== 'cloudflareSyncIntervalDropdown') {
+                    return;
+                }
+
                 try {
                     await saveCloudflareSyncSettings();
                     await saveSubscriptionSyncSettings();
-                    
-                    if (dropdown.id === 'cloudflareSyncIntervalDropdown') {
-                        cloudflareSyncTriggered = false;
-                        const intervalMs = cloudflareSyncIntervalMinutes * 60 * 1000;
-                        const nextSyncAt = cloudflareLastSyncAt + intervalMs;
-                        if (nextSyncAt <= Date.now()) {
-                            await refreshCloudflareSyncStatus();
-                            await syncToCloudflare();
-                        } else {
-                            await refreshCloudflareSyncStatus();
-                        }
+
+                    cloudflareSyncTriggered = false;
+                    const intervalMs = cloudflareSyncIntervalMinutes * 60 * 1000;
+                    const nextSyncAt = cloudflareLastSyncAt + intervalMs;
+                    if (nextSyncAt <= Date.now()) {
+                        await refreshCloudflareSyncStatus();
+                        await syncToCloudflare();
+                    } else {
+                        await refreshCloudflareSyncStatus();
                     }
-                    
+
                     showStatus('Settings saved', 'success');
                 } catch (error) {
                     showStatus(error?.message || 'Failed to save settings', 'error');
@@ -3348,7 +3382,7 @@ function updateDropdownSelection(dropdownId, value) {
     
     const option = dropdown.querySelector(`.ytc-dropdown-option[data-value="${value}"]`);
     const label = dropdown.querySelector('.ytc-dropdown-label');
-    const hiddenSelect = dropdown.querySelector('select');
+    const hiddenSelect = getBoundDropdownControl(dropdown);
     
     if (option && label) {
         dropdown.querySelectorAll('.ytc-dropdown-option').forEach(opt => opt.classList.remove('selected'));
