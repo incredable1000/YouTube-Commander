@@ -2658,8 +2658,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     if (message.type === 'OPEN_NEW_TAB') {
-        chrome.tabs.create({ url: message.url, active: false });
-        return false;
+        const targetUrl = typeof message.url === 'string' ? message.url.trim() : '';
+        if (!targetUrl) {
+            sendResponse({ success: false, error: 'Missing URL for OPEN_NEW_TAB' });
+            return false;
+        }
+
+        const createProperties = {
+            url: targetUrl,
+            active: message.active === true
+        };
+
+        if (sender?.tab?.windowId !== undefined) {
+            createProperties.windowId = sender.tab.windowId;
+        }
+
+        chrome.tabs.create(createProperties, (tab) => {
+            if (chrome.runtime.lastError) {
+                sendResponse({
+                    success: false,
+                    error: chrome.runtime.lastError.message || 'Failed to open tab'
+                });
+                return;
+            }
+
+            sendResponse({
+                success: true,
+                tabId: typeof tab?.id === 'number' ? tab.id : null
+            });
+        });
+
+        return true;
     }
 
     if (message.type === 'GET_WATCHED_IDS') {

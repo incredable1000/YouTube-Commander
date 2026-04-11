@@ -227,48 +227,67 @@ function openCurrentChannelInNewTab() {
 }
 
 function openUrlInNewTab(url) {
+    const normalizedUrl = normalizeTargetUrl(url);
+    if (!normalizedUrl) {
+        logger.warn('Skipped opening invalid URL', { url });
+        return;
+    }
+
     try {
         if (chrome?.runtime?.sendMessage) {
-            chrome.runtime.sendMessage({ type: 'OPEN_NEW_TAB', url });
+            chrome.runtime.sendMessage({ type: 'OPEN_NEW_TAB', url: normalizedUrl }, () => {
+                if (!chrome.runtime.lastError) {
+                    return;
+                }
+
+                logger.warn('Background tab-open request failed; using fallback', chrome.runtime.lastError);
+                openUrlWithAnchorFallback(normalizedUrl);
+            });
             return;
         }
     } catch (error) {
         logger.error('Failed to request background tab open', error);
     }
 
-    try {
-        window.open(url, '_blank');
-    } catch (error) {
-        logger.error('Failed to open new tab fallback', error);
-    }
+    openUrlWithAnchorFallback(normalizedUrl);
 }
 
 function resolveVideoId() {
     try {
-        const urlId = getCurrentVideoId();
-        if (typeof urlId === 'string' && urlId.trim()) {
-            return urlId.trim();
-        }
-
-        if (isShortsPage()) {
-            const match = window.location.pathname.match(/\/shorts\/([A-Za-z0-9_-]{10,15})/);
-            if (match && match[1]) {
-                return match[1];
-            }
-        }
-
         const player = getActivePlayer() || document.getElementById('movie_player');
         const playerId = player?.getVideoData?.()?.video_id;
-        if (typeof playerId === 'string' && playerId.trim()) {
+        if (isValidVideoId(playerId)) {
             return playerId.trim();
         }
 
         const playerUrl = player?.getVideoUrl?.();
-        if (typeof playerUrl === 'string' && playerUrl.trim()) {
-            const url = new URL(playerUrl, window.location.origin);
-            const id = url.searchParams.get('v');
-            if (id) {
-                return id;
+        const parsedPlayerId = extractVideoIdFromUrl(playerUrl);
+        if (isValidVideoId(parsedPlayerId)) {
+            return parsedPlayerId;
+        }
+
+        const urlId = getCurrentVideoId();
+        if (isValidVideoId(urlId)) {
+            return urlId.trim();
+        }
+
+        const pathId = extractVideoIdFromUrl(window.location.href);
+        if (isValidVideoId(pathId)) {
+            return pathId;
+        }
+
+        if (isShortsPage()) {
+            const activeRenderer = document.querySelector('ytd-shorts ytd-reel-video-renderer[is-active]');
+            const shortsCandidates = [
+                activeRenderer?.getAttribute?.('video-id'),
+                activeRenderer?.dataset?.videoId,
+                extractVideoIdFromUrl(activeRenderer?.querySelector?.('a[href*="/shorts/"]')?.href || ''),
+                extractVideoIdFromMarkup(activeRenderer?.innerHTML || '')
+            ];
+
+            const match = shortsCandidates.find((candidate) => isValidVideoId(candidate));
+            if (match) {
+                return match;
             }
         }
     } catch (error) {
@@ -279,6 +298,8 @@ function resolveVideoId() {
 }
 
 function resolveChannelUrl() {
+    const activeShortRenderer = document.querySelector('ytd-shorts ytd-reel-video-renderer[is-active]');
+    const activeShortRoot = activeShortRenderer || document;
     const selectors = [
         'ytd-video-owner-renderer a[href^="/channel/"]',
         'ytd-video-owner-renderer a[href^="/@"]',
@@ -288,18 +309,38 @@ function resolveChannelUrl() {
         'ytd-reel-player-header-renderer a[href^="/@"]',
         'ytd-reel-player-overlay-renderer a[href^="/channel/"]',
         'ytd-reel-player-overlay-renderer a[href^="/@"]',
+        'ytd-reel-player-header-renderer #channel-name a[href]',
+        'ytd-reel-player-overlay-renderer #channel-name a[href]',
         'ytd-reel-video-renderer[is-active] a[href^="/channel/"]',
         'ytd-reel-video-renderer[is-active] a[href^="/@"]'
     ];
 
     for (const selector of selectors) {
-        const link = document.querySelector(selector);
-        if (link instanceof HTMLAnchorElement && link.href) {
-            return link.href;
+        const localLink = activeShortRoot.querySelector(selector);
+        const normalizedLocalUrl = normalizeChannelUrl(localLink?.href);
+        if (normalizedLocalUrl) {
+            return normalizedLocalUrl;
+        }
+
+        const globalLink = document.querySelector(selector);
+        const normalizedGlobalUrl = normalizeChannelUrl(globalLink?.href);
+        if (normalizedGlobalUrl) {
+            return normalizedGlobalUrl;
         }
     }
 
-    const channelId = document.querySelector('meta[itemprop="channelId"]')?.getAttribute('content');
+    try {
+        const player = getActivePlayer() || document.getElementById('movie_player');
+        const playerResponse = player?.getPlayerResponse?.();
+        const channelId = playerResponse?.videoDetails?.channelId;
+        if (channelId) {
+            return `https://www.youtube.com/channel/${channelId}`;
+        }
+    } catch (error) {
+        logger.warn('Failed to resolve channel id from player response', error);
+    }
+
+    const channelId = document.querySelector('meta[itemprop="channelId"]')?.getAttribute('content')?.trim();
     if (channelId) {
         return `https://www.youtube.com/channel/${channelId}`;
     }
@@ -309,4 +350,88 @@ function resolveChannelUrl() {
 
 function isVideoOrShortsPage() {
     return isVideoPage() || isShortsPage();
+}
+
+function openUrlWithAnchorFallback(url) {
+    try {
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+        anchor.style.display = 'none';
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+    } catch (error) {
+        logger.error('Failed to open new tab fallback', error);
+    }
+}
+
+function normalizeTargetUrl(rawUrl) {
+    if (typeof rawUrl !== 'string' || !rawUrl.trim()) {
+        return '';
+    }
+
+    try {
+        const parsed = new URL(rawUrl, window.location.origin);
+        if (!/^https?:$/.test(parsed.protocol)) {
+            return '';
+        }
+        return parsed.toString();
+    } catch (_error) {
+        return '';
+    }
+}
+
+function extractVideoIdFromUrl(rawUrl) {
+    if (typeof rawUrl !== 'string' || !rawUrl.trim()) {
+        return '';
+    }
+
+    try {
+        const parsed = new URL(rawUrl, window.location.origin);
+        if (parsed.pathname === '/watch') {
+            return parsed.searchParams.get('v') || '';
+        }
+
+        if (parsed.pathname.startsWith('/shorts/')) {
+            const shortsId = parsed.pathname.split('/shorts/')[1];
+            return shortsId ? shortsId.split('/')[0] : '';
+        }
+    } catch (_error) {
+        // Fallback regex parsing below.
+    }
+
+    const match = rawUrl.match(/(?:v=|\/shorts\/)([A-Za-z0-9_-]{10,15})/);
+    return match && match[1] ? match[1] : '';
+}
+
+function extractVideoIdFromMarkup(html) {
+    if (typeof html !== 'string' || !html) {
+        return '';
+    }
+
+    const match = html.match(/\/shorts\/([A-Za-z0-9_-]{10,15})/);
+    return match && match[1] ? match[1] : '';
+}
+
+function isValidVideoId(videoId) {
+    return typeof videoId === 'string' && /^[A-Za-z0-9_-]{10,15}$/.test(videoId.trim());
+}
+
+function normalizeChannelUrl(rawUrl) {
+    if (typeof rawUrl !== 'string' || !rawUrl.trim()) {
+        return '';
+    }
+
+    try {
+        const parsed = new URL(rawUrl, window.location.origin);
+        const path = parsed.pathname || '';
+        if (!/^\/(@|channel\/|c\/|user\/)/.test(path)) {
+            return '';
+        }
+        return `https://www.youtube.com${path}`;
+    } catch (_error) {
+        return '';
+    }
 }
