@@ -1,13 +1,13 @@
 /**
  * Seek indicator DOM helpers.
- * Uses injected CSS and YouTube's native seek overlay structure.
+ * Uses injected CSS with separate container fade and arrow slide animations.
  */
 
 let cleanupTimer = null;
 let injectedCSS = false;
 
 /**
- * Inject CSS for the seek overlay animation.
+ * Inject CSS with separate container fade and arrow slide animations.
  */
 function injectSeekCSS() {
     if (injectedCSS) return;
@@ -19,29 +19,44 @@ function injectSeekCSS() {
         .ytp-seek-overlay {
             display: none !important;
         }
-        .ytp-seek-overlay.ytc-seek-visible {
-            display: block !important;
+        .ytp-seek-overlay.ytc-seek-container {
+            display: flex !important;
+            animation: ytc-native-fade 600ms linear forwards !important;
         }
-        .ytp-seek-overlay .ytp-seek-overlay-animation {
+        .ytp-seek-overlay.ytc-seek-container .ytp-seek-overlay-animation {
             display: none !important;
         }
-        .ytp-seek-overlay .ytp-seek-overlay-animation.ytc-seek-active {
+        .ytp-seek-overlay.ytc-seek-container.ytc-seek-active .ytp-seek-overlay-animation-forward,
+        .ytp-seek-overlay.ytc-seek-container.ytc-seek-active-back .ytp-seek-overlay-animation-back {
             display: flex !important;
-            animation: ytc-seek-slide-forward 500ms cubic-bezier(0.0, 0.0, 0.2, 1) forwards !important;
         }
-        .ytp-seek-overlay .ytp-seek-overlay-animation.ytc-seek-active-back {
-            display: flex !important;
-            animation: ytc-seek-slide-back 500ms cubic-bezier(0.0, 0.0, 0.2, 1) forwards !important;
+        .ytp-seek-overlay .ytp-seek-overlay-animation.ytc-seek-hide {
+            display: none !important;
         }
-        @keyframes ytc-seek-slide-forward {
-            0% { opacity: 0; transform: translateY(-50%) translateX(-40px); }
-            20% { opacity: 1; transform: translateY(-50%) translateX(0); }
-            100% { opacity: 0; transform: translateY(-50%) translateX(40px); }
+        .ytp-seek-overlay .ytp-seek-overlay-duration {
+            animation: none !important;
         }
-        @keyframes ytc-seek-slide-back {
-            0% { opacity: 0; transform: translateY(-50%) translateX(40px); }
-            20% { opacity: 1; transform: translateY(-50%) translateX(0); }
-            100% { opacity: 0; transform: translateY(-50%) translateX(-40px); }
+        .ytp-seek-overlay .ytp-seek-overlay-animation-forward.ytc-seek-active .ytp-seek-overlay-arrow {
+            animation: ytc-arrow-slide-forward 600ms cubic-bezier(0.0, 0.0, 0.2, 1) forwards !important;
+        }
+        .ytp-seek-overlay .ytp-seek-overlay-animation-back.ytc-seek-active-back .ytp-seek-overlay-arrow {
+            animation: ytc-arrow-slide-back 600ms cubic-bezier(0.0, 0.0, 0.2, 1) forwards !important;
+        }
+        @keyframes ytc-native-fade {
+            0% { opacity: 0; }
+            10% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+        @keyframes ytc-arrow-slide-forward {
+            0% { transform: translateX(-15px); opacity: 0; }
+            20% { opacity: 1; }
+            100% { transform: translateX(10px); opacity: 0; }
+        }
+        @keyframes ytc-arrow-slide-back {
+            0% { transform: translateX(15px); opacity: 0; }
+            20% { opacity: 1; }
+            100% { transform: translateX(-10px); opacity: 0; }
         }
     `;
     (document.head || document.documentElement).appendChild(style);
@@ -143,7 +158,7 @@ function updateArrowCount(animEl, seconds) {
 }
 
 /**
- * Trigger seek overlay with custom seconds value.
+ * Trigger seek overlay with separate container fade and arrow slide animations.
  * @param {number} seconds - Total seconds to display
  * @param {'forward'|'backward'} direction - Seek direction
  */
@@ -164,7 +179,7 @@ export function triggerNativeSeekOverlay(seconds, direction) {
     const backDuration = overlay.querySelector('.ytp-seek-overlay-animation-back .ytp-seek-overlay-duration');
     const fwdDuration = overlay.querySelector('.ytp-seek-overlay-animation-forward .ytp-seek-overlay-duration');
 
-    // Update duration text
+    // Update duration text (stays static)
     if (backDuration) backDuration.textContent = text;
     if (fwdDuration) fwdDuration.textContent = text;
 
@@ -178,35 +193,48 @@ export function triggerNativeSeekOverlay(seconds, direction) {
     }
 
     // Remove all custom classes
-    overlay.classList.remove('ytc-seek-visible');
+    overlay.classList.remove('ytc-seek-container', 'ytc-seek-active', 'ytc-seek-active-back');
     if (backAnim) {
-        backAnim.classList.remove('ytc-seek-active', 'ytc-seek-active-back');
+        backAnim.classList.remove('ytc-seek-active', 'ytc-seek-active-back', 'ytc-seek-hide');
     }
     if (fwdAnim) {
-        fwdAnim.classList.remove('ytc-seek-active', 'ytc-seek-active-back');
+        fwdAnim.classList.remove('ytc-seek-active', 'ytc-seek-active-back', 'ytc-seek-hide');
     }
 
     // Force reflow
     void overlay.offsetWidth;
 
-    // Show overlay and add animation class to the correct direction
-    overlay.classList.add('ytc-seek-visible');
+    // Apply container fade class
+    overlay.classList.add('ytc-seek-container');
 
+    // Show correct direction, hide the other
     if (direction === 'forward') {
+        overlay.classList.add('ytc-seek-active');
         if (fwdAnim) {
             fwdAnim.classList.add('ytc-seek-active');
         }
+        if (backAnim) {
+            backAnim.classList.add('ytc-seek-hide');
+        }
     } else {
+        overlay.classList.add('ytc-seek-active-back');
         if (backAnim) {
             backAnim.classList.add('ytc-seek-active-back');
+        }
+        if (fwdAnim) {
+            fwdAnim.classList.add('ytc-seek-hide');
         }
     }
 
     // Schedule cleanup
     cleanupTimer = setTimeout(() => {
-        overlay.classList.remove('ytc-seek-visible');
-        if (backAnim) backAnim.classList.remove('ytc-seek-active', 'ytc-seek-active-back');
-        if (fwdAnim) fwdAnim.classList.remove('ytc-seek-active', 'ytc-seek-active-back');
+        overlay.classList.remove('ytc-seek-container', 'ytc-seek-active', 'ytc-seek-active-back');
+        if (backAnim) {
+            backAnim.classList.remove('ytc-seek-active', 'ytc-seek-active-back', 'ytc-seek-hide');
+        }
+        if (fwdAnim) {
+            fwdAnim.classList.remove('ytc-seek-active', 'ytc-seek-active-back', 'ytc-seek-hide');
+        }
         cleanupTimer = null;
-    }, 500);
+    }, 650);
 }
