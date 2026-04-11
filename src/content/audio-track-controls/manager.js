@@ -14,6 +14,7 @@ import { AUDIO_MESSAGE_TYPES, AUTO_SWITCH_DELAYS, RETRY_DELAYS_MS } from './cons
 import { normalizeTrack, pickPreferredTrack } from './trackUtils.js';
 
 const logger = createLogger('AudioTracks');
+const SINGLE_TRACK_SETTLE_RETRY_ATTEMPTS = 3;
 
 /**
  * Main manager for tracking and switching YouTube audio tracks.
@@ -145,7 +146,63 @@ class YouTubeAudioTrackManager {
         return null;
     }
 
+    /**
+     * Resolve currently active video id from player APIs.
+     * More reliable than URL during SPA transitions and Shorts recycling.
+     * @param {any} player
+     * @returns {string|null}
+     */
+    extractVideoIdFromPlayer(player = null) {
+        const activePlayer = player || this.refreshPlayerReference();
+        if (!activePlayer) {
+            return null;
+        }
+
+        try {
+            const playerId = activePlayer.getVideoData?.()?.video_id;
+            if (typeof playerId === 'string' && playerId.trim()) {
+                return playerId.trim();
+            }
+        } catch (_error) {
+            // Ignore and continue fallback lookup.
+        }
+
+        try {
+            const playerUrl = activePlayer.getVideoUrl?.();
+            if (typeof playerUrl === 'string' && playerUrl.trim()) {
+                return this.extractVideoId(playerUrl);
+            }
+        } catch (_error) {
+            // Ignore and continue fallback lookup.
+        }
+
+        return null;
+    }
+
+    /**
+     * Read number of tracks from YouTube player API when available.
+     * @param {any} player
+     * @returns {number}
+     */
+    getPlayerTrackCount(player) {
+        if (!player || typeof player.getAvailableAudioTracks !== 'function') {
+            return -1;
+        }
+
+        try {
+            const tracks = player.getAvailableAudioTracks();
+            return Array.isArray(tracks) ? tracks.length : 0;
+        } catch (_error) {
+            return 0;
+        }
+    }
+
     buildVideoKey() {
+        const playerVideoId = this.extractVideoIdFromPlayer();
+        if (playerVideoId) {
+            return playerVideoId;
+        }
+
         const videoId = this.extractVideoId();
         if (videoId) {
             return videoId;
@@ -333,12 +390,26 @@ class YouTubeAudioTrackManager {
                 return 'retry';
             }
 
+            const playerTrackCount = this.getPlayerTrackCount(player);
+            if (playerTrackCount === 0) {
+                return 'retry';
+            }
+
             const tracks = await this.analyzeAudioTracks();
             if (!tracks.length) {
                 return 'retry';
             }
 
             if (tracks.length === 1) {
+                if (this.retryAttempt < SINGLE_TRACK_SETTLE_RETRY_ATTEMPTS) {
+                    this.debugLog('Single-track state detected; waiting for track list to settle', {
+                        retryAttempt: this.retryAttempt,
+                        playerTrackCount,
+                        videoKey: this.currentVideoKey
+                    });
+                    return 'retry';
+                }
+
                 this.hasAutoSwitched = true;
                 this.currentTrackId = tracks[0].id;
                 return 'no-op';

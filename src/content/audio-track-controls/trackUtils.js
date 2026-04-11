@@ -25,8 +25,16 @@ function decodeTrackId(trackId) {
         return details;
     }
 
+    const normalizedEncodedPart = encodedPart
+        .replace(/-/g, '+')
+        .replace(/_/g, '/');
+    const paddedEncodedPart = normalizedEncodedPart.padEnd(
+        Math.ceil(normalizedEncodedPart.length / 4) * 4,
+        '='
+    );
+
     try {
-        details.decodedText = atob(encodedPart);
+        details.decodedText = atob(paddedEncodedPart);
     } catch (_error) {
         return details;
     }
