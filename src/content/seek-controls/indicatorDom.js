@@ -7,7 +7,7 @@ let cleanupTimer = null;
 let injectedCSS = false;
 
 /**
- * Inject CSS for forcing seek overlay visibility.
+ * Inject CSS for the seek overlay animation.
  */
 function injectSeekCSS() {
     if (injectedCSS) return;
@@ -16,46 +16,32 @@ function injectSeekCSS() {
     const style = document.createElement('style');
     style.id = 'ytc-seek-overlay-styles';
     style.textContent = `
-        .ytp-seek-overlay.custom-seek-active {
-            display: block !important;
-            opacity: 1 !important;
-        }
-        .ytp-seek-overlay.custom-seek-none {
+        .ytp-seek-overlay {
             display: none !important;
         }
-        .ytp-seek-overlay .ytp-seek-overlay-animation.custom-seek-animate {
-            animation: ytp-seek-anim 0.5s cubic-bezier(0.0, 0.0, 0.2, 1) forwards;
+        .ytp-seek-overlay.ytc-seek-visible {
+            display: block !important;
         }
-        @keyframes ytp-seek-anim {
-            0% {
-                transform: translateX(-20px) scale(0.5);
-                opacity: 0;
-            }
-            20% {
-                transform: translateX(0) scale(1);
-                opacity: 1;
-            }
-            100% {
-                transform: translateX(20px) scale(1.2);
-                opacity: 0;
-            }
+        .ytp-seek-overlay .ytp-seek-overlay-animation {
+            display: none !important;
         }
-        .ytp-seek-overlay.backward .ytp-seek-overlay-animation.custom-seek-animate {
-            animation-name: ytp-seek-anim-back;
+        .ytp-seek-overlay .ytp-seek-overlay-animation.ytc-seek-active {
+            display: flex !important;
+            animation: ytc-seek-slide-forward 500ms cubic-bezier(0.0, 0.0, 0.2, 1) forwards !important;
         }
-        @keyframes ytp-seek-anim-back {
-            0% {
-                transform: translateX(20px) scale(0.5);
-                opacity: 0;
-            }
-            20% {
-                transform: translateX(0) scale(1);
-                opacity: 1;
-            }
-            100% {
-                transform: translateX(-20px) scale(1.2);
-                opacity: 0;
-            }
+        .ytp-seek-overlay .ytp-seek-overlay-animation.ytc-seek-active-back {
+            display: flex !important;
+            animation: ytc-seek-slide-back 500ms cubic-bezier(0.0, 0.0, 0.2, 1) forwards !important;
+        }
+        @keyframes ytc-seek-slide-forward {
+            0% { opacity: 0; transform: translateY(-50%) translateX(-40px); }
+            20% { opacity: 1; transform: translateY(-50%) translateX(0); }
+            100% { opacity: 0; transform: translateY(-50%) translateX(40px); }
+        }
+        @keyframes ytc-seek-slide-back {
+            0% { opacity: 0; transform: translateY(-50%) translateX(40px); }
+            20% { opacity: 1; transform: translateY(-50%) translateX(0); }
+            100% { opacity: 0; transform: translateY(-50%) translateX(-40px); }
         }
     `;
     (document.head || document.documentElement).appendChild(style);
@@ -87,7 +73,7 @@ export function createIndicatorElement(direction) {
 
         // Backward animation (left side, forward arrow)
         const backAnim = document.createElement('div');
-        backAnim.className = 'ytp-seek-overlay-animation ytp-seek-overlay-animation-back backward';
+        backAnim.className = 'ytp-seek-overlay-animation ytp-seek-overlay-animation-back';
         backAnim.innerHTML = `
             <div class="ytp-seek-overlay-arrow ytp-seek-overlay-arrow-persistent">
                 <svg viewBox="0 0 22 32" width="22" height="24"><path d="M 18 4 L 6 16 L 18 28" stroke="white" stroke-width="4" stroke-linecap="round" fill="none"></path></svg>
@@ -103,7 +89,7 @@ export function createIndicatorElement(direction) {
 
         // Forward animation (right side, backward arrow)
         const fwdAnim = document.createElement('div');
-        fwdAnim.className = 'ytp-seek-overlay-animation ytp-seek-overlay-animation-forward forward';
+        fwdAnim.className = 'ytp-seek-overlay-animation ytp-seek-overlay-animation-forward';
         fwdAnim.innerHTML = `
             <div class="ytp-seek-overlay-arrow ytp-seek-overlay-arrow-persistent">
                 <svg viewBox="0 0 22 32" width="22" height="24"><path d="M 4 4 L 16 16 L 4 28" stroke="white" stroke-width="4" stroke-linecap="round" fill="none"></path></svg>
@@ -146,8 +132,6 @@ export function updateIndicatorElement(element, direction, totalSeconds) {
 
 /**
  * Update arrow count based on seconds.
- * @param {HTMLElement} animEl - Animation element
- * @param {number} seconds - Seek seconds
  */
 function updateArrowCount(animEl, seconds) {
     const arrows = animEl.querySelectorAll('.ytp-seek-overlay-arrow');
@@ -175,14 +159,12 @@ export function triggerNativeSeekOverlay(seconds, direction) {
     const sign = direction === 'forward' ? '+' : '-';
     const text = `${sign} ${seconds}`;
 
-    // Get animation elements
     const backAnim = overlay.querySelector('.ytp-seek-overlay-animation-back');
     const fwdAnim = overlay.querySelector('.ytp-seek-overlay-animation-forward');
-
-    // Update duration text
     const backDuration = overlay.querySelector('.ytp-seek-overlay-animation-back .ytp-seek-overlay-duration');
     const fwdDuration = overlay.querySelector('.ytp-seek-overlay-animation-forward .ytp-seek-overlay-duration');
 
+    // Update duration text
     if (backDuration) backDuration.textContent = text;
     if (fwdDuration) fwdDuration.textContent = text;
 
@@ -195,38 +177,36 @@ export function triggerNativeSeekOverlay(seconds, direction) {
         clearTimeout(cleanupTimer);
     }
 
-    // Remove previous custom classes
-    overlay.classList.remove('custom-seek-active', 'custom-seek-none');
+    // Remove all custom classes
+    overlay.classList.remove('ytc-seek-visible');
     if (backAnim) {
-        backAnim.classList.remove('custom-seek-animate');
-        backAnim.style.animation = '';
+        backAnim.classList.remove('ytc-seek-active', 'ytc-seek-active-back');
     }
     if (fwdAnim) {
-        fwdAnim.classList.remove('custom-seek-animate');
-        fwdAnim.style.animation = '';
+        fwdAnim.classList.remove('ytc-seek-active', 'ytc-seek-active-back');
     }
 
     // Force reflow
     void overlay.offsetWidth;
 
-    // Show/hide appropriate direction
+    // Show overlay and add animation class to the correct direction
+    overlay.classList.add('ytc-seek-visible');
+
     if (direction === 'forward') {
-        overlay.classList.add('custom-seek-active');
         if (fwdAnim) {
-            fwdAnim.classList.add('custom-seek-animate');
+            fwdAnim.classList.add('ytc-seek-active');
         }
     } else {
-        overlay.classList.add('custom-seek-active');
         if (backAnim) {
-            backAnim.classList.add('custom-seek-animate');
+            backAnim.classList.add('ytc-seek-active-back');
         }
     }
 
     // Schedule cleanup
     cleanupTimer = setTimeout(() => {
-        overlay.classList.remove('custom-seek-active');
-        if (backAnim) backAnim.classList.remove('custom-seek-animate');
-        if (fwdAnim) fwdAnim.classList.remove('custom-seek-animate');
+        overlay.classList.remove('ytc-seek-visible');
+        if (backAnim) backAnim.classList.remove('ytc-seek-active', 'ytc-seek-active-back');
+        if (fwdAnim) fwdAnim.classList.remove('ytc-seek-active', 'ytc-seek-active-back');
         cleanupTimer = null;
     }, 500);
 }
