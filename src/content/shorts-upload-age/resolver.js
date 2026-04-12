@@ -1,60 +1,8 @@
 /**
- * Upload-date resolver with cache + chunked batch requests.
+ * Upload-date resolver with cache and bridge-backed lookups.
  */
 
-import {
-    FETCH_BATCH_SIZE,
-    FETCH_CONCURRENCY,
-    FETCH_RETRY_MS
-} from './constants.js';
-
-/**
- * Run mapper with bounded concurrency.
- * @template T, U
- * @param {T[]} items
- * @param {number} concurrency
- * @param {(item: T, index: number) => Promise<U>} mapper
- * @returns {Promise<U[]>}
- */
-async function mapWithConcurrency(items, concurrency, mapper) {
-    if (!Array.isArray(items) || items.length === 0) {
-        return [];
-    }
-
-    const safeConcurrency = Math.max(1, Math.min(concurrency, items.length));
-    const results = new Array(items.length);
-    let nextIndex = 0;
-
-    const workers = Array.from({ length: safeConcurrency }, async () => {
-        while (true) {
-            const index = nextIndex;
-            nextIndex += 1;
-            if (index >= items.length) {
-                break;
-            }
-
-            results[index] = await mapper(items[index], index);
-        }
-    });
-
-    await Promise.all(workers);
-    return results;
-}
-
-/**
- * Split array into chunks.
- * @template T
- * @param {T[]} items
- * @param {number} size
- * @returns {T[][]}
- */
-function chunk(items, size) {
-    const output = [];
-    for (let index = 0; index < items.length; index += size) {
-        output.push(items.slice(index, index + size));
-    }
-    return output;
-}
+import { FETCH_RETRY_MS } from './constants.js';
 
 /**
  * Normalize and dedupe short IDs.
@@ -80,19 +28,11 @@ function normalizeShortIds(shortIds) {
  * Create Shorts upload-date resolver.
  * @param {{
  *   logger?: {debug?: Function, warn?: Function, error?: Function},
- *   concurrency?: number,
- *   batchSize?: number,
  *   batchResolveImpl?: (shortIds: string[]) => Promise<Map<string, number|null>|Record<string, number|null>>
  * }} [options]
  */
 function createShortsUploadAgeResolver(options = {}) {
     const logger = options.logger || null;
-    const concurrency = Number.isFinite(options.concurrency)
-        ? Math.max(1, Math.floor(options.concurrency))
-        : FETCH_CONCURRENCY;
-    const batchSize = Number.isFinite(options.batchSize)
-        ? Math.max(1, Math.floor(options.batchSize))
-        : FETCH_BATCH_SIZE;
     const batchResolveImpl = typeof options.batchResolveImpl === 'function'
         ? options.batchResolveImpl
         : null;
@@ -100,7 +40,7 @@ function createShortsUploadAgeResolver(options = {}) {
     const cache = new Map();
 
     /**
-     * Normalize batch resolver output.
+     * Normalize bridge/backend resolver output.
      * @param {Map<string, number|null>|Record<string, number|null>|null|undefined} result
      * @param {string[]} expectedIds
      * @returns {Map<string, number|null>}
@@ -133,11 +73,11 @@ function createShortsUploadAgeResolver(options = {}) {
     }
 
     /**
-     * Resolve one chunk via batch resolver only (no per-video fallback).
+     * Resolve pending IDs via bridge/backend implementation.
      * @param {string[]} shortIds
      * @returns {Promise<Map<string, number|null>>}
      */
-    async function resolveChunk(shortIds) {
+    async function resolvePendingIds(shortIds) {
         const uniqueIds = normalizeShortIds(shortIds);
         const output = new Map();
         if (uniqueIds.length === 0) {
@@ -150,10 +90,10 @@ function createShortsUploadAgeResolver(options = {}) {
         }
 
         try {
-            const batchResult = await batchResolveImpl(uniqueIds);
-            return normalizeBatchResult(batchResult, uniqueIds);
+            const result = await batchResolveImpl(uniqueIds);
+            return normalizeBatchResult(result, uniqueIds);
         } catch (error) {
-            logger?.warn?.('Batch shorts upload-date resolve failed', {
+            logger?.warn?.('Shorts upload-date resolve request failed', {
                 shortCount: uniqueIds.length,
                 error
             });
@@ -178,7 +118,6 @@ function createShortsUploadAgeResolver(options = {}) {
 
     /**
      * Resolve upload timestamps for multiple Shorts IDs.
-     * Uses chunked batch requests only.
      * @param {string[]} shortIds
      * @returns {Promise<Map<string, number|null>>}
      */
@@ -210,27 +149,17 @@ function createShortsUploadAgeResolver(options = {}) {
         });
 
         if (idsToResolve.length > 0) {
-            const idChunks = chunk(idsToResolve, batchSize);
-            const chunkResults = await mapWithConcurrency(
-                idChunks,
-                concurrency,
-                async (idChunk) => ({
-                    ids: idChunk,
-                    resolved: await resolveChunk(idChunk)
-                })
-            );
+            const resolved = await resolvePendingIds(idsToResolve);
+            const retryAt = Date.now() + FETCH_RETRY_MS;
 
-            chunkResults.forEach(({ ids, resolved }) => {
-                const retryAt = Date.now() + FETCH_RETRY_MS;
-                ids.forEach((shortId) => {
-                    const timestampMs = resolved.get(shortId);
-                    const normalized = Number.isFinite(timestampMs) ? Number(timestampMs) : null;
-                    cache.set(shortId, {
-                        timestampMs: normalized,
-                        retryAt: normalized ? Number.POSITIVE_INFINITY : retryAt
-                    });
-                    output.set(shortId, normalized);
+            idsToResolve.forEach((shortId) => {
+                const timestampMs = resolved.get(shortId);
+                const normalized = Number.isFinite(timestampMs) ? Number(timestampMs) : null;
+                cache.set(shortId, {
+                    timestampMs: normalized,
+                    retryAt: normalized ? Number.POSITIVE_INFINITY : retryAt
                 });
+                output.set(shortId, normalized);
             });
         }
 

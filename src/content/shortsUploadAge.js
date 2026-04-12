@@ -37,7 +37,7 @@ const bridgeClient = createBridgeClient({
 });
 const resolver = createShortsUploadAgeResolver({
     logger,
-    batchResolveImpl: resolveBatchTimestampsViaBridge
+    batchResolveImpl: resolveTimestampsViaBridge
 });
 const INLINE_HOST_CLASS = 'yt-commander-short-upload-age-inline-host';
 
@@ -65,11 +65,11 @@ function waitForNextFrame() {
 }
 
 /**
- * Resolve upload timestamps from main-world bridge in a single batch request.
+ * Resolve upload timestamps via main-world bridge.
  * @param {string[]} shortIds
  * @returns {Promise<Map<string, number|null>>}
  */
-async function resolveBatchTimestampsViaBridge(shortIds) {
+async function resolveTimestampsViaBridge(shortIds) {
     const uniqueIds = Array.from(
         new Set(
             (Array.isArray(shortIds) ? shortIds : [])
@@ -99,7 +99,7 @@ async function resolveBatchTimestampsViaBridge(shortIds) {
         });
         return map;
     } catch (error) {
-        logger.warn('Shorts upload-age bridge batch request failed', {
+        logger.warn('Shorts upload-age bridge timestamp request failed', {
             shortCount: uniqueIds.length,
             error
         });
