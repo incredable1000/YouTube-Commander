@@ -37,6 +37,7 @@ let pageListenerCleanups = [];
 let saveTimer = null;
 let endBindTimer = null;
 let contextCheckScheduled = false;
+let lastRenderedCounter = null;
 
 let lastShortId = null;
 let initialized = false;
@@ -118,21 +119,31 @@ async function flushPendingSave() {
 
 /**
  * Ensure label is mounted and synchronized.
+ * @returns {boolean} True when mounted during this call
  */
 function ensureCounterLabel() {
+    let mountedNow = false;
     if (!counterUi.isMounted()) {
         counterUi.mount();
+        mountedNow = true;
     }
+    counterUi.syncHost();
+    return mountedNow;
 }
 
 /**
  * Ensure auto-advance toggle is mounted and synchronized.
+ * @returns {boolean} True when mounted during this call
  */
 function ensureAutoAdvanceToggle() {
+    let mountedNow = false;
     if (!autoAdvanceUi.isMounted()) {
         autoAdvanceUi.mount();
+        mountedNow = true;
     }
     autoAdvanceUi.setEnabled(autoAdvanceEnabled);
+    autoAdvanceUi.syncHost();
+    return mountedNow;
 }
 
 /**
@@ -140,6 +151,7 @@ function ensureAutoAdvanceToggle() {
  */
 function removeCounterLabel() {
     counterUi.unmount();
+    lastRenderedCounter = null;
 }
 
 /**
@@ -161,9 +173,15 @@ function animateCounterReset() {
  * @param {object} options
  * @param {boolean} options.animate
  * @param {number} options.delta
+ * @param {boolean} options.force
  */
-function updateCounterDisplay({ animate = false, delta = 1 } = {}) {
+function updateCounterDisplay({ animate = false, delta = 1, force = false } = {}) {
+    if (!force && lastRenderedCounter === counter) {
+        return;
+    }
+
     counterUi.setCount(counter, { animate, delta });
+    lastRenderedCounter = counter;
 }
 
 /**
@@ -245,13 +263,6 @@ function triggerAutoAdvance(reason, options = {}) {
         return false;
     }
 
-    if (options.sourceVideo instanceof HTMLVideoElement) {
-        const activeVideo = getActiveShortsVideoElement();
-        if (activeVideo && activeVideo !== options.sourceVideo) {
-            return false;
-        }
-    }
-
     const attempt = {
         shortId: currentShortId,
         expectedShortId,
@@ -298,14 +309,6 @@ function triggerAutoAdvance(reason, options = {}) {
             clearAutoAdvanceAttempt();
             return;
         }
-        if (attempt.sourceVideo instanceof HTMLVideoElement) {
-            const activeVideo = getActiveShortsVideoElement();
-            if (activeVideo && activeVideo !== attempt.sourceVideo) {
-                clearAutoAdvanceAttempt();
-                return;
-            }
-        }
-
         const advanced = advanceToNextShort();
         if (advanced) {
             logger.debug('Auto-advanced to next short', {
@@ -358,8 +361,7 @@ function bindAutoAdvanceHandler(video, shortId) {
             return;
         }
 
-        const activeVideo = getActiveShortsVideoElement();
-        if (activeVideo && activeVideo !== video) {
+        if (getCurrentShortsId() !== shortId) {
             lastPlaybackTime = currentTime;
             return;
         }
@@ -416,8 +418,7 @@ function bindAutoAdvanceHandler(video, shortId) {
         if (!enabled || !isShortsWatchPage()) {
             return;
         }
-        const activeVideo = getActiveShortsVideoElement();
-        if (activeVideo && activeVideo !== video) {
+        if (getCurrentShortsId() !== shortId) {
             return;
         }
         triggerAutoAdvance('seek-end', { expectedShortId: shortId, sourceVideo: video });
@@ -446,7 +447,7 @@ function scheduleEndedBinding() {
     }
 
     if (endBindTimer) {
-        window.clearTimeout(endBindTimer);
+        return;
     }
 
     endBindTimer = window.setTimeout(() => {
@@ -489,9 +490,9 @@ async function syncCounterWithCurrentShort() {
         return;
     }
 
-    ensureAutoAdvanceToggle();
-    ensureCounterLabel();
-    updateCounterDisplay();
+    const toggleMountedNow = ensureAutoAdvanceToggle();
+    const counterMountedNow = ensureCounterLabel();
+    updateCounterDisplay({ force: toggleMountedNow || counterMountedNow });
     scheduleEndedBinding();
 
     const shortId = getCurrentShortsId();
@@ -537,6 +538,82 @@ function scheduleContextCheck() {
 }
 
 /**
+ * Check if one node suggests Shorts tree changes.
+ * @param {Node|null} node
+ * @returns {boolean}
+ */
+function nodeLooksLikeShortsSurface(node) {
+    if (!(node instanceof Element)) {
+        return false;
+    }
+
+    if (
+        node.matches('ytd-shorts')
+        || node.matches('ytd-reel-video-renderer')
+        || node.matches('ytd-reel-player-overlay-renderer')
+        || node.matches('ytd-reel-player-header-renderer')
+    ) {
+        return true;
+    }
+
+    return Boolean(
+        node.querySelector('ytd-shorts, ytd-reel-video-renderer, ytd-reel-player-overlay-renderer, ytd-reel-player-header-renderer')
+    );
+}
+
+/**
+ * Check node-list for Shorts-related tree updates.
+ * @param {NodeList} nodeList
+ * @returns {boolean}
+ */
+function nodeListContainsShortsSurface(nodeList) {
+    if (!nodeList || nodeList.length === 0) {
+        return false;
+    }
+
+    for (const node of nodeList) {
+        if (nodeLooksLikeShortsSurface(node)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Fast mutation filter to ignore unrelated page churn outside Shorts context.
+ * @param {MutationRecord[]} mutations
+ * @returns {boolean}
+ */
+function mutationAffectsShortsContext(mutations) {
+    if (!Array.isArray(mutations) || mutations.length === 0) {
+        return false;
+    }
+
+    for (const mutation of mutations) {
+        if (mutation.type === 'attributes') {
+            const target = mutation.target;
+            if (
+                target instanceof Element
+                && (target.matches('ytd-reel-video-renderer, ytd-shorts') || Boolean(target.closest('ytd-shorts')))
+            ) {
+                return true;
+            }
+            continue;
+        }
+
+        if (
+            mutation.type === 'childList'
+            && (nodeListContainsShortsSurface(mutation.addedNodes) || nodeListContainsShortsSurface(mutation.removedNodes))
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * Set up DOM observer for Shorts feed changes.
  */
 function setupNavigationObserver() {
@@ -545,7 +622,10 @@ function setupNavigationObserver() {
     }
 
     observer = createThrottledObserver(
-        () => {
+        (mutations) => {
+            if (!isShortsWatchPage() && !mutationAffectsShortsContext(mutations)) {
+                return;
+            }
             scheduleContextCheck();
         },
         OBSERVER_THROTTLE_MS,

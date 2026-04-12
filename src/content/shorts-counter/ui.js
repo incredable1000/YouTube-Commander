@@ -11,6 +11,7 @@ import { getActiveShortsRenderer } from './pageContext.js';
  * @returns {{
  *   mount: () => void,
  *   unmount: () => void,
+ *   syncHost: () => void,
  *   setCount: (count: number, options?: {animate?: boolean, delta?: number}) => void,
  *   animateReset: () => void,
  *   isMounted: () => boolean
@@ -25,6 +26,7 @@ function createShortsCounterUi(options) {
     let clickCleanup = null;
     let animationTimer = null;
     let lastHost = null;
+    let lastRenderedCount = null;
 
     const hostSelectors = [
         'ytd-reel-player-overlay-renderer #actions',
@@ -106,12 +108,12 @@ function createShortsCounterUi(options) {
         counterLabel.id = labelId;
         counterLabel.type = 'button';
         counterLabel.className = 'yt-commander-shorts-counter';
-        counterLabel.setAttribute('aria-label', 'Shorts watched this tab. Click to reset.');
-        counterLabel.title = 'Watched this tab (click to reset)';
+        counterLabel.setAttribute('aria-label', 'Shorts session counter. Click to reset.');
+        counterLabel.title = 'Session counter (click to reset)';
         counterLabel.innerHTML = [
             '<span class="yt-commander-shorts-counter__icon" aria-hidden="true">',
             '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">',
-            '<path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zm0 12a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zm0-2.25a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5z"></path>',
+            '<path d="M15 1H9v2h6V1zm5.03 5.39-1.42-1.42-1.41 1.42A7.93 7.93 0 0 0 12 4a8 8 0 1 0 8 8c0-2.21-.9-4.21-2.34-5.61L20.03 6.39zM12 18a6 6 0 1 1 0-12 6 6 0 0 1 0 12zm1-9h-2v4.2l3.6 2.1 1-1.64-2.6-1.56V9z"></path>',
             '</svg>',
             '</span>',
             '<span class="yt-commander-shorts-counter__count">0</span>'
@@ -145,8 +147,13 @@ function createShortsCounterUi(options) {
             return;
         }
 
-        attachToHost();
-        counterValue.textContent = Number(count || 0).toLocaleString();
+        const nextCount = Number(count || 0);
+        if (lastRenderedCount === nextCount && !options.animate) {
+            return;
+        }
+
+        counterValue.textContent = nextCount.toLocaleString();
+        lastRenderedCount = nextCount;
 
         if (animationTimer) {
             window.clearTimeout(animationTimer);
@@ -166,7 +173,8 @@ function createShortsCounterUi(options) {
         unmount,
         setCount,
         animateReset,
-        isMounted: () => Boolean(counterLabel && counterValue)
+        isMounted: () => Boolean(counterLabel && counterValue),
+        syncHost: attachToHost
     };
 }
 
@@ -180,6 +188,7 @@ function createShortsCounterUi(options) {
  * @returns {{
  *  mount: () => void,
  *  unmount: () => void,
+ *  syncHost: () => void,
  *  setEnabled: (value: boolean) => void,
  *  isMounted: () => boolean
  * }}
@@ -310,16 +319,21 @@ function createShortsAutoAdvanceToggleUi(options) {
     }
 
     function setEnabled(nextValue) {
-        enabled = Boolean(nextValue);
+        const normalized = Boolean(nextValue);
+        if (enabled === normalized) {
+            return;
+        }
+
+        enabled = normalized;
         applyEnabledState();
-        attachToHost();
     }
 
     return {
         mount,
         unmount,
         setEnabled,
-        isMounted: () => Boolean(toggleButton)
+        isMounted: () => Boolean(toggleButton),
+        syncHost: attachToHost
     };
 }
 

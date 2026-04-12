@@ -426,8 +426,6 @@ body.yt-commander-windowed-lock #columns {
     cursor: pointer;
     user-select: none;
     z-index: 99999;
-    backdrop-filter: blur(12px) saturate(140%);
-    -webkit-backdrop-filter: blur(12px) saturate(140%);
     transition: transform 0.2s ease;
 }
 
@@ -503,8 +501,6 @@ body.yt-commander-windowed-lock #columns {
     cursor: pointer;
     user-select: none;
     z-index: 99999;
-    backdrop-filter: blur(12px) saturate(140%);
-    -webkit-backdrop-filter: blur(12px) saturate(140%);
     transition: transform 0.2s ease;
 }
 
