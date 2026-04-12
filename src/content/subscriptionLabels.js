@@ -7,31 +7,6 @@ const LOCAL_STORAGE_KEY = 'ytCommanderSubscribedChannelsCache';
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
-let isHovering = false;
-let hoverResumeTimer = null;
-
-function onHoverStart() {
-    if (isHovering) return;
-    isHovering = true;
-    if (hoverResumeTimer) {
-        clearTimeout(hoverResumeTimer);
-        hoverResumeTimer = null;
-    }
-}
-
-function onHoverEnd() {
-    if (hoverResumeTimer) return;
-    hoverResumeTimer = setTimeout(() => {
-        isHovering = false;
-        hoverResumeTimer = null;
-    }, 600);
-}
-
-function isCardElement(target) {
-    if (!target) return false;
-    return target.matches?.('ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer')
-        || target.closest?.('ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-rich-section-renderer');
-}
 const LABEL_CLASS = 'yt-commander-subscription-label';
 const LABEL_KIND_ATTR = 'data-yt-commander-subscription-kind';
 const LABEL_KIND_SUBSCRIBED = 'subscribed';
@@ -58,6 +33,9 @@ const SHORTS_CHANNEL_CACHE_KEY = 'ytCommanderShortsChannelCache';
 const SHORTS_CHANNEL_CACHE_LIMIT = 3000;
 const SHORTS_LOOKUP_CONCURRENCY = 3;
 const SHORTS_LOOKUP_FAIL_TTL_MS = 10 * 60 * 1000;
+const DEFER_RENDER_DELAY_MS = 260;
+const MAX_DECORATIONS_PER_FRAME = 48;
+const HOME_SCAN_BURST_DELAYS_MS = [0, 260, 900];
 
 let subscribedChannelIds = new Set();
 let subscribedChannelPaths = new Set();
@@ -76,7 +54,8 @@ let shortsLookupInFlight = new Set();
 let shortsLookupFailures = new Map();
 let shortsLookupCards = new Map();
 let homeBootstrapped = false;
-let scanIntervalId = null;
+let deferredRenderTimer = null;
+let homeScanBurstToken = 0;
 
 function setDebugState(key, value) {
     try {
@@ -460,7 +439,16 @@ function processShortsLookupQueue() {
                     saveShortsChannelCache();
                     const cards = shortsLookupCards.get(videoId);
                     if (cards) {
-                        cards.forEach((card) => decorateCard(card));
+                        let hasDeferredCards = false;
+                        cards.forEach((card) => {
+                            if (!decorateCard(card)) {
+                                pendingCards.add(card);
+                                hasDeferredCards = true;
+                            }
+                        });
+                        if (hasDeferredCards) {
+                            scheduleDeferredRender();
+                        }
                     }
                 } else {
                     shortsLookupFailures.set(videoId, Date.now());
@@ -844,7 +832,7 @@ async function saveSubscriptionCache(channelIds, channelPaths, continuations = [
 async function ensureSubscriptionIndex() {
     const cacheState = await loadSubscriptionCache();
     const hasContinuations = Array.isArray(cacheState.continuations) && cacheState.continuations.length > 0;
-    if (cacheState.fresh && cacheState.complete && cacheState.source === CSV_SOURCE && !hasContinuations) {
+    if (cacheState.fresh && cacheState.complete && cacheState.source === BROWSE_SOURCE && !hasContinuations) {
         dataInitialized = true;
         setDebugMeta('data-ready', dataReady);
         scanVisibleCards();
@@ -941,6 +929,8 @@ function injectStyles() {
             background: rgba(255, 255, 255, 0.1);
             color: #e2e8f0;
             white-space: nowrap;
+            pointer-events: none;
+            user-select: none;
         }
 
         ytd-browse[page-subtype="home"] .${LABEL_CLASS},
@@ -1208,22 +1198,23 @@ function ensureLabel(anchor, hostOverride = null) {
 /**
  * Decorate a card with subscription label.
  * @param {Element} card
+ * @returns {boolean} True when processed; false when deferred to protect hover preview.
  */
 function decorateCard(card) {
+    if (!(card instanceof Element)) {
+        return true;
+    }
+
     if (!isHomeCard(card)) {
         clearLabelsFromCard(card);
-        return;
+        return true;
     }
     if (!dataInitialized) {
-        return;
+        return true;
     }
 
-    if (card.matches(':hover') || card.contains(document.activeElement)) {
-        return;
-    }
-
-    if (isHovering) {
-        return;
+    if (isCardPreviewActive(card)) {
+        return false;
     }
 
     const { channelId, channelPath, anchor, host } = extractChannelInfo(card);
@@ -1244,11 +1235,11 @@ function decorateCard(card) {
                         label.textContent = 'Subscribed';
                     }
                 }
-                return;
+                return true;
             }
             enqueueShortsLookup(shortsVideoId, card);
         }
-        return;
+        return true;
     }
 
     const isSubscribed = (channelId && subscribedChannelIds.has(channelId))
@@ -1263,12 +1254,12 @@ function decorateCard(card) {
         if (shortsVideoId && !shortsChannelCache.has(shortsVideoId)) {
             enqueueShortsLookup(shortsVideoId, card);
         }
-        return;
+        return true;
     }
 
     const label = ensureLabel(anchor, host);
     if (!label) {
-        return;
+        return true;
     }
     label.setAttribute(LABEL_KIND_ATTR, LABEL_KIND_SUBSCRIBED);
     label.textContent = 'Subscribed';
@@ -1278,6 +1269,78 @@ function decorateCard(card) {
     } catch (_error) {
         // Ignore DOM errors.
     }
+    return true;
+}
+
+/**
+ * Check whether a video element is currently playing.
+ * @param {Element|null} element
+ * @returns {boolean}
+ */
+function isVideoElementPlaying(element) {
+    return element instanceof HTMLVideoElement
+        && !element.paused
+        && !element.ended
+        && element.readyState >= 2;
+}
+
+/**
+ * True while a specific card is in active hover-preview interaction.
+ * @param {Element} card
+ * @returns {boolean}
+ */
+function isCardPreviewActive(card) {
+    if (!(card instanceof Element)) {
+        return false;
+    }
+
+    if (card.matches(':hover')) {
+        return true;
+    }
+
+    if (card.contains(document.activeElement)) {
+        return true;
+    }
+
+    if (card.querySelector('ytd-video-preview[is-hovered], ytd-video-preview[is-previewing], ytd-moving-thumbnail-renderer[is-hovered], ytd-rich-grid-media[is-hovered]')) {
+        return true;
+    }
+
+    const previewVideos = card.querySelectorAll('ytd-video-preview video, ytd-moving-thumbnail-renderer video');
+    for (const previewVideo of previewVideos) {
+        if (isVideoElementPlaying(previewVideo)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Clear deferred render timer.
+ */
+function clearDeferredRenderTimer() {
+    if (!deferredRenderTimer) {
+        return;
+    }
+    window.clearTimeout(deferredRenderTimer);
+    deferredRenderTimer = null;
+}
+
+/**
+ * Defer card decoration when user interaction/preview is active.
+ * @param {number} [delayMs=DEFER_RENDER_DELAY_MS]
+ */
+function scheduleDeferredRender(delayMs = DEFER_RENDER_DELAY_MS) {
+    if (deferredRenderTimer) {
+        return;
+    }
+
+    deferredRenderTimer = window.setTimeout(() => {
+        deferredRenderTimer = null;
+        if (pendingCards.size > 0) {
+            scheduleRender();
+        }
+    }, delayMs);
 }
 
 /**
@@ -1294,11 +1357,44 @@ function scheduleRender() {
         if (!isEligiblePage()) {
             clearLabels();
             pendingCards.clear();
+            clearDeferredRenderTimer();
             return;
         }
+        if (pendingCards.size === 0) {
+            return;
+        }
+
+        clearDeferredRenderTimer();
         const cards = Array.from(pendingCards);
         pendingCards.clear();
-        cards.forEach((card) => decorateCard(card));
+
+        const cardsToProcess = cards.slice(0, MAX_DECORATIONS_PER_FRAME);
+        const overflowCards = cards.slice(MAX_DECORATIONS_PER_FRAME);
+        let deferredByPreview = false;
+
+        cardsToProcess.forEach((card) => {
+            if (!card || !card.isConnected) {
+                return;
+            }
+            if (!decorateCard(card)) {
+                pendingCards.add(card);
+                deferredByPreview = true;
+            }
+        });
+
+        overflowCards.forEach((card) => {
+            if (card && card.isConnected) {
+                pendingCards.add(card);
+            }
+        });
+
+        if (pendingCards.size > 0) {
+            if (deferredByPreview) {
+                scheduleDeferredRender();
+            } else {
+                scheduleRender();
+            }
+        }
     });
 }
 
@@ -1323,6 +1419,8 @@ function scanVisibleCards() {
     const homeRoot = getHomeBrowseRoot();
     if (!homeRoot) {
         clearLabels();
+        pendingCards.clear();
+        clearDeferredRenderTimer();
         return;
     }
     if (!homeBootstrapped) {
@@ -1340,6 +1438,10 @@ function scanVisibleCards() {
         });
     }
 
+    if (!dataInitialized) {
+        return;
+    }
+
     const cards = homeRoot.querySelectorAll(CARD_SELECTOR);
     if (cards.length > 0) {
         try {
@@ -1349,6 +1451,22 @@ function scanVisibleCards() {
         }
         queueCards(cards);
     }
+}
+
+/**
+ * Schedule a short burst of scans around navigation/hydration updates.
+ */
+function scheduleHomeScanBurst() {
+    homeScanBurstToken += 1;
+    const token = homeScanBurstToken;
+    HOME_SCAN_BURST_DELAYS_MS.forEach((delayMs) => {
+        window.setTimeout(() => {
+            if (token !== homeScanBurstToken) {
+                return;
+            }
+            scanVisibleCards();
+        }, delayMs);
+    });
 }
 
 function clearLabels() {
@@ -1380,38 +1498,42 @@ function startObserver() {
     }
 
     mutationObserver = new MutationObserver((mutations) => {
-        if (!isEligiblePage()) {
+        const homeRoot = getHomeBrowseRoot();
+        if (!homeRoot) {
             clearLabels();
+            pendingCards.clear();
             return;
         }
-        const found = [];
+        const found = new Set();
         for (const mutation of mutations) {
             mutation.addedNodes.forEach((node) => {
                 if (!(node instanceof Element)) {
                     return;
                 }
-                if (node.matches && node.matches(CARD_SELECTOR)) {
-                    found.push(node);
-                } else {
-                    node.querySelectorAll?.(CARD_SELECTOR).forEach((card) => found.push(card));
+
+                if (node === homeRoot || node.contains(homeRoot)) {
+                    homeRoot.querySelectorAll(CARD_SELECTOR).forEach((card) => found.add(card));
+                    return;
                 }
+
+                if (!homeRoot.contains(node)) {
+                    return;
+                }
+
+                if (node.matches && node.matches(CARD_SELECTOR)) {
+                    found.add(node);
+                    return;
+                }
+
+                node.querySelectorAll?.(CARD_SELECTOR).forEach((card) => found.add(card));
             });
         }
-        if (found.length > 0) {
+        if (found.size > 0) {
             queueCards(found);
         }
     });
 
     mutationObserver.observe(document.documentElement, { childList: true, subtree: true });
-}
-
-function startScanLoop() {
-    if (scanIntervalId) {
-        return;
-    }
-    scanIntervalId = window.setInterval(() => {
-        scanVisibleCards();
-    }, 1000);
 }
 
 /**
@@ -1420,32 +1542,20 @@ function startScanLoop() {
 async function init() {
     injectStyles();
     loadShortsChannelCache();
-    dataInitialized = true;
     setDebugState('initializedAt', Date.now());
     setDebugAttribute('initialized');
     
     startObserver();
-    startScanLoop();
-    scanVisibleCards();
-    window.addEventListener('yt-navigate-finish', scanVisibleCards);
-    document.addEventListener('yt-navigate-finish', scanVisibleCards);
-    window.addEventListener('yt-page-data-updated', scanVisibleCards);
-    document.addEventListener('yt-page-data-updated', scanVisibleCards);
-     
-    let lastHoverCheck = 0;
-    document.addEventListener('mousemove', (e) => {
-        const now = Date.now();
-        if (now - lastHoverCheck < 100) return;
-        lastHoverCheck = now;
-        
-        if (isCardElement(e.target)) {
-            onHoverStart();
-        } else {
-            onHoverEnd();
-        }
-    }, { passive: true });
-    
-    document.addEventListener('mouseleave', onHoverEnd);
+    scheduleHomeScanBurst();
+
+    const handleHomeRefresh = () => {
+        scheduleHomeScanBurst();
+    };
+
+    window.addEventListener('yt-navigate-finish', handleHomeRefresh);
+    document.addEventListener('yt-navigate-finish', handleHomeRefresh);
+    window.addEventListener('yt-page-data-updated', handleHomeRefresh);
+    document.addEventListener('yt-page-data-updated', handleHomeRefresh);
 }
 
 /**
