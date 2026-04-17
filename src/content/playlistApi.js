@@ -14,6 +14,8 @@ const RESPONSE_TYPE = 'YT_COMMANDER_PLAYLIST_BRIDGE_RESPONSE';
 const ACTIONS = {
     GET_PLAYLISTS: 'GET_PLAYLISTS',
     GET_PLAYLIST_THUMBNAILS: 'GET_PLAYLIST_THUMBNAILS',
+    SHOW_NATIVE_TOAST: 'SHOW_NATIVE_TOAST',
+    OPEN_NATIVE_PLAYLIST_DRAWER: 'OPEN_NATIVE_PLAYLIST_DRAWER',
     ADD_TO_PLAYLISTS: 'ADD_TO_PLAYLISTS',
     CREATE_PLAYLIST_AND_ADD: 'CREATE_PLAYLIST_AND_ADD',
     REMOVE_FROM_PLAYLIST: 'REMOVE_FROM_PLAYLIST',
@@ -29,6 +31,9 @@ const MAX_BATCH_SIZE = 45;
 const REMOVE_LOOKUP_CONCURRENCY = 4;
 const EDIT_PLAYLIST_RETRY_ATTEMPTS = 2;
 const EDIT_PLAYLIST_RETRY_DELAY_MS = 420;
+const EDIT_PLAYLIST_BATCH_CONCURRENCY = 2;
+const EDIT_PLAYLIST_SINGLE_VIDEO_RETRY_ATTEMPTS = 18;
+const DELETE_PLAYLIST_CONCURRENCY = 4;
 const SHORTS_TIMESTAMP_RESOLVE_CONCURRENCY = 6;
 const SUBSCRIPTION_BROWSE_ID = 'FEchannels';
 const SUBSCRIPTION_PAGE_LIMIT = 600;
@@ -661,7 +666,10 @@ function collectPlaylistOptions(node, output, visited) {
         if (PLAYLIST_ID_PATTERN.test(playlistId)) {
             const title = readText(renderer.title) || readText(renderer.untoggledServiceEndpoint?.commandMetadata) || 'Untitled playlist';
             const privacy = readText(renderer.shortBylineText) || '';
-            const isSelected = renderer.isSelected === true || renderer.containsSelectedVideos === true;
+            const containsSelected = renderer.containsSelectedVideos;
+            const isSelected = renderer.isSelected === true
+                || containsSelected === true
+                || containsSelected === 'ALL';
             const thumbnailUrl = readPlaylistThumbnailUrl(renderer);
 
             if (!output.has(playlistId)) {
@@ -917,52 +925,78 @@ async function executeRemoveEntriesBatched(playlistId, entries, config, options 
     const batches = chunk(entries, safeBatchSize);
     const appliedVideoIds = new Set();
     const failedEntries = [];
+    const progress = {
+        processed: 0,
+        total: entries.length
+    };
 
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
-        const batch = batches[batchIndex];
-        let success = false;
-        let lastError = null;
+    const batchResults = await mapWithConcurrency(
+        batches,
+        Math.min(EDIT_PLAYLIST_BATCH_CONCURRENCY, batches.length),
+        async (batch) => {
+            let success = false;
+            let lastError = null;
 
-        const payload = {
-            context: config.context,
-            playlistId,
-            actions: batch.map((entry) => entry.action)
-        };
+            const payload = {
+                context: config.context,
+                playlistId,
+                actions: batch.map((entry) => entry.action)
+            };
 
-        for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
-            try {
-                await postInnertube(['playlist/edit_playlist', 'browse/edit_playlist'], payload, config);
-                success = true;
-                break;
-            } catch (error) {
-                lastError = error;
-                if (attempt < retryAttempts) {
-                    await delay(EDIT_PLAYLIST_RETRY_DELAY_MS * attempt);
+            for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
+                try {
+                    await postInnertube(['playlist/edit_playlist', 'browse/edit_playlist'], payload, config);
+                    success = true;
+                    break;
+                } catch (error) {
+                    lastError = error;
+                    if (attempt < retryAttempts) {
+                        await delay(EDIT_PLAYLIST_RETRY_DELAY_MS * attempt);
+                    }
                 }
             }
-        }
 
-        if (success) {
-            batch.forEach((entry) => {
+            if (success) {
+                progress.processed += batch.length;
+                if (onProgress) {
+                    onProgress({
+                        processed: progress.processed,
+                        total: progress.total
+                    });
+                }
+                return {
+                    success: true,
+                    entries: batch,
+                    error: ''
+                };
+            }
+
+            return {
+                success: false,
+                entries: batch,
+                error: lastError instanceof Error ? lastError.message : 'Failed to remove videos batch.'
+            };
+        }
+    );
+
+    batchResults.forEach((result) => {
+        if (result?.success) {
+            const entriesForBatch = Array.isArray(result.entries) ? result.entries : [];
+            entriesForBatch.forEach((entry) => {
                 appliedVideoIds.add(entry.videoId);
             });
-            if (onProgress) {
-                onProgress({
-                    processed: appliedVideoIds.size,
-                    total: entries.length
-                });
-            }
-            continue;
+            return;
         }
 
-        const errorText = lastError instanceof Error ? lastError.message : 'Failed to remove videos batch.';
-        batch.forEach((entry) => {
+        const errorText = result?.error || 'Failed to remove videos batch.';
+        const entriesForBatch = Array.isArray(result?.entries) ? result.entries : [];
+        entriesForBatch.forEach((entry) => {
             failedEntries.push({
                 ...entry,
                 error: errorText
             });
         });
-    }
+    });
 
     return {
         appliedVideoIds,
@@ -1032,6 +1066,1010 @@ function buildGetAddToPlaylistPayload(context, videoId = '') {
     }
 
     return payload;
+}
+
+/**
+ * Read an experiment flag as boolean from ytcfg.
+ * @param {string} flagName
+ * @returns {boolean}
+ */
+function readExperimentFlagBoolean(flagName) {
+    const groups = [
+        getYtCfgValue('EXPERIMENT_FLAGS'),
+        getYtCfgValue('EXPERIMENTS_FORCED_FLAGS')
+    ];
+
+    for (const flags of groups) {
+        if (!flags || typeof flags !== 'object') {
+            continue;
+        }
+        if (!Object.prototype.hasOwnProperty.call(flags, flagName)) {
+            continue;
+        }
+
+        const value = flags[flagName];
+        if (value === true || value === 1 || value === '1') {
+            return true;
+        }
+        if (typeof value === 'string') {
+            return value.toLowerCase() === 'true';
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Resolve popup type used by YouTube for add-to-playlist drawer.
+ * @returns {'DIALOG'|'RESPONSIVE_DROPDOWN'}
+ */
+function resolveAddToPlaylistPopupType() {
+    const useDialog = readExperimentFlagBoolean('desktop_add_to_playlist_renderer_dialog_popup');
+    return useDialog ? 'DIALOG' : 'RESPONSIVE_DROPDOWN';
+}
+
+/**
+ * Find first addToPlaylistRenderer in an arbitrary payload.
+ * @param {any} node
+ * @returns {object|null}
+ */
+function findAddToPlaylistRenderer(node) {
+    const renderers = [];
+    collectNodesByKey(node, 'addToPlaylistRenderer', renderers, new WeakSet(), 0, 8);
+    for (const renderer of renderers) {
+        if (renderer && typeof renderer === 'object') {
+            return renderer;
+        }
+    }
+    return null;
+}
+
+/**
+ * Whether an element is currently visible.
+ * @param {Element|null|undefined} element
+ * @returns {boolean}
+ */
+function isElementVisible(element) {
+    if (!(element instanceof Element) || !element.isConnected || element.hasAttribute('hidden')) {
+        return false;
+    }
+
+    const style = window.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Resolve native add-to-playlist drawer root if it is visible.
+ * Supports legacy and modernized playlist drawer variants.
+ * @returns {Element|null}
+ */
+function findNativeAddToPlaylistDrawerElement() {
+    const selectors = [
+        'ytd-popup-container ytd-add-to-playlist-renderer',
+        'ytd-popup-container ytd-add-to-playlist-create-renderer',
+        'ytd-popup-container ytd-playlist-add-to-option-renderer',
+        'ytd-popup-container yt-playlist-add-to-option-view-model'
+    ];
+
+    for (const selector of selectors) {
+        const nodes = document.querySelectorAll(selector);
+        for (const node of nodes) {
+            if (isElementVisible(node)) {
+                return node;
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Resolve candidate host elements around a target video id.
+ * @param {string} videoId
+ * @returns {Element[]}
+ */
+function collectVideoProbeElements(videoId) {
+    const elements = [];
+    const seen = new Set();
+
+    const addElement = (element) => {
+        if (!(element instanceof Element)) {
+            return;
+        }
+        if (seen.has(element)) {
+            return;
+        }
+
+        seen.add(element);
+        elements.push(element);
+    };
+
+    document.querySelectorAll(
+        `.yt-commander-playlist-host[data-yt-commander-video-id="${videoId}"], `
+        + `[data-video-id="${videoId}"], [video-id="${videoId}"]`
+    ).forEach((element) => {
+        addElement(element);
+        addElement(element.closest(
+            'ytd-playlist-video-renderer, ytd-video-renderer, ytd-rich-item-renderer, '
+            + 'ytd-grid-video-renderer, ytd-compact-video-renderer, ytd-reel-item-renderer, ytd-watch-flexy'
+        ));
+    });
+
+    document.querySelectorAll(`a[href*="watch?v=${videoId}"], a[href*="/shorts/${videoId}"]`).forEach((link) => {
+        addElement(link);
+        addElement(link.closest(
+            'ytd-playlist-video-renderer, ytd-video-renderer, ytd-rich-item-renderer, '
+            + 'ytd-grid-video-renderer, ytd-compact-video-renderer, ytd-reel-item-renderer, ytd-watch-flexy'
+        ));
+    });
+
+    addElement(document.querySelector('ytd-watch-flexy'));
+    addElement(document.querySelector('ytd-reel-video-renderer'));
+    addElement(document.querySelector('ytd-reel-player-overlay-renderer'));
+
+    return elements;
+}
+
+/**
+ * Check if element behaves as an actionable save button.
+ * @param {Element|null|undefined} element
+ * @returns {boolean}
+ */
+function isActionableSaveButton(element) {
+    if (!(element instanceof Element) || !isElementVisible(element)) {
+        return false;
+    }
+    if (element.getAttribute('aria-disabled') === 'true' || element.hasAttribute('disabled')) {
+        return false;
+    }
+
+    const label = [
+        element.getAttribute('aria-label') || '',
+        element.getAttribute('title') || '',
+        element.getAttribute('data-tooltip') || '',
+        element.textContent || ''
+    ].join(' ').replace(/\s+/g, ' ').trim().toLowerCase();
+
+    if (!label) {
+        return false;
+    }
+
+    if (label.includes('save to playlist')) {
+        return true;
+    }
+
+    return label === 'save' || label.startsWith('save ');
+}
+
+/**
+ * Dispatch a robust click sequence.
+ * @param {Element} element
+ */
+function triggerElementClick(element) {
+    if (!(element instanceof Element)) {
+        return;
+    }
+
+    const events = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+    events.forEach((type) => {
+        element.dispatchEvent(new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            view: window
+        }));
+    });
+
+    if (typeof element.click === 'function') {
+        try {
+            element.click();
+        } catch (_error) {
+            // Ignore and rely on dispatched events.
+        }
+    }
+}
+
+/**
+ * Try opening save drawer by clicking YouTube's native Save control.
+ * @param {string} videoId
+ * @returns {Promise<boolean>}
+ */
+async function openNativePlaylistDrawerViaNativeButton(videoId) {
+    if (!VIDEO_ID_PATTERN.test(videoId)) {
+        return false;
+    }
+
+    const probeElements = collectVideoProbeElements(videoId);
+    const buttonSelectors = [
+        'button[aria-label*="Save to playlist"]',
+        'button[aria-label*="Save"]',
+        '[role="button"][aria-label*="Save to playlist"]',
+        '[role="button"][aria-label*="Save"]',
+        'yt-button-view-model button[aria-label*="Save"]',
+        'ytd-menu-renderer button[aria-label*="Save"]',
+        'button[title*="Save"]'
+    ];
+
+    for (const probe of probeElements) {
+        for (const selector of buttonSelectors) {
+            const candidates = probe.querySelectorAll(selector);
+            for (const candidate of candidates) {
+                if (!isActionableSaveButton(candidate)) {
+                    continue;
+                }
+
+                triggerElementClick(candidate);
+                if (await waitForNativeAddToPlaylistDrawerOpen(1300)) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Wait for native add-to-playlist drawer visibility.
+ * @param {number} timeoutMs
+ * @returns {Promise<boolean>}
+ */
+async function waitForNativeAddToPlaylistDrawerOpen(timeoutMs = 1100) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt <= timeoutMs) {
+        if (isNativeAddToPlaylistDrawerOpen()) {
+            return true;
+        }
+        await delay(90);
+    }
+
+    return isNativeAddToPlaylistDrawerOpen();
+}
+
+/**
+ * Ensure command metadata can run through yt-service-request.
+ * @param {object} command
+ * @returns {object}
+ */
+function withAddToPlaylistCommandMetadata(command) {
+    if (!command || typeof command !== 'object') {
+        return {};
+    }
+
+    const commandMetadata = command.commandMetadata && typeof command.commandMetadata === 'object'
+        ? command.commandMetadata
+        : {};
+    const webCommandMetadata = commandMetadata.webCommandMetadata
+        && typeof commandMetadata.webCommandMetadata === 'object'
+        ? commandMetadata.webCommandMetadata
+        : {};
+
+    return {
+        ...command,
+        commandMetadata: {
+            ...commandMetadata,
+            webCommandMetadata: {
+                ...webCommandMetadata,
+                sendPost: true,
+                apiUrl: typeof webCommandMetadata.apiUrl === 'string' && webCommandMetadata.apiUrl
+                    ? webCommandMetadata.apiUrl
+                    : '/youtubei/v1/playlist/get_add_to_playlist'
+            }
+        }
+    };
+}
+
+/**
+ * Normalize any add-to-playlist command shape.
+ * @param {any} command
+ * @param {string} videoId
+ * @returns {object|null}
+ */
+function normalizeAddToPlaylistServiceCommand(command, videoId) {
+    if (!command || typeof command !== 'object' || !VIDEO_ID_PATTERN.test(videoId)) {
+        return null;
+    }
+
+    const rawEndpoint = command.addToPlaylistServiceEndpoint && typeof command.addToPlaylistServiceEndpoint === 'object'
+        ? command.addToPlaylistServiceEndpoint
+        : command.addToPlaylistEndpoint && typeof command.addToPlaylistEndpoint === 'object'
+            ? command.addToPlaylistEndpoint
+            : null;
+    if (!rawEndpoint) {
+        return null;
+    }
+
+    const endpointVideoId = typeof rawEndpoint.videoId === 'string' ? rawEndpoint.videoId.trim() : '';
+    const endpointVideoIds = Array.isArray(rawEndpoint.videoIds)
+        ? rawEndpoint.videoIds.filter((item) => typeof item === 'string' && VIDEO_ID_PATTERN.test(item))
+        : [];
+    const commandVideoId = VIDEO_ID_PATTERN.test(endpointVideoId)
+        ? endpointVideoId
+        : endpointVideoIds[0] || '';
+
+    if (commandVideoId && commandVideoId !== videoId) {
+        return null;
+    }
+
+    const normalizedVideoId = commandVideoId || videoId;
+    const normalizedVideoIds = endpointVideoIds.length > 0 ? endpointVideoIds : [normalizedVideoId];
+    const normalizedEndpoint = {
+        ...rawEndpoint,
+        videoId: normalizedVideoId,
+        videoIds: normalizedVideoIds
+    };
+    if (typeof normalizedEndpoint.excludeWatchLater !== 'boolean') {
+        normalizedEndpoint.excludeWatchLater = false;
+    }
+
+    return withAddToPlaylistCommandMetadata({
+        ...command,
+        addToPlaylistServiceEndpoint: normalizedEndpoint
+    });
+}
+
+/**
+ * Build a fallback add-to-playlist service endpoint command.
+ * @param {string} videoId
+ * @returns {object|null}
+ */
+function buildAddToPlaylistServiceCommand(videoId) {
+    if (!VIDEO_ID_PATTERN.test(videoId)) {
+        return null;
+    }
+
+    return normalizeAddToPlaylistServiceCommand({
+        addToPlaylistServiceEndpoint: {
+            videoId,
+            videoIds: [videoId],
+            excludeWatchLater: false
+        }
+    }, videoId);
+}
+
+/**
+ * Collect likely data-bearing values from a Polymer/custom element.
+ * @param {Element} element
+ * @returns {object[]}
+ */
+function collectCommandProbeValues(element) {
+    if (!(element instanceof Element)) {
+        return [];
+    }
+
+    const values = [];
+    const seen = new WeakSet();
+    const addValue = (value) => {
+        if (!value || typeof value !== 'object' || seen.has(value)) {
+            return;
+        }
+        seen.add(value);
+        values.push(value);
+    };
+    const readValue = (reader) => {
+        try {
+            addValue(reader());
+        } catch (_error) {
+            // Ignore private getter failures.
+        }
+    };
+
+    readValue(() => element.data);
+    readValue(() => element.__data);
+    readValue(() => element.__dataHost);
+    readValue(() => element.__dataHost?.data);
+    readValue(() => element.__dataHost?.__data);
+    readValue(() => element.polymerController);
+    readValue(() => element.polymerController?.data);
+    readValue(() => element.polymerController?.__data);
+    readValue(() => element.inst);
+    readValue(() => element.inst?.data);
+    readValue(() => element.inst?.__data);
+    readValue(() => element.__ytRenderer);
+
+    return values;
+}
+
+/**
+ * Find first add-to-playlist service command within arbitrary data.
+ * @param {any} node
+ * @param {string} videoId
+ * @param {WeakSet<object>} visited
+ * @param {number} depth
+ * @param {number} maxDepth
+ * @returns {object|null}
+ */
+function findAddToPlaylistServiceCommandDeep(node, videoId, visited, depth = 0, maxDepth = 8) {
+    if (!node || typeof node !== 'object' || depth > maxDepth) {
+        return null;
+    }
+    if (visited.has(node)) {
+        return null;
+    }
+    visited.add(node);
+
+    const direct = normalizeAddToPlaylistServiceCommand(node, videoId);
+    if (direct) {
+        return direct;
+    }
+
+    if (Array.isArray(node)) {
+        for (const item of node) {
+            const found = findAddToPlaylistServiceCommandDeep(item, videoId, visited, depth + 1, maxDepth);
+            if (found) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    for (const value of Object.values(node)) {
+        if (!value || typeof value !== 'object') {
+            continue;
+        }
+        const found = findAddToPlaylistServiceCommandDeep(value, videoId, visited, depth + 1, maxDepth);
+        if (found) {
+            return found;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Resolve add-to-playlist service command from live page data for a video.
+ * @param {string} videoId
+ * @returns {object|null}
+ */
+function findAddToPlaylistServiceCommandForVideo(videoId) {
+    if (!VIDEO_ID_PATTERN.test(videoId)) {
+        return null;
+    }
+
+    const probeElements = collectVideoProbeElements(videoId);
+
+    const descendantSelector = [
+        'ytd-menu-service-item-renderer',
+        'ytd-toggle-menu-service-item-renderer',
+        'ytd-menu-renderer',
+        'ytd-menu-popup-renderer'
+    ].join(', ');
+
+    const visitedObjects = new WeakSet();
+    for (const element of probeElements) {
+        const directValues = collectCommandProbeValues(element);
+        for (const value of directValues) {
+            const found = findAddToPlaylistServiceCommandDeep(value, videoId, visitedObjects, 0, 8);
+            if (found) {
+                return found;
+            }
+        }
+
+        const descendants = element.querySelectorAll(descendantSelector);
+        const maxDescendants = 80;
+        const count = Math.min(descendants.length, maxDescendants);
+        for (let index = 0; index < count; index += 1) {
+            const descendant = descendants[index];
+            const descendantValues = collectCommandProbeValues(descendant);
+            for (const value of descendantValues) {
+                const found = findAddToPlaylistServiceCommandDeep(value, videoId, visitedObjects, 0, 8);
+                if (found) {
+                    return found;
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Open native playlist drawer through YouTube command handler.
+ * @param {string} videoId
+ * @param {Element} anchor
+ * @returns {Promise<boolean>}
+ */
+async function openNativePlaylistDrawerViaServiceCommand(videoId, anchor) {
+    const commands = [];
+    const resolvedCommand = findAddToPlaylistServiceCommandForVideo(videoId);
+    if (resolvedCommand) {
+        commands.push(resolvedCommand);
+    }
+
+    const generatedCommand = buildAddToPlaylistServiceCommand(videoId);
+    if (generatedCommand) {
+        commands.push(generatedCommand);
+    }
+
+    for (const command of commands) {
+        dispatchYtAction(anchor, 'yt-service-request', [anchor, command]);
+        if (await waitForNativeAddToPlaylistDrawerOpen(1500)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Resolve an anchor element for opening the native playlist drawer.
+ * @param {string} videoId
+ * @returns {Element}
+ */
+function resolveNativeDrawerAnchor(videoId) {
+    const host = document.querySelector(
+        `.yt-commander-playlist-host[data-yt-commander-video-id="${videoId}"]`
+    );
+    if (host instanceof Element) {
+        return host;
+    }
+
+    const actionSaveButton = document.querySelector(
+        '.yt-commander-playlist-action-button[aria-label="Save to playlist"]'
+    );
+    if (actionSaveButton instanceof Element) {
+        return actionSaveButton;
+    }
+
+    const app = document.querySelector('ytd-app');
+    if (app instanceof Element) {
+        return app;
+    }
+
+    return document.body;
+}
+
+/**
+ * Dispatch a YouTube action through the page action bus.
+ * @param {Element} node
+ * @param {string} actionName
+ * @param {any[]} args
+ */
+function dispatchYtAction(node, actionName, args) {
+    const target = node instanceof Element ? node : document.body;
+    const detail = {
+        actionName,
+        optionalAction: false,
+        args: Array.isArray(args) ? args : [],
+        returnValue: []
+    };
+
+    const event = new CustomEvent('yt-action', {
+        bubbles: true,
+        cancelable: false,
+        composed: true,
+        detail
+    });
+    target.dispatchEvent(event);
+}
+
+/**
+ * Show YouTube native bottom toast from main world.
+ * @param {{message?: string, durationMs?: number}} payload
+ * @returns {{shown: boolean}}
+ */
+function showNativeToast(payload) {
+    const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
+    if (!message) {
+        return { shown: false };
+    }
+
+    const durationMs = Number.isFinite(payload?.durationMs)
+        ? Math.max(1200, Number(payload.durationMs))
+        : 4200;
+
+    const candidates = document.querySelectorAll(
+        'ytd-app tp-yt-paper-toast#toast, ytd-app tp-yt-paper-toast, tp-yt-paper-toast#toast, tp-yt-paper-toast'
+    );
+    for (const candidate of candidates) {
+        if (!(candidate instanceof Element) || typeof candidate.show !== 'function') {
+            continue;
+        }
+        try {
+            candidate.text = message;
+            candidate.duration = durationMs;
+            candidate.show();
+            return { shown: true };
+        } catch (_error) {
+            // Try next candidate.
+        }
+    }
+
+    return { shown: false };
+}
+
+/**
+ * Ensure playlist/edit command metadata is available for yt-service-request.
+ * @param {object} command
+ * @returns {object}
+ */
+function withPlaylistEditCommandMetadata(command) {
+    if (!command || typeof command !== 'object') {
+        return {};
+    }
+
+    const commandMetadata = command.commandMetadata && typeof command.commandMetadata === 'object'
+        ? command.commandMetadata
+        : {};
+    const webCommandMetadata = commandMetadata.webCommandMetadata
+        && typeof commandMetadata.webCommandMetadata === 'object'
+        ? commandMetadata.webCommandMetadata
+        : {};
+
+    return {
+        ...command,
+        commandMetadata: {
+            ...commandMetadata,
+            webCommandMetadata: {
+                ...webCommandMetadata,
+                sendPost: true,
+                apiUrl: typeof webCommandMetadata.apiUrl === 'string' && webCommandMetadata.apiUrl
+                    ? webCommandMetadata.apiUrl
+                    : '/youtubei/v1/playlist/edit_playlist'
+            }
+        }
+    };
+}
+
+/**
+ * Normalize one remove command candidate to a service-request command.
+ * @param {any} command
+ * @param {string} playlistId
+ * @param {string} videoId
+ * @returns {object|null}
+ */
+function normalizePlaylistRemoveServiceCommand(command, playlistId, videoId) {
+    if (!command || typeof command !== 'object') {
+        return null;
+    }
+
+    const candidateWrappers = [
+        {
+            kind: 'remove',
+            root: command.removeFromPlaylistServiceEndpoint,
+            wrap: (normalizedEndpoint) => ({
+                ...command,
+                removeFromPlaylistServiceEndpoint: {
+                    ...(command.removeFromPlaylistServiceEndpoint || {}),
+                    playlistEditEndpoint: normalizedEndpoint
+                }
+            })
+        },
+        {
+            kind: 'playlistEdit',
+            root: command.playlistEditEndpoint,
+            wrap: (normalizedEndpoint) => ({
+                ...command,
+                playlistEditEndpoint: normalizedEndpoint
+            })
+        },
+        {
+            kind: 'servicePlaylistEdit',
+            root: command.serviceEndpoint?.playlistEditEndpoint,
+            wrap: (normalizedEndpoint) => ({
+                ...command,
+                serviceEndpoint: {
+                    ...(command.serviceEndpoint || {}),
+                    playlistEditEndpoint: normalizedEndpoint
+                }
+            })
+        },
+        {
+            kind: 'serviceRemove',
+            root: command.serviceEndpoint?.removeFromPlaylistServiceEndpoint,
+            wrap: (normalizedEndpoint) => ({
+                ...command,
+                serviceEndpoint: {
+                    ...(command.serviceEndpoint || {}),
+                    removeFromPlaylistServiceEndpoint: {
+                        ...(command.serviceEndpoint?.removeFromPlaylistServiceEndpoint || {}),
+                        playlistEditEndpoint: normalizedEndpoint
+                    }
+                }
+            })
+        },
+        {
+            kind: 'toggledPlaylistEdit',
+            root: command.toggledServiceEndpoint?.playlistEditEndpoint,
+            wrap: (normalizedEndpoint) => ({
+                ...command,
+                toggledServiceEndpoint: {
+                    ...(command.toggledServiceEndpoint || {}),
+                    playlistEditEndpoint: normalizedEndpoint
+                }
+            })
+        },
+        {
+            kind: 'toggledRemove',
+            root: command.toggledServiceEndpoint?.removeFromPlaylistServiceEndpoint,
+            wrap: (normalizedEndpoint) => ({
+                ...command,
+                toggledServiceEndpoint: {
+                    ...(command.toggledServiceEndpoint || {}),
+                    removeFromPlaylistServiceEndpoint: {
+                        ...(command.toggledServiceEndpoint?.removeFromPlaylistServiceEndpoint || {}),
+                        playlistEditEndpoint: normalizedEndpoint
+                    }
+                }
+            })
+        }
+    ];
+
+    for (const wrapper of candidateWrappers) {
+        if (!wrapper.root || typeof wrapper.root !== 'object') {
+            continue;
+        }
+
+        const endpoint = wrapper.root.playlistEditEndpoint && typeof wrapper.root.playlistEditEndpoint === 'object'
+            ? wrapper.root.playlistEditEndpoint
+            : wrapper.root;
+        if (!endpoint || typeof endpoint !== 'object') {
+            continue;
+        }
+
+        const endpointPlaylistId = typeof endpoint.playlistId === 'string' ? endpoint.playlistId.trim() : '';
+        if (endpointPlaylistId && endpointPlaylistId !== playlistId) {
+            continue;
+        }
+
+        let normalizedAction = null;
+        if (Array.isArray(endpoint.actions)) {
+            for (const action of endpoint.actions) {
+                normalizedAction = normalizeRemoveAction(action, videoId);
+                if (normalizedAction) {
+                    break;
+                }
+            }
+        }
+
+        if (!normalizedAction) {
+            normalizedAction = normalizeRemoveAction(endpoint, videoId);
+        }
+
+        if (!normalizedAction) {
+            continue;
+        }
+
+        const normalizedEndpoint = {
+            ...endpoint,
+            playlistId: endpointPlaylistId || playlistId,
+            actions: [normalizedAction]
+        };
+
+        return withPlaylistEditCommandMetadata(wrapper.wrap(normalizedEndpoint));
+    }
+
+    return null;
+}
+
+/**
+ * Find first playlist-remove service command in arbitrary object graph.
+ * @param {any} node
+ * @param {string} playlistId
+ * @param {string} videoId
+ * @param {WeakSet<object>} visited
+ * @param {number} depth
+ * @param {number} maxDepth
+ * @returns {object|null}
+ */
+function findNativeRemoveServiceCommandDeep(node, playlistId, videoId, visited, depth = 0, maxDepth = 8) {
+    if (!node || typeof node !== 'object' || depth > maxDepth) {
+        return null;
+    }
+    if (visited.has(node)) {
+        return null;
+    }
+    visited.add(node);
+
+    const direct = normalizePlaylistRemoveServiceCommand(node, playlistId, videoId);
+    if (direct) {
+        return direct;
+    }
+
+    if (Array.isArray(node)) {
+        for (const item of node) {
+            const found = findNativeRemoveServiceCommandDeep(
+                item,
+                playlistId,
+                videoId,
+                visited,
+                depth + 1,
+                maxDepth
+            );
+            if (found) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    for (const value of Object.values(node)) {
+        if (!value || typeof value !== 'object') {
+            continue;
+        }
+
+        const found = findNativeRemoveServiceCommandDeep(
+            value,
+            playlistId,
+            videoId,
+            visited,
+            depth + 1,
+            maxDepth
+        );
+        if (found) {
+            return found;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Resolve native remove command for one playlist video.
+ * @param {string} playlistId
+ * @param {string} videoId
+ * @returns {object|null}
+ */
+function findNativeRemoveServiceCommandForVideo(playlistId, videoId) {
+    if (!PLAYLIST_ID_PATTERN.test(playlistId) || !VIDEO_ID_PATTERN.test(videoId)) {
+        return null;
+    }
+
+    const probeElements = collectVideoProbeElements(videoId);
+    const descendantSelector = [
+        'ytd-menu-service-item-renderer',
+        'ytd-toggle-menu-service-item-renderer',
+        'ytd-menu-renderer',
+        'ytd-menu-popup-renderer',
+        'ytd-playlist-video-renderer'
+    ].join(', ');
+
+    const visited = new WeakSet();
+    for (const element of probeElements) {
+        const values = collectCommandProbeValues(element);
+        for (const value of values) {
+            const found = findNativeRemoveServiceCommandDeep(value, playlistId, videoId, visited, 0, 9);
+            if (found) {
+                return found;
+            }
+        }
+
+        const descendants = element.querySelectorAll(descendantSelector);
+        const maxDescendants = Math.min(descendants.length, 90);
+        for (let index = 0; index < maxDescendants; index += 1) {
+            const descValues = collectCommandProbeValues(descendants[index]);
+            for (const value of descValues) {
+                const found = findNativeRemoveServiceCommandDeep(value, playlistId, videoId, visited, 0, 9);
+                if (found) {
+                    return found;
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Wait for one video renderer to disappear from current UI.
+ * @param {string} videoId
+ * @param {number} timeoutMs
+ * @returns {Promise<boolean>}
+ */
+async function waitForVideoRendererRemoval(videoId, timeoutMs = 1800) {
+    if (!VIDEO_ID_PATTERN.test(videoId)) {
+        return false;
+    }
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt <= timeoutMs) {
+        const visibleHosts = document.querySelectorAll(
+            `.yt-commander-playlist-host[data-yt-commander-video-id="${videoId}"], `
+            + `[data-video-id="${videoId}"], [video-id="${videoId}"]`
+        );
+        if (visibleHosts.length === 0) {
+            return true;
+        }
+
+        await delay(100);
+    }
+
+    return false;
+}
+
+/**
+ * Try native remove commands first so YouTube refreshes playlist UI in-place.
+ * @param {string} playlistId
+ * @param {string[]} videoIds
+ * @param {{onProgress?: (progress: {processed: number, total: number}) => void}} [options]
+ * @returns {Promise<{removedVideoIds: string[], unresolvedVideoIds: string[]}>}
+ */
+async function removeFromPlaylistViaNativeCommands(playlistId, videoIds, options = {}) {
+    const removedVideoIds = [];
+    const unresolvedVideoIds = [];
+    const total = videoIds.length;
+
+    for (let index = 0; index < videoIds.length; index += 1) {
+        const videoId = videoIds[index];
+        const command = findNativeRemoveServiceCommandForVideo(playlistId, videoId);
+        if (!command) {
+            unresolvedVideoIds.push(videoId);
+            if (typeof options?.onProgress === 'function') {
+                options.onProgress({
+                    processed: index + 1,
+                    total
+                });
+            }
+            continue;
+        }
+
+        const anchor = resolveNativeDrawerAnchor(videoId);
+        dispatchYtAction(anchor, 'yt-service-request', [anchor, command]);
+        const removed = await waitForVideoRendererRemoval(videoId, 1700);
+        if (removed) {
+            removedVideoIds.push(videoId);
+        } else {
+            unresolvedVideoIds.push(videoId);
+        }
+
+        if (typeof options?.onProgress === 'function') {
+            options.onProgress({
+                processed: index + 1,
+                total
+            });
+        }
+    }
+
+    return {
+        removedVideoIds,
+        unresolvedVideoIds
+    };
+}
+
+/**
+ * Determine whether native add-to-playlist drawer is currently open.
+ * @returns {boolean}
+ */
+function isNativeAddToPlaylistDrawerOpen() {
+    return Boolean(findNativeAddToPlaylistDrawerElement());
+}
+
+/**
+ * Open YouTube native add-to-playlist drawer for a video.
+ * @param {{videoId?: string}} payload
+ * @returns {Promise<{opened: boolean, popupType: string}>}
+ */
+async function openNativePlaylistDrawer(payload) {
+    const videoId = sanitizeVideoIds([payload?.videoId || ''])[0] || '';
+    if (!videoId) {
+        throw new Error('No valid video selected for native playlist drawer.');
+    }
+
+    const anchor = resolveNativeDrawerAnchor(videoId);
+    const openedViaNativeButton = await openNativePlaylistDrawerViaNativeButton(videoId);
+    if (openedViaNativeButton) {
+        return {
+            opened: true,
+            popupType: 'NATIVE_BUTTON'
+        };
+    }
+
+    const openedViaServiceCommand = await openNativePlaylistDrawerViaServiceCommand(videoId, anchor);
+    if (openedViaServiceCommand) {
+        return {
+            opened: true,
+            popupType: 'SERVICE_REQUEST'
+        };
+    }
+
+    return {
+        opened: false,
+        popupType: 'SERVICE_REQUEST'
+    };
 }
 
 /**
@@ -1405,13 +2443,32 @@ async function addVideosToSinglePlaylist(playlistId, videoIds, config, options =
     const retryAttempts = Number.isFinite(options.retryAttempts)
         ? Math.max(1, Math.floor(options.retryAttempts))
         : EDIT_PLAYLIST_RETRY_ATTEMPTS;
+    const singleVideoRetryAttempts = Number.isFinite(options.singleVideoRetryAttempts)
+        ? Math.max(1, Math.floor(options.singleVideoRetryAttempts))
+        : Math.max(retryAttempts + 2, EDIT_PLAYLIST_SINGLE_VIDEO_RETRY_ATTEMPTS);
 
-    const batches = chunk(videoIds, MAX_BATCH_SIZE);
+    const initialBatches = chunk(videoIds, MAX_BATCH_SIZE);
     const failures = [];
     let addedCount = 0;
+    const progress = {
+        processed: 0,
+        total: videoIds.length
+    };
+    const pendingBatches = initialBatches.map((batch, batchIndex) => ({
+        batchIndex,
+        videoIds: batch
+    }));
+    let syntheticBatchIndex = pendingBatches.length;
 
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
-        const batch = batches[batchIndex];
+    while (pendingBatches.length > 0) {
+        const batchEntry = pendingBatches.shift();
+        const batch = Array.isArray(batchEntry?.videoIds) ? batchEntry.videoIds : [];
+        const batchIndex = Number.isFinite(batchEntry?.batchIndex) ? batchEntry.batchIndex : 0;
+        if (batch.length === 0) {
+            continue;
+        }
+
+        const maxAttempts = batch.length === 1 ? singleVideoRetryAttempts : retryAttempts;
         let success = false;
         let lastError = null;
 
@@ -1424,24 +2481,44 @@ async function addVideosToSinglePlaylist(playlistId, videoIds, config, options =
             }))
         };
 
-        for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
             try {
                 await postInnertube(['playlist/edit_playlist', 'browse/edit_playlist'], payload, config);
                 success = true;
                 break;
             } catch (error) {
                 lastError = error;
-                if (attempt < retryAttempts) {
+                if (attempt < maxAttempts) {
                     await delay(EDIT_PLAYLIST_RETRY_DELAY_MS * attempt);
                 }
             }
         }
 
         if (success) {
+            progress.processed += batch.length;
             addedCount += batch.length;
-            console.log('[PlaylistApi] Batch succeeded, calling onProgress:', { addedCount, total: videoIds.length, hasOnProgress: typeof options.onProgress === 'function' });
             if (typeof options.onProgress === 'function') {
-                options.onProgress(addedCount, videoIds.length);
+                options.onProgress(progress.processed, progress.total);
+            }
+            continue;
+        }
+
+        if (batch.length > 1) {
+            const splitAt = Math.ceil(batch.length / 2);
+            const firstHalf = batch.slice(0, splitAt);
+            const secondHalf = batch.slice(splitAt);
+
+            if (secondHalf.length > 0) {
+                pendingBatches.unshift({
+                    batchIndex: syntheticBatchIndex++,
+                    videoIds: secondHalf
+                });
+            }
+            if (firstHalf.length > 0) {
+                pendingBatches.unshift({
+                    batchIndex: syntheticBatchIndex++,
+                    videoIds: firstHalf
+                });
             }
             continue;
         }
@@ -1716,36 +2793,72 @@ async function removeFromPlaylist(payload, options = {}) {
         throw new Error('No valid selected videos found.');
     }
 
-    const config = await getInnertubeConfig();
-    const primaryResult = await executeRemoveEntriesBatched(
-        playlistId,
-        buildDirectRemoveEntries(videoIds, 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID'),
-        config,
-        {
-            batchSize: MAX_BATCH_SIZE,
-            retryAttempts: EDIT_PLAYLIST_RETRY_ATTEMPTS,
-            onProgress: options.onProgress
-        }
-    );
-    const removedVideoIds = new Set(primaryResult.appliedVideoIds);
+    const removedVideoIds = new Set();
+    const failures = [];
 
-    if (removedVideoIds.size === 0) {
-        throw new Error(primaryResult.failedEntries[0]?.error || 'Failed to remove selected videos.');
-    }
-
-    const failureByVideoId = new Map();
-    primaryResult.failedEntries.forEach((entry) => {
-        if (!removedVideoIds.has(entry.videoId) && !failureByVideoId.has(entry.videoId)) {
-            failureByVideoId.set(entry.videoId, entry.error || 'Failed to remove video.');
+    const nativeResult = await removeFromPlaylistViaNativeCommands(playlistId, videoIds, {
+        onProgress: options.onProgress
+    });
+    nativeResult.removedVideoIds.forEach((videoId) => {
+        if (VIDEO_ID_PATTERN.test(videoId)) {
+            removedVideoIds.add(videoId);
         }
     });
 
-    const failures = videoIds
-        .filter((videoId) => !removedVideoIds.has(videoId))
-        .map((videoId) => ({
-            videoId,
-            error: failureByVideoId.get(videoId) || 'Failed to remove video.'
-        }));
+    const pendingVideoIds = videoIds.filter((videoId) => !removedVideoIds.has(videoId));
+    if (pendingVideoIds.length > 0) {
+        const config = await getInnertubeConfig();
+        const primaryResult = await executeRemoveEntriesBatched(
+            playlistId,
+            buildDirectRemoveEntries(pendingVideoIds, 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID'),
+            config,
+            {
+                batchSize: MAX_BATCH_SIZE,
+                retryAttempts: EDIT_PLAYLIST_RETRY_ATTEMPTS,
+                onProgress: (progress) => {
+                    if (typeof options.onProgress !== 'function') {
+                        return;
+                    }
+                    const nativeProcessed = videoIds.length - pendingVideoIds.length;
+                    options.onProgress({
+                        processed: nativeProcessed + (Number(progress?.processed) || 0),
+                        total: videoIds.length
+                    });
+                }
+            }
+        );
+        primaryResult.appliedVideoIds.forEach((videoId) => {
+            removedVideoIds.add(videoId);
+        });
+
+        if (primaryResult.appliedVideoIds.size === 0) {
+            const fallback = await removeWithResolvedActions(playlistId, pendingVideoIds, config);
+            fallback.appliedVideoIds.forEach((videoId) => {
+                removedVideoIds.add(videoId);
+            });
+            failures.push(...fallback.failures);
+        } else {
+            const failureByVideoId = new Map();
+            primaryResult.failedEntries.forEach((entry) => {
+                if (!removedVideoIds.has(entry.videoId) && !failureByVideoId.has(entry.videoId)) {
+                    failureByVideoId.set(entry.videoId, entry.error || 'Failed to remove video.');
+                }
+            });
+
+            pendingVideoIds
+                .filter((videoId) => !removedVideoIds.has(videoId))
+                .forEach((videoId) => {
+                    failures.push({
+                        videoId,
+                        error: failureByVideoId.get(videoId) || 'Failed to remove video.'
+                    });
+                });
+        }
+    }
+
+    if (removedVideoIds.size === 0) {
+        throw new Error(failures[0]?.error || 'Failed to remove selected videos.');
+    }
 
     logger.debug('Playlist remove completed', {
         playlistId,
@@ -1780,31 +2893,59 @@ async function deletePlaylists(payload, options = {}) {
     }
 
     const config = await getInnertubeConfig();
-    const deletedCount = 0;
     const failures = [];
+    const progress = {
+        processed: 0,
+        total: playlistIds.length
+    };
 
-    for (let i = 0; i < playlistIds.length; i += 1) {
-        const playlistId = playlistIds[i];
-
-        try {
-            await postInnertube('playlist/delete', {
-                context: config.context,
-                playlistId
-            }, config);
-
-            if (typeof options?.onProgress === 'function') {
-                options.onProgress({
-                    processed: i + 1,
-                    total: playlistIds.length
-                });
+    const results = await mapWithConcurrency(
+        playlistIds,
+        Math.min(DELETE_PLAYLIST_CONCURRENCY, playlistIds.length),
+        async (playlistId) => {
+            try {
+                await postInnertube('playlist/delete', {
+                    context: config.context,
+                    playlistId
+                }, config);
+                progress.processed += 1;
+                if (typeof options?.onProgress === 'function') {
+                    options.onProgress({
+                        processed: progress.processed,
+                        total: progress.total
+                    });
+                }
+                return {
+                    playlistId,
+                    success: true,
+                    error: ''
+                };
+            } catch (error) {
+                progress.processed += 1;
+                if (typeof options?.onProgress === 'function') {
+                    options.onProgress({
+                        processed: progress.processed,
+                        total: progress.total
+                    });
+                }
+                return {
+                    playlistId,
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to delete playlist.'
+                };
             }
-        } catch (error) {
-            failures.push({
-                playlistId,
-                error: error instanceof Error ? error.message : 'Failed to delete playlist.'
-            });
         }
-    }
+    );
+
+    results.forEach((result) => {
+        if (result?.success) {
+            return;
+        }
+        failures.push({
+            playlistId: result?.playlistId || '',
+            error: result?.error || 'Failed to delete playlist.'
+        });
+    });
 
     return {
         deletedCount: playlistIds.length - failures.length,
@@ -2211,7 +3352,6 @@ function postBridgeResponse(requestId, success, data = null, error = null) {
  * @param {object} data
  */
 function postBridgeProgress(requestId, data) {
-    console.log('[PlaylistApi] postBridgeProgress:', { requestId, data });
     window.postMessage({
         source: BRIDGE_SOURCE,
         type: 'YT_COMMANDER_BRIDGE_PROGRESS',
@@ -2236,6 +3376,10 @@ async function handleBridgeRequest(message) {
             result = await getPlaylists(payload);
         } else if (action === ACTIONS.GET_PLAYLIST_THUMBNAILS) {
             result = await getPlaylistThumbnails(payload);
+        } else if (action === ACTIONS.SHOW_NATIVE_TOAST) {
+            result = showNativeToast(payload);
+        } else if (action === ACTIONS.OPEN_NATIVE_PLAYLIST_DRAWER) {
+            result = await openNativePlaylistDrawer(payload);
         } else if (action === ACTIONS.ADD_TO_PLAYLISTS) {
             result = await addToPlaylists(payload, {
                 onProgress: (progress) => {

@@ -14,6 +14,7 @@ import { logDebug } from './logger.js';
  */
 export function createThrottledObserver(callback, delay = 1000, options = {}) {
     let timeout = null;
+    let pendingMutations = [];
     
     const defaultOptions = {
         childList: true,
@@ -22,11 +23,16 @@ export function createThrottledObserver(callback, delay = 1000, options = {}) {
     };
     
     return new MutationObserver((mutations) => {
+        if (Array.isArray(mutations) && mutations.length > 0) {
+            pendingMutations.push(...mutations);
+        }
         if (timeout) return;
-        
+
         timeout = setTimeout(() => {
             timeout = null;
-            callback(mutations);
+            const snapshot = pendingMutations;
+            pendingMutations = [];
+            callback(snapshot);
         }, delay);
     });
 }

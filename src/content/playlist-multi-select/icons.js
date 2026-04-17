@@ -45,6 +45,27 @@ function createBookmarkIcon() {
 /**
  * @returns {SVGSVGElement}
  */
+function createBookmarkOutlineIcon() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+
+    const iconPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    iconPath.setAttribute('d', 'M7 4.5h10A1.5 1.5 0 0 1 18.5 6v14l-6.5-3-6.5 3V6A1.5 1.5 0 0 1 7 4.5z');
+    iconPath.setAttribute('fill', 'none');
+    iconPath.setAttribute('stroke', 'currentColor');
+    iconPath.setAttribute('stroke-width', '1.8');
+    iconPath.setAttribute('stroke-linecap', 'round');
+    iconPath.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(iconPath);
+
+    return svg;
+}
+
+/**
+ * @returns {SVGSVGElement}
+ */
 function createWatchLaterIcon() {
     return createSvgIcon('M12 3a9 9 0 1 0 9 9 9.01 9.01 0 0 0-9-9zm0 16.5A7.5 7.5 0 1 1 19.5 12 7.51 7.51 0 0 1 12 19.5zm.75-11.25h-1.5v4.2l3.6 2.16.75-1.23-2.85-1.68z');
 }
@@ -117,6 +138,7 @@ export {
     createMastheadIcon,
     createDotsIcon,
     createBookmarkIcon,
+    createBookmarkOutlineIcon,
     createWatchLaterIcon,
     createCloseIcon,
     createPlusIcon,

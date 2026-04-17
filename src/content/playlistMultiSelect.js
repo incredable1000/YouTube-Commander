@@ -35,6 +35,7 @@ import {
     createSvgIcon,
     createMastheadIcon,
     createBookmarkIcon,
+    createBookmarkOutlineIcon,
     createWatchLaterIcon,
     createCloseIcon,
     createPlusIcon,
@@ -137,6 +138,7 @@ let postSaveResetTimer = null;
 let lastPlaylistProbeVideoId = '';
 let createVisibility = 'PRIVATE';
 let selectAllMode = false;
+let playlistSelectionAnchorId = '';
 
 let isDragging = false;
 let dragOffsetX = 0;
@@ -150,8 +152,12 @@ const cleanupCallbacks = [];
 const playlistMap = new Map();
 const selectionRangeController = createSelectionRangeController();
 let decorateRetryCounts = new WeakMap();
-const countedContainers = new WeakSet();
+let countedContainers = new WeakSet();
 let cachedPageVideoCount = 0;
+let cachedPagePlaylistCount = 0;
+let nativeDrawerSession = null;
+let nativeDrawerSessionCounter = 0;
+let nativeDrawerApplying = false;
 
 const DECORATE_MAX_RETRIES = 3;
 const DECORATE_RETRY_DELAY_MS = 320;
@@ -184,6 +190,145 @@ function pickRandom(list) {
         return '';
     }
     return list[Math.floor(Math.random() * list.length)];
+}
+
+/**
+ * Wait helper.
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function sleep(ms) {
+    const safeMs = Number.isFinite(ms) ? Math.max(0, Number(ms)) : 0;
+    return new Promise((resolve) => {
+        window.setTimeout(resolve, safeMs);
+    });
+}
+
+/**
+ * Convert playlist response into a selected-id set.
+ * @param {Array<{id?: string, isSelected?: boolean}>} playlists
+ * @returns {Set<string>}
+ */
+function toSelectedPlaylistSet(playlists) {
+    const selected = new Set();
+    if (!Array.isArray(playlists)) {
+        return selected;
+    }
+
+    playlists.forEach((playlist) => {
+        if (playlist?.isSelected === true && PLAYLIST_ID_PATTERN.test(playlist?.id || '')) {
+            selected.add(playlist.id);
+        }
+    });
+    return selected;
+}
+
+/**
+ * Build a playlist title map from list payload.
+ * @param {Array<{id?: string, title?: string}>} playlists
+ * @returns {Map<string, string>}
+ */
+function buildPlaylistTitleMap(playlists) {
+    const titles = new Map();
+    if (!Array.isArray(playlists)) {
+        return titles;
+    }
+
+    playlists.forEach((playlist) => {
+        const playlistId = playlist?.id || '';
+        if (!PLAYLIST_ID_PATTERN.test(playlistId)) {
+            return;
+        }
+        const title = typeof playlist?.title === 'string' ? playlist.title.trim() : '';
+        if (title) {
+            titles.set(playlistId, title);
+        }
+    });
+    return titles;
+}
+
+/**
+ * Resolve native YouTube save-to-playlist drawer element.
+ * @param {Element|null|undefined} element
+ * @returns {boolean}
+ */
+function isVisibleNativeDrawerElement(element) {
+    if (!(element instanceof Element) || !element.isConnected || element.hasAttribute('hidden')) {
+        return false;
+    }
+
+    const style = window.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Resolve native YouTube save-to-playlist drawer element.
+ * @returns {Element|null}
+ */
+function findNativePlaylistDrawerElement() {
+    const selectors = [
+        'ytd-popup-container ytd-add-to-playlist-renderer',
+        'ytd-popup-container ytd-add-to-playlist-create-renderer',
+        'ytd-popup-container ytd-playlist-add-to-option-renderer',
+        'ytd-popup-container yt-playlist-add-to-option-view-model'
+    ];
+
+    for (const selector of selectors) {
+        const nodes = document.querySelectorAll(selector);
+        for (const node of nodes) {
+            if (isVisibleNativeDrawerElement(node)) {
+                return node;
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * @returns {boolean}
+ */
+function isNativePlaylistDrawerOpen() {
+    return Boolean(findNativePlaylistDrawerElement());
+}
+
+/**
+ * Wait for native drawer to be visible.
+ * @param {number} sessionId
+ * @param {number} timeoutMs
+ * @returns {Promise<boolean>}
+ */
+async function waitForNativeDrawerOpen(sessionId, timeoutMs = 5000) {
+    const startedAt = Date.now();
+    while (nativeDrawerSession && nativeDrawerSession.id === sessionId) {
+        if (isNativePlaylistDrawerOpen()) {
+            return true;
+        }
+        if (timeoutMs > 0 && Date.now() - startedAt > timeoutMs) {
+            return false;
+        }
+        await sleep(120);
+    }
+    return false;
+}
+
+/**
+ * Wait for native drawer to close.
+ * @param {number} sessionId
+ * @returns {Promise<boolean>}
+ */
+async function waitForNativeDrawerClose(sessionId) {
+    while (nativeDrawerSession && nativeDrawerSession.id === sessionId) {
+        if (!isNativePlaylistDrawerOpen()) {
+            return true;
+        }
+        await sleep(180);
+    }
+    return false;
 }
 
 /**
@@ -424,6 +569,9 @@ function ensureActionBar() {
     actionOpenAllButton.addEventListener('click', handleOpenInNewTab);
     actionExitButton.addEventListener('click', handleActionExitButtonClick);
 
+    cleanupCallbacks.push(() => dragHandle?.removeEventListener('mousedown', handleDragStart));
+    cleanupCallbacks.push(() => document.removeEventListener('mousemove', handleDragMove));
+    cleanupCallbacks.push(() => document.removeEventListener('mouseup', handleDragEnd));
     cleanupCallbacks.push(() => actionWatchLaterButton?.removeEventListener('click', handleActionWatchLaterClick));
     cleanupCallbacks.push(() => actionSaveButton?.removeEventListener('click', handleActionSaveClick));
     cleanupCallbacks.push(() => actionQuickCreateButton?.removeEventListener('click', handleActionQuickCreateClick));
@@ -650,7 +798,6 @@ function ensureCreateModal() {
  */
 function ensureActionUi() {
     ensureActionBar();
-    ensurePlaylistPanel();
     ensureCreateModal();
 }
 
@@ -839,6 +986,9 @@ function setStatusMessage(message, kind = STATUS_KIND.INFO) {
 
     const text = typeof message === 'string' ? message : '';
     if (!playlistPanelStatus) {
+        if (text) {
+            showBottomNotification(text, kind);
+        }
         return;
     }
 
@@ -905,6 +1055,31 @@ function clearStatusMessage() {
 }
 
 /**
+ * Show YouTube native bottom notification.
+ * @param {string} message
+ * @param {'info'|'success'|'error'} [kind]
+ * @param {{durationMs?: number}} [options]
+ */
+function showBottomNotification(message, kind = STATUS_KIND.INFO, options = {}) {
+    const text = typeof message === 'string' ? message.trim() : '';
+    if (!text) {
+        return;
+    }
+
+    const durationMs = Number.isFinite(options?.durationMs)
+        ? Math.max(1200, Number(options.durationMs))
+        : 4200;
+
+    void sendBridgeRequest(ACTIONS.SHOW_NATIVE_TOAST, {
+        message: text,
+        kind,
+        durationMs
+    }).catch(() => {
+        // Keep UX silent when native toast is unavailable on this page shape.
+    });
+}
+
+/**
  * Show progress bar with current save progress.
  * @param {number} processed Number of videos processed
  * @param {number} total Total number of videos
@@ -931,7 +1106,6 @@ function hideSaveProgress() {
         return;
     }
 
-    console.log('[Progress] Hiding');
     progressBar.hidden = true;
 }
 
@@ -991,6 +1165,7 @@ function resetActionCounters() {
     }
 
     cachedPageVideoCount = 0;
+    cachedPagePlaylistCount = 0;
     countedContainers = new WeakSet();
 }
 
@@ -1022,7 +1197,8 @@ function updateActionUiState() {
     const selectedVideoCount = selectedVideoIds.size;
     const selectedPlaylistCount = selectedPlaylistIds.size;
     const pageVideoCount = collectRenderedVideoIds().length;
-    const pagePlaylistCount = collectRenderedPlaylistIds().length;
+    const pagePlaylistCount = isPlaylistPage ? collectRenderedPlaylistIds().length : cachedPagePlaylistCount;
+    const nativeDrawerBusy = nativeDrawerApplying || Boolean(nativeDrawerSession);
 
     const selectedCount = isPlaylistPage ? selectedPlaylistCount : selectedVideoCount;
     const pageCount = isPlaylistPage ? pagePlaylistCount : pageVideoCount;
@@ -1041,55 +1217,82 @@ function updateActionUiState() {
 
     if (actionSaveButton) {
         actionSaveButton.hidden = isPlaylistPage;
-        actionSaveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+        actionSaveButton.disabled = selectedCount === 0
+            || loadingPlaylists
+            || submitting
+            || createSubmitting
+            || nativeDrawerBusy;
     }
 
     if (actionQuickCreateButton) {
         actionQuickCreateButton.hidden = isPlaylistPage;
-        actionQuickCreateButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+        actionQuickCreateButton.disabled = selectedCount === 0
+            || loadingPlaylists
+            || submitting
+            || createSubmitting
+            || nativeDrawerBusy;
     }
 
     if (actionSplitButton) {
         actionSplitButton.hidden = isPlaylistPage;
-        actionSplitButton.disabled = selectedCount === 0 || submitting;
+        actionSplitButton.disabled = selectedCount === 0 || submitting || nativeDrawerBusy;
     }
 
     if (actionWatchLaterButton) {
         actionWatchLaterButton.hidden = isPlaylistPage;
-        actionWatchLaterButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+        actionWatchLaterButton.disabled = selectedCount === 0
+            || loadingPlaylists
+            || submitting
+            || createSubmitting
+            || nativeDrawerBusy;
     }
 
     if (actionSelectAllButton) {
         actionSelectAllButton.hidden = isPlaylistPage;
-        actionSelectAllButton.disabled = pageCount === 0 || loadingPlaylists || submitting || createSubmitting;
+        actionSelectAllButton.disabled = pageCount === 0
+            || loadingPlaylists
+            || submitting
+            || createSubmitting
+            || nativeDrawerBusy;
         actionSelectAllButton.classList.toggle('is-active', selectAllMode);
     }
 
     if (actionUnselectAllButton) {
         actionUnselectAllButton.hidden = isPlaylistPage;
-        actionUnselectAllButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+        actionUnselectAllButton.disabled = selectedCount === 0
+            || loadingPlaylists
+            || submitting
+            || createSubmitting
+            || nativeDrawerBusy;
     }
 
     if (actionOpenAllButton) {
         actionOpenAllButton.hidden = isPlaylistPage;
-        actionOpenAllButton.disabled = selectedCount === 0 || submitting;
+        actionOpenAllButton.disabled = selectedCount === 0 || submitting || nativeDrawerBusy;
     }
 
     syncRemoveActionButton();
     const isViewPlaylistPage = isPlaylistCollectionPage();
     if (actionRemoveButton) {
         actionRemoveButton.hidden = !isViewPlaylistPage;
-        actionRemoveButton.disabled = selectedCount === 0 || loadingPlaylists || submitting || createSubmitting;
+        actionRemoveButton.disabled = selectedCount === 0
+            || loadingPlaylists
+            || submitting
+            || createSubmitting
+            || nativeDrawerBusy;
     }
 
     if (actionRemoveWatchedButton) {
         actionRemoveWatchedButton.hidden = !isViewPlaylistPage;
-        actionRemoveWatchedButton.disabled = submitting || loadingPlaylists;
+        actionRemoveWatchedButton.disabled = submitting || loadingPlaylists || nativeDrawerBusy;
     }
 
     if (actionDeletePlaylistsButton) {
         actionDeletePlaylistsButton.hidden = !isPlaylistPage;
-        actionDeletePlaylistsButton.disabled = selectedPlaylistCount === 0 || submitting || loadingPlaylists;
+        actionDeletePlaylistsButton.disabled = selectedPlaylistCount === 0
+            || submitting
+            || loadingPlaylists
+            || nativeDrawerBusy;
     }
 
     if (playlistPanelCloseButton) {
@@ -1097,7 +1300,11 @@ function updateActionUiState() {
     }
 
     if (playlistPanelNewButton) {
-        playlistPanelNewButton.disabled = selectedCount === 0 || submitting || loadingPlaylists || createSubmitting;
+        playlistPanelNewButton.disabled = selectedCount === 0
+            || submitting
+            || loadingPlaylists
+            || createSubmitting
+            || nativeDrawerBusy;
     }
 
     playlistPanel?.classList.toggle('is-busy', loadingPlaylists || submitting);
@@ -1166,7 +1373,11 @@ function renderPlaylistEmpty(message) {
         return;
     }
 
-    playlistPanelList.innerHTML = `<div class="yt-commander-playlist-panel__empty">${message}</div>`;
+    playlistPanelList.innerHTML = '';
+    const empty = document.createElement('div');
+    empty.className = 'yt-commander-playlist-panel__empty';
+    empty.textContent = typeof message === 'string' ? message : 'No playlists found.';
+    playlistPanelList.appendChild(empty);
     positionPlaylistPanel();
 }
 
@@ -1181,6 +1392,28 @@ function readPlaylistInitial(title) {
         return 'P';
     }
     return safe.charAt(0).toUpperCase();
+}
+
+/**
+ * Build native-like watch-later thumbnail icon for drawer row.
+ * @returns {HTMLSpanElement}
+ */
+function createWatchLaterThumbnailIcon() {
+    const iconWrap = document.createElement('span');
+    iconWrap.className = 'yt-commander-playlist-panel__watch-later-icon';
+
+    const folderIcon = createSvgIcon(
+        'M3.5 7h5.7l1.3-1.5h10c.83 0 1.5.67 1.5 1.5v1.5h-18.5V7zm0 2.5h18.5v8.5c0 .83-.67 1.5-1.5 1.5H5c-.83 0-1.5-.67-1.5-1.5v-8.5z'
+    );
+    folderIcon.classList.add('yt-commander-playlist-panel__watch-later-folder');
+
+    const dots = document.createElement('span');
+    dots.className = 'yt-commander-playlist-panel__watch-later-dots';
+    dots.textContent = '...';
+
+    iconWrap.appendChild(folderIcon);
+    iconWrap.appendChild(dots);
+    return iconWrap;
 }
 
 /**
@@ -1209,7 +1442,13 @@ function renderPlaylistOptions() {
         thumb.className = 'yt-commander-playlist-panel__item-thumb';
         const thumbnailUrl = typeof playlist.thumbnailUrl === 'string' ? playlist.thumbnailUrl : '';
         const titleInitial = readPlaylistInitial(playlist.title);
-        if (thumbnailUrl) {
+        const isWatchLater = playlist.id === WATCH_LATER_PLAYLIST_ID;
+
+        if (isWatchLater) {
+            row.classList.add('is-watch-later');
+            thumb.classList.add('is-watch-later');
+            thumb.appendChild(createWatchLaterThumbnailIcon());
+        } else if (thumbnailUrl) {
             const image = document.createElement('img');
             image.src = thumbnailUrl;
             image.alt = '';
@@ -1240,7 +1479,7 @@ function renderPlaylistOptions() {
 
         const bookmark = document.createElement('span');
         bookmark.className = 'yt-commander-playlist-panel__item-bookmark';
-        bookmark.appendChild(createBookmarkIcon());
+        bookmark.appendChild(createBookmarkOutlineIcon());
 
         row.appendChild(thumb);
         row.appendChild(body);
@@ -1266,6 +1505,9 @@ function updatePlaylistRowThumbnail(playlistId, thumbnailUrl) {
         `.yt-commander-playlist-panel__item[data-playlist-id="${playlistId}"]`
     );
     if (!row) {
+        return;
+    }
+    if (row.classList.contains('is-watch-later')) {
         return;
     }
 
@@ -1438,15 +1680,18 @@ async function saveSelectionToPlaylist(playlistId) {
             selectedPlaylistIds.add(playlistId);
             syncPlaylistSelectionVisuals();
             setStatusMessage(`Saved to ${playlistTitle}.`, STATUS_KIND.SUCCESS);
+            showBottomNotification(`Saved ${videoIds.length} video(s) to ${playlistTitle}.`, STATUS_KIND.SUCCESS);
             resetSelectionOnly();
             return;
         }
 
         setStatusMessage('No playlist was updated.', STATUS_KIND.ERROR);
+        showBottomNotification('No playlist was updated.', STATUS_KIND.ERROR);
     } catch (error) {
         logger.warn('Failed to save selected videos', error);
         hideSaveProgress();
         setStatusMessage(error instanceof Error ? error.message : 'Failed to save videos.', STATUS_KIND.ERROR);
+        showBottomNotification(error instanceof Error ? error.message : 'Failed to save videos.', STATUS_KIND.ERROR);
     } finally {
         submitting = false;
         updateActionUiState();
@@ -1498,8 +1743,10 @@ async function createQuickPlaylistAndSave() {
         if (failureCount > 0) {
             const savedLabel = `${addedCount}/${requestedCount}`;
             setStatusMessage(`Created "${title}". Saved ${savedLabel} video(s).`, STATUS_KIND.INFO);
+            showBottomNotification(`Created "${title}". Saved ${savedLabel} video(s).`, STATUS_KIND.INFO);
         } else {
             setStatusMessage(`Created "${title}" and saved ${addedCount} video(s).`, STATUS_KIND.SUCCESS);
+            showBottomNotification(`Created "${title}" and saved ${addedCount} video(s).`, STATUS_KIND.SUCCESS);
         }
 
         resetSelectionOnly();
@@ -1507,8 +1754,263 @@ async function createQuickPlaylistAndSave() {
         logger.warn('Failed to create quick playlist', error);
         hideSaveProgress();
         setStatusMessage(error instanceof Error ? error.message : 'Failed to create playlist.', STATUS_KIND.ERROR);
+        showBottomNotification(error instanceof Error ? error.message : 'Failed to create playlist.', STATUS_KIND.ERROR);
     } finally {
         createSubmitting = false;
+        updateActionUiState();
+    }
+}
+
+/**
+ * Clear native drawer session state.
+ * @param {number} [sessionId]
+ */
+function clearNativeDrawerSession(sessionId) {
+    if (!nativeDrawerSession) {
+        return;
+    }
+    if (Number.isFinite(sessionId) && nativeDrawerSession.id !== sessionId) {
+        return;
+    }
+    nativeDrawerSession = null;
+}
+
+/**
+ * Apply playlist delta selected in native drawer to remaining selected videos.
+ * @param {{
+ *   id: number,
+ *   anchorVideoId: string,
+ *   selectedVideoIds: string[],
+ *   baselineSelectedIds: Set<string>,
+ *   baselineTitleById: Map<string, string>
+ * }} session
+ */
+async function applyNativeDrawerSelectionChanges(session) {
+    if (!session || !nativeDrawerSession || nativeDrawerSession.id !== session.id) {
+        return;
+    }
+
+    const finalResponse = await sendBridgeRequest(ACTIONS.GET_PLAYLISTS, {
+        videoIds: [session.anchorVideoId]
+    });
+    const finalPlaylists = Array.isArray(finalResponse?.playlists) ? finalResponse.playlists : [];
+    const finalSelectedIds = toSelectedPlaylistSet(finalPlaylists);
+    const finalTitleById = buildPlaylistTitleMap(finalPlaylists);
+
+    const addedPlaylistIds = Array.from(finalSelectedIds)
+        .filter((playlistId) => !session.baselineSelectedIds.has(playlistId));
+    const removedPlaylistIds = Array.from(session.baselineSelectedIds)
+        .filter((playlistId) => !finalSelectedIds.has(playlistId));
+
+    if (addedPlaylistIds.length === 0 && removedPlaylistIds.length === 0) {
+        setStatusMessage('No playlist changes detected.', STATUS_KIND.INFO);
+        showBottomNotification('No playlist changes detected.', STATUS_KIND.INFO);
+        return;
+    }
+
+    const targetVideoIds = session.selectedVideoIds.filter((videoId) => (
+        VIDEO_ID_PATTERN.test(videoId) && videoId !== session.anchorVideoId
+    ));
+
+    if (targetVideoIds.length === 0) {
+        const message = 'Applied playlist changes for the selected video.';
+        setStatusMessage(message, STATUS_KIND.SUCCESS);
+        showBottomNotification(message, STATUS_KIND.SUCCESS);
+        resetSelectionOnly();
+        return;
+    }
+
+    const totalOps = targetVideoIds.length * (addedPlaylistIds.length + removedPlaylistIds.length);
+    let completedOps = 0;
+    let addSuccessCount = 0;
+    let addFailureCount = 0;
+    let removeSuccessCount = 0;
+    let removeFailureCount = 0;
+    let hadAnySuccess = false;
+
+    if (totalOps > 0) {
+        showSaveProgress(0, totalOps, 'Applying playlist changes...');
+    }
+
+    for (const playlistId of addedPlaylistIds) {
+        const playlistTitle = finalTitleById.get(playlistId)
+            || session.baselineTitleById.get(playlistId)
+            || 'playlist';
+        try {
+            await sendBridgeRequest(ACTIONS.ADD_TO_PLAYLISTS, {
+                videoIds: targetVideoIds,
+                playlistIds: [playlistId],
+                playlistTitles: [playlistTitle]
+            }, (progress) => {
+                if (progress) {
+                    showSaveProgress(
+                        Math.min(totalOps, completedOps + (Number(progress.processed) || 0)),
+                        totalOps,
+                        `Saving to ${playlistTitle}`
+                    );
+                }
+            });
+            addSuccessCount += 1;
+            hadAnySuccess = true;
+        } catch (_error) {
+            addFailureCount += 1;
+        } finally {
+            completedOps += targetVideoIds.length;
+            if (totalOps > 0) {
+                showSaveProgress(completedOps, totalOps, 'Applying playlist changes...');
+            }
+        }
+    }
+
+    for (const playlistId of removedPlaylistIds) {
+        const playlistTitle = session.baselineTitleById.get(playlistId)
+            || finalTitleById.get(playlistId)
+            || 'playlist';
+        try {
+            const response = await sendBridgeRequest(ACTIONS.REMOVE_FROM_PLAYLIST, {
+                playlistId,
+                videoIds: targetVideoIds
+            }, (progress) => {
+                if (progress) {
+                    showSaveProgress(
+                        Math.min(totalOps, completedOps + (Number(progress.processed) || 0)),
+                        totalOps,
+                        `Removing from ${playlistTitle}`
+                    );
+                }
+            });
+
+            if (Number(response?.removedCount) > 0) {
+                removeSuccessCount += 1;
+                hadAnySuccess = true;
+            } else {
+                removeFailureCount += 1;
+            }
+        } catch (_error) {
+            removeFailureCount += 1;
+        } finally {
+            completedOps += targetVideoIds.length;
+            if (totalOps > 0) {
+                showSaveProgress(completedOps, totalOps, 'Applying playlist changes...');
+            }
+        }
+    }
+
+    hideSaveProgress();
+
+    const totalFailureCount = addFailureCount + removeFailureCount;
+    if (!hadAnySuccess && totalFailureCount > 0) {
+        setStatusMessage('Failed to apply playlist changes to selected videos.', STATUS_KIND.ERROR);
+        showBottomNotification('Failed to apply playlist changes to selected videos.', STATUS_KIND.ERROR);
+        return;
+    }
+
+    if (totalFailureCount > 0) {
+        const message = `Applied with partial failures. Added ${addSuccessCount}/${addedPlaylistIds.length}, removed ${removeSuccessCount}/${removedPlaylistIds.length}.`;
+        setStatusMessage(message, STATUS_KIND.INFO);
+        showBottomNotification(message, STATUS_KIND.INFO);
+        resetSelectionOnly();
+        return;
+    }
+
+    const message = `Applied playlist changes to ${targetVideoIds.length} selected video(s).`;
+    setStatusMessage(message, STATUS_KIND.SUCCESS);
+    showBottomNotification(message, STATUS_KIND.SUCCESS);
+    resetSelectionOnly();
+}
+
+/**
+ * Monitor one native drawer interaction and mirror its delta to all selected videos.
+ * @param {{
+ *   id: number,
+ *   anchorVideoId: string,
+ *   selectedVideoIds: string[],
+ *   baselineSelectedIds: Set<string>,
+ *   baselineTitleById: Map<string, string>
+ * }} session
+ */
+async function monitorNativeDrawerSession(session) {
+    const opened = await waitForNativeDrawerOpen(session.id, 5000);
+    if (!opened) {
+        if (nativeDrawerSession && nativeDrawerSession.id === session.id) {
+            clearNativeDrawerSession(session.id);
+            updateActionUiState();
+            setStatusMessage('Failed to open native playlist drawer.', STATUS_KIND.ERROR);
+            showBottomNotification('Failed to open native playlist drawer.', STATUS_KIND.ERROR);
+        }
+        return;
+    }
+
+    const closed = await waitForNativeDrawerClose(session.id);
+    if (!closed || !nativeDrawerSession || nativeDrawerSession.id !== session.id) {
+        return;
+    }
+
+    nativeDrawerApplying = true;
+    submitting = true;
+    updateActionUiState();
+
+    try {
+        await applyNativeDrawerSelectionChanges(session);
+    } catch (error) {
+        logger.warn('Failed to apply native drawer selection changes', error);
+        hideSaveProgress();
+        setStatusMessage(error instanceof Error ? error.message : 'Failed to apply playlist changes.', STATUS_KIND.ERROR);
+        showBottomNotification(error instanceof Error ? error.message : 'Failed to apply playlist changes.', STATUS_KIND.ERROR);
+    } finally {
+        hideSaveProgress();
+        clearNativeDrawerSession(session.id);
+        submitting = false;
+        nativeDrawerApplying = false;
+        updateActionUiState();
+    }
+}
+
+/**
+ * Open YouTube native save-to-playlist drawer for current selection.
+ */
+async function openNativePlaylistDrawerForSelection() {
+    if (submitting || createSubmitting || nativeDrawerApplying || nativeDrawerSession) {
+        return;
+    }
+
+    const selectedIds = Array.from(selectedVideoIds).filter((videoId) => VIDEO_ID_PATTERN.test(videoId));
+    if (selectedIds.length === 0) {
+        setStatusMessage('Select at least one video.', STATUS_KIND.ERROR);
+        return;
+    }
+
+    const anchorVideoId = selectedIds[0];
+    nativeDrawerApplying = true;
+    updateActionUiState();
+
+    try {
+        const baselineResponse = await sendBridgeRequest(ACTIONS.GET_PLAYLISTS, {
+            videoIds: [anchorVideoId]
+        });
+        const baselinePlaylists = Array.isArray(baselineResponse?.playlists) ? baselineResponse.playlists : [];
+
+        const openResponse = await sendBridgeRequest(ACTIONS.OPEN_NATIVE_PLAYLIST_DRAWER, {
+            videoId: anchorVideoId
+        });
+        if (openResponse?.opened !== true) {
+            throw new Error('Could not open native playlist drawer.');
+        }
+
+        const session = {
+            id: ++nativeDrawerSessionCounter,
+            anchorVideoId,
+            selectedVideoIds: selectedIds,
+            baselineSelectedIds: toSelectedPlaylistSet(baselinePlaylists),
+            baselineTitleById: buildPlaylistTitleMap(baselinePlaylists)
+        };
+        nativeDrawerSession = session;
+
+        setStatusMessage('Using native "Save to...". Choose playlists and close drawer to apply.', STATUS_KIND.INFO);
+        showBottomNotification('Native playlist drawer opened.', STATUS_KIND.INFO);
+        void monitorNativeDrawerSession(session);
+    } finally {
+        nativeDrawerApplying = false;
         updateActionUiState();
     }
 }
@@ -1526,6 +2028,8 @@ function schedulePostSaveReset() {
 
 function resetSelectionOnly() {
     clearPostSaveResetTimer();
+    clearNativeDrawerSession();
+    nativeDrawerApplying = false;
     clearSelectedVideos();
     resetActionCounters();
     clearStatusMessage();
@@ -1538,6 +2042,7 @@ function resetSelectionOnly() {
     selectedPlaylistIds.clear();
     lastPlaylistProbeVideoId = '';
     selectAllMode = false;
+    playlistSelectionAnchorId = '';
 }
 
 /**
@@ -1576,6 +2081,58 @@ function removeSelectedCardsFromDom(videoIds) {
             removedCount += 1;
         }
     });
+
+    if (removedCount > 0) {
+        if (isPlaylistsPage()) {
+            cachedPagePlaylistCount = Math.max(0, cachedPagePlaylistCount - removedCount);
+        } else {
+            cachedPageVideoCount = Math.max(0, cachedPageVideoCount - removedCount);
+        }
+    }
+
+    updateActionUiState();
+    return removedCount;
+}
+
+/**
+ * Remove selected playlist renderers from the DOM.
+ * @param {string[]} playlistIds
+ * @returns {number}
+ */
+function removePlaylistCardsFromDom(playlistIds) {
+    if (!Array.isArray(playlistIds) || playlistIds.length === 0) {
+        return 0;
+    }
+
+    const nodesToRemove = new Set();
+    playlistIds.forEach((playlistId) => {
+        if (!PLAYLIST_ID_PATTERN.test(playlistId)) {
+            return;
+        }
+
+        selectedPlaylistIds.delete(playlistId);
+        document.querySelectorAll(`a[href*="list=${playlistId}"]`).forEach((link) => {
+            if (!(link instanceof HTMLAnchorElement)) {
+                return;
+            }
+            const renderer = link.closest('ytd-rich-item-renderer, yt-lockup-view-model');
+            if (renderer instanceof Element) {
+                nodesToRemove.add(renderer);
+            }
+        });
+    });
+
+    let removedCount = 0;
+    nodesToRemove.forEach((node) => {
+        if (node instanceof Element && node.isConnected) {
+            node.remove();
+            removedCount += 1;
+        }
+    });
+
+    if (removedCount > 0) {
+        cachedPagePlaylistCount = Math.max(0, cachedPagePlaylistCount - removedCount);
+    }
 
     updateActionUiState();
     return removedCount;
@@ -1630,21 +2187,22 @@ async function removeSelectionFromCurrentPlaylist() {
 
         if (removedCount <= 0) {
             setStatusMessage('No videos were removed.', STATUS_KIND.ERROR);
+            showBottomNotification('No videos were removed.', STATUS_KIND.ERROR);
             return;
         }
 
-        setStatusMessage(
-            `Removed ${removedCount} video(s) from ${playlistLabel}. Refreshing...`,
-            STATUS_KIND.SUCCESS
-        );
-
+        const removedIdsForUi = removedVideoIds.length > 0 ? removedVideoIds : videoIds;
+        removeSelectedCardsFromDom(removedIdsForUi);
         resetSelectionOnly();
-        window.location.reload();
+        setStatusMessage(`Removed ${removedCount} video(s) from ${playlistLabel}.`, STATUS_KIND.SUCCESS);
+        showBottomNotification(`Removed ${removedCount} video(s) from ${playlistLabel}.`, STATUS_KIND.SUCCESS);
+        queueFullRescan();
 
     } catch (error) {
         logger.warn('Failed to remove selected videos from playlist', error);
         hideSaveProgress();
         setStatusMessage(error instanceof Error ? error.message : 'Failed to remove videos.', STATUS_KIND.ERROR);
+        showBottomNotification(error instanceof Error ? error.message : 'Failed to remove videos.', STATUS_KIND.ERROR);
     } finally {
         submitting = false;
         updateActionUiState();
@@ -1764,18 +2322,23 @@ async function submitCreatePlaylist() {
         selectedPlaylistIds.clear();
 
         closeCreateModal(true);
+        hideSaveProgress();
 
         if (failureCount > 0) {
             const savedLabel = `${addedCount}/${requestedCount}`;
             setStatusMessage(`Created "${title}". Saved ${savedLabel} video(s).`, STATUS_KIND.INFO);
+            showBottomNotification(`Created "${title}". Saved ${savedLabel} video(s).`, STATUS_KIND.INFO);
             return;
         }
 
         setStatusMessage(`Created "${title}" and saved ${addedCount} video(s).`, STATUS_KIND.SUCCESS);
+        showBottomNotification(`Created "${title}" and saved ${addedCount} video(s).`, STATUS_KIND.SUCCESS);
         resetSelectionOnly();
     } catch (error) {
         logger.warn('Failed to create playlist', error);
+        hideSaveProgress();
         setCreateStatus(error instanceof Error ? error.message : 'Failed to create playlist.', STATUS_KIND.ERROR);
+        showBottomNotification(error instanceof Error ? error.message : 'Failed to create playlist.', STATUS_KIND.ERROR);
     } finally {
         createSubmitting = false;
         updateActionUiState();
@@ -1871,9 +2434,7 @@ function commitSelectionMutation(changedVideoIds) {
     updateActionUiState();
 
     if (playlistPanelVisible && loadPlaylistsDebounced) {
-        loadPlaylistsDebounced().catch((error) => {
-            logger.warn('Failed to refresh playlists', error);
-        });
+        loadPlaylistsDebounced();
     }
 }
 
@@ -1959,21 +2520,129 @@ function handleVideoSelectionInteraction(options) {
 }
 
 /**
+ * Read playlist id from a playlist renderer.
+ * @param {Element|null} renderer
+ * @returns {string}
+ */
+function readPlaylistIdFromRenderer(renderer) {
+    if (!(renderer instanceof Element)) {
+        return '';
+    }
+    const link = renderer.querySelector('a[href*="list="]');
+    if (!(link instanceof HTMLAnchorElement) || !link.href) {
+        return '';
+    }
+    try {
+        const url = new URL(link.href, location.origin);
+        const playlistId = url.searchParams.get('list') || '';
+        return PLAYLIST_ID_PATTERN.test(playlistId) ? playlistId : '';
+    } catch (_error) {
+        return '';
+    }
+}
+
+/**
+ * Resolve one visible playlist renderer by playlist id.
+ * @param {string} playlistId
+ * @returns {Element|null}
+ */
+function findPlaylistRendererById(playlistId) {
+    if (!PLAYLIST_ID_PATTERN.test(playlistId)) {
+        return null;
+    }
+
+    const link = document.querySelector(`a[href*="list=${playlistId}"]`);
+    if (!(link instanceof HTMLAnchorElement)) {
+        return null;
+    }
+
+    const renderer = link.closest('ytd-rich-item-renderer, yt-lockup-view-model');
+    return renderer instanceof Element ? renderer : null;
+}
+
+/**
+ * Collect rendered playlist cards in document order.
+ * @returns {Array<{playlistId: string, renderer: Element}>}
+ */
+function collectRenderedPlaylistSelectionItems() {
+    const items = [];
+    const seen = new Set();
+    document.querySelectorAll('ytd-rich-item-renderer, yt-lockup-view-model').forEach((renderer) => {
+        if (!(renderer instanceof Element) || !renderer.isConnected) {
+            return;
+        }
+        const playlistId = readPlaylistIdFromRenderer(renderer);
+        if (!playlistId || seen.has(playlistId)) {
+            return;
+        }
+        seen.add(playlistId);
+        items.push({ playlistId, renderer });
+    });
+    return items;
+}
+
+/**
+ * Resolve Shift+click range of playlist IDs.
+ * @param {string} targetPlaylistId
+ * @param {Element|null} preferredRenderer
+ * @returns {string[]}
+ */
+function resolvePlaylistSelectionRange(targetPlaylistId, preferredRenderer) {
+    if (!PLAYLIST_ID_PATTERN.test(targetPlaylistId) || !PLAYLIST_ID_PATTERN.test(playlistSelectionAnchorId)) {
+        return [];
+    }
+
+    const items = collectRenderedPlaylistSelectionItems();
+    if (items.length === 0) {
+        return [];
+    }
+
+    const anchorIndex = items.findIndex((item) => item.playlistId === playlistSelectionAnchorId);
+    if (anchorIndex < 0) {
+        return [];
+    }
+
+    let targetIndex = -1;
+    if (preferredRenderer instanceof Element) {
+        targetIndex = items.findIndex((item) => item.renderer === preferredRenderer);
+    }
+    if (targetIndex < 0) {
+        targetIndex = items.findIndex((item) => item.playlistId === targetPlaylistId);
+    }
+    if (targetIndex < 0) {
+        return [];
+    }
+
+    const start = Math.min(anchorIndex, targetIndex);
+    const end = Math.max(anchorIndex, targetIndex);
+    return items.slice(start, end + 1).map((item) => item.playlistId);
+}
+
+/**
  * Handle playlist selection interaction on playlists page.
  * @param {string} playlistId
  * @param {Element} renderer
+ * @param {boolean} [shiftKey]
  */
-function handlePlaylistSelectionInteraction(playlistId, renderer) {
-    logger.debug('handlePlaylistSelectionInteraction called', { playlistId, hasRenderer: !!renderer });
-    logger.debug('PLAYLIST_ID_PATTERN.test result:', PLAYLIST_ID_PATTERN.test(playlistId), 'for ID:', playlistId);
+function handlePlaylistSelectionInteraction(playlistId, renderer, shiftKey = false) {
     if (!PLAYLIST_ID_PATTERN.test(playlistId)) {
-        logger.debug('Playlist ID pattern failed', playlistId);
         return;
     }
 
-    logger.debug('Calling togglePlaylistSelection for', playlistId);
+    if (shiftKey) {
+        const rangeIds = resolvePlaylistSelectionRange(playlistId, renderer);
+        if (rangeIds.length > 0) {
+            rangeIds.forEach((id) => selectedPlaylistIds.add(id));
+            restorePlaylistSelectionState();
+            updateActionUiState();
+            playlistSelectionAnchorId = playlistId;
+            return;
+        }
+    }
+
     togglePlaylistSelection(playlistId);
     applyPlaylistSelectedState(renderer, playlistId);
+    playlistSelectionAnchorId = playlistId;
 }
 
 /**
@@ -1983,15 +2652,13 @@ function handlePlaylistSelectionInteraction(playlistId, renderer) {
 function togglePlaylistSelection(playlistId) {
     if (selectedPlaylistIds.has(playlistId)) {
         selectedPlaylistIds.delete(playlistId);
-        logger.debug('Playlist deselected', playlistId, 'count:', selectedPlaylistIds.size);
     } else {
         selectedPlaylistIds.add(playlistId);
-        logger.debug('Playlist selected', playlistId, 'count:', selectedPlaylistIds.size);
     }
     updateActionUiState();
 }
 
-const playlistStateTimers = new WeakMap();
+let playlistStateTimers = new Map();
 let playlistObserver = null;
 let playlistObserverActive = false;
 
@@ -2004,12 +2671,9 @@ function getPlaylistObserver() {
             requestAnimationFrame(() => {
                 if (selectionMode && isPlaylistsPage()) {
                     selectedPlaylistIds.forEach((playlistId) => {
-                        const link = document.querySelector(`a[href*="list=${playlistId}"]`);
-                        if (link) {
-                            const renderer = link.closest('ytd-rich-item-renderer');
-                            if (renderer) {
-                                applyPlaylistSelectedStateToRenderer(renderer, playlistId);
-                            }
+                        const renderer = findPlaylistRendererById(playlistId);
+                        if (renderer) {
+                            applyPlaylistSelectedStateToRenderer(renderer, playlistId);
                         }
                     });
                 }
@@ -2070,12 +2734,9 @@ function restorePlaylistSelectionState() {
     if (!selectionMode || !isPlaylistsPage()) return;
     
     selectedPlaylistIds.forEach((playlistId) => {
-        const link = document.querySelector(`a[href*="list=${playlistId}"]`);
-        if (link) {
-            const renderer = link.closest('ytd-rich-item-renderer');
-            if (renderer) {
-                applyPlaylistSelectedStateToRenderer(renderer, playlistId);
-            }
+        const renderer = findPlaylistRendererById(playlistId);
+        if (renderer) {
+            applyPlaylistSelectedStateToRenderer(renderer, playlistId);
         }
     });
 }
@@ -2099,10 +2760,13 @@ function applyPlaylistSelectedState(renderer, playlistId) {
  * Clear selected videos and update visuals.
  */
 function clearSelectedVideos() {
+    clearNativeDrawerSession();
+    nativeDrawerApplying = false;
     selectedVideoIds.clear();
     selectedPlaylistIds.clear();
     selectionRangeController.reset();
     selectAllMode = false;
+    playlistSelectionAnchorId = '';
 
     document.querySelectorAll(`.${HOST_CLASS}`).forEach((host) => {
         const videoId = host.getAttribute('data-yt-commander-video-id') || '';
@@ -2205,8 +2869,6 @@ function decorateContainer(container) {
     host.setAttribute('data-yt-commander-video-id', videoId);
 
     let overlay = host.querySelector(`.${OVERLAY_CLASS}`);
-    const isNewOverlay = !overlay;
-    
     if (!overlay) {
         overlay = document.createElement('button');
         overlay.type = 'button';
@@ -2231,7 +2893,7 @@ function decorateContainer(container) {
                         const url = new URL(link.href, location.origin);
                         const playlistId = url.searchParams.get('list');
                         if (playlistId && PLAYLIST_ID_PATTERN.test(playlistId)) {
-                            handlePlaylistSelectionInteraction(playlistId, host);
+                            handlePlaylistSelectionInteraction(playlistId, host, event.shiftKey);
                         }
                     } catch (_e) {}
                 }
@@ -2254,7 +2916,7 @@ function decorateContainer(container) {
     overlay.setAttribute('data-yt-commander-video-id', videoId);
     applySelectedState(host, videoId);
     decorateRetryCounts.delete(container);
-    return isNewOverlay;
+    return true;
 }
 
 /**
@@ -2308,6 +2970,13 @@ function queueFullRescan() {
         return;
     }
 
+    countedContainers = new WeakSet();
+    if (isPlaylistsPage()) {
+        cachedPagePlaylistCount = collectRenderedPlaylistIds().length;
+    } else {
+        cachedPageVideoCount = 0;
+    }
+
     const all = new Set();
     const root = resolveActivePageRoot();
     root.querySelectorAll(FEED_RENDERER_SELECTOR).forEach((container) => {
@@ -2330,7 +2999,7 @@ function processPendingContainers() {
     const batch = [];
     let count = 0;
     const autoSelectedIds = new Set();
-    let decoratedCount = 0;
+    const playlistPage = isPlaylistsPage();
 
     for (const container of pendingContainers) {
         pendingContainers.delete(container);
@@ -2347,7 +3016,11 @@ function processPendingContainers() {
         if (decorated || !container?.isConnected) {
             if (decorated && !countedContainers.has(container)) {
                 countedContainers.add(container);
-                cachedPageVideoCount += 1;
+                if (playlistPage) {
+                    cachedPagePlaylistCount += 1;
+                } else {
+                    cachedPageVideoCount += 1;
+                }
                 const videoId = container.getAttribute('data-yt-commander-video-id') || '';
                 if (selectAllMode && VIDEO_ID_PATTERN.test(videoId) && !selectedVideoIds.has(videoId)) {
                     selectedVideoIds.add(videoId);
@@ -2428,6 +3101,8 @@ function setSelectionMode(active) {
     document.documentElement.classList.toggle(ROOT_SELECTION_CLASS, selectionMode);
 
     if (!selectionMode) {
+        clearNativeDrawerSession();
+        nativeDrawerApplying = false;
         closePlaylistPanel();
         closeCreateModal(true);
         clearSelectedVideos();
@@ -2443,8 +3118,10 @@ function setSelectionMode(active) {
         selectedPlaylistIds.clear();
         lastPlaylistProbeVideoId = '';
         selectAllMode = false;
+        playlistSelectionAnchorId = '';
         playlistStateTimers.forEach((timer) => clearTimeout(timer));
-        playlistStateTimers = new WeakMap();
+        playlistStateTimers = new Map();
+        playlistObserverActive = false;
         if (playlistObserver) {
             playlistObserver.disconnect();
         }
@@ -2572,8 +3249,10 @@ function handleActionWatchLaterClick(event) {
 function handleActionSaveClick(event) {
     event.preventDefault();
     event.stopPropagation();
-    openPlaylistPanel().catch((error) => {
-        logger.warn('Failed to open playlist panel', error);
+    openNativePlaylistDrawerForSelection().catch((error) => {
+        logger.warn('Failed to open native playlist drawer', error);
+        setStatusMessage(error instanceof Error ? error.message : 'Failed to open native playlist drawer.', STATUS_KIND.ERROR);
+        showBottomNotification(error instanceof Error ? error.message : 'Failed to open native playlist drawer.', STATUS_KIND.ERROR);
     });
 }
 
@@ -2681,7 +3360,7 @@ function ensureSplitModal() {
     });
 }
 
-function closeSplitModal() {
+function closeSplitModal(keepSubmitting = false) {
     if (splitBackdrop) {
         splitBackdrop.classList.remove('is-visible');
     }
@@ -2689,7 +3368,9 @@ function closeSplitModal() {
         splitStatus.textContent = '';
         splitStatus.className = 'yt-commander-split-modal__status';
     }
-    splitSubmitting = false;
+    if (!keepSubmitting) {
+        splitSubmitting = false;
+    }
     updateSplitModalState();
 }
 
@@ -2724,7 +3405,7 @@ async function submitSplit() {
     const numPlaylists = Math.ceil(videoIds.length / perPlaylist);
     splitSubmitting = true;
     updateSplitModalState();
-    closeSplitModal();
+    closeSplitModal(true);
 
     showSaveProgress(0, numPlaylists, 'Splitting into playlists...');
 
@@ -2749,6 +3430,7 @@ async function submitSplit() {
 
         let created = 0;
         let totalAdded = 0;
+        let totalFailed = 0;
 
         for (let i = 0; i < numPlaylists; i++) {
             const start = i * perPlaylist;
@@ -2764,7 +3446,38 @@ async function submitSplit() {
                 videoIds: batch
             });
 
-            const addedCount = Number(playlistResponse?.addedCount) || 0;
+            let addedCount = Number(playlistResponse?.addedCount) || 0;
+            const createdPlaylistId = typeof playlistResponse?.playlistId === 'string'
+                ? playlistResponse.playlistId
+                : '';
+            const failedEntries = Array.isArray(playlistResponse?.failures) ? playlistResponse.failures : [];
+            const retryVideoIds = failedEntries
+                .flatMap((entry) => Array.isArray(entry?.videoIds) ? entry.videoIds : [])
+                .filter((id) => VIDEO_ID_PATTERN.test(id));
+
+            if (createdPlaylistId && retryVideoIds.length > 0) {
+                try {
+                    const retryResponse = await sendBridgeRequest(ACTIONS.ADD_TO_PLAYLISTS, {
+                        videoIds: retryVideoIds,
+                        playlistIds: [createdPlaylistId],
+                        playlistTitles: [title]
+                    });
+                    const retrySuccess = Number(retryResponse?.successCount) || 0;
+                    const retryFailures = Array.isArray(retryResponse?.failures)
+                        ? retryResponse.failures.length
+                        : 0;
+                    if (retrySuccess > 0 && retryFailures === 0) {
+                        addedCount += retryVideoIds.length;
+                    }
+                } catch (_error) {}
+            }
+
+            addedCount = Math.max(0, Math.min(batch.length, addedCount));
+            const unresolvedCount = Math.max(0, batch.length - addedCount);
+            if (unresolvedCount > 0) {
+                totalFailed += unresolvedCount;
+            }
+
             totalAdded += addedCount;
             created++;
 
@@ -2772,13 +3485,27 @@ async function submitSplit() {
         }
 
         hideSaveProgress();
-        setStatusMessage(`Split into ${created} playlists with ${totalAdded} videos.`, STATUS_KIND.SUCCESS);
+        if (totalFailed > 0) {
+            setStatusMessage(
+                `Split created ${created} playlists. Saved ${totalAdded} videos, ${totalFailed} failed.`,
+                STATUS_KIND.INFO
+            );
+        } else {
+            setStatusMessage(`Split into ${created} playlists with ${totalAdded} videos.`, STATUS_KIND.SUCCESS);
+        }
+        showBottomNotification(
+            totalFailed > 0
+                ? `Split finished: ${totalAdded} saved, ${totalFailed} failed`
+                : `Split completed: ${totalAdded} videos saved`,
+            totalFailed > 0 ? STATUS_KIND.INFO : STATUS_KIND.SUCCESS
+        );
         resetSelectionOnly();
 
     } catch (error) {
         logger.warn('Failed to split playlists', error);
         hideSaveProgress();
         setStatusMessage(error instanceof Error ? error.message : 'Failed to split playlists.', STATUS_KIND.ERROR);
+        showBottomNotification(error instanceof Error ? error.message : 'Failed to split playlists.', STATUS_KIND.ERROR);
     } finally {
         splitSubmitting = false;
         updateActionUiState();
@@ -2856,18 +3583,26 @@ async function handleActionRemoveWatchedClick(event) {
 
         hideSaveProgress();
         const removedCount = Number(response?.removedCount) || 0;
+        const removedVideoIds = Array.isArray(response?.removedVideoIds)
+            ? response.removedVideoIds.filter((videoId) => VIDEO_ID_PATTERN.test(videoId))
+            : watchedIds;
         
         if (removedCount > 0) {
-            setStatusMessage(`Removed ${removedCount} watched video(s). Refreshing...`, STATUS_KIND.SUCCESS);
-            window.location.reload();
+            removeSelectedCardsFromDom(removedVideoIds);
+            resetSelectionOnly();
+            setStatusMessage(`Removed ${removedCount} watched video(s).`, STATUS_KIND.SUCCESS);
+            showBottomNotification(`Removed ${removedCount} watched video(s).`, STATUS_KIND.SUCCESS);
+            queueFullRescan();
         } else {
             setStatusMessage('No videos were removed.', STATUS_KIND.INFO);
+            showBottomNotification('No videos were removed.', STATUS_KIND.INFO);
         }
 
     } catch (error) {
         logger.warn('Failed to remove watched videos', error);
         hideSaveProgress();
         setStatusMessage(error instanceof Error ? error.message : 'Failed to remove watched videos.', STATUS_KIND.ERROR);
+        showBottomNotification(error instanceof Error ? error.message : 'Failed to remove watched videos.', STATUS_KIND.ERROR);
     } finally {
         submitting = false;
         updateActionUiState();
@@ -2908,20 +3643,32 @@ async function handleActionDeletePlaylistsClick(event) {
         hideSaveProgress();
         const deletedCount = Number(response?.deletedCount) || 0;
         const failedCount = Number(response?.failedCount) || 0;
+        const failedPlaylistIds = new Set(
+            (Array.isArray(response?.failures) ? response.failures : [])
+                .map((failure) => failure?.playlistId)
+                .filter((playlistId) => PLAYLIST_ID_PATTERN.test(playlistId))
+        );
+        const deletedPlaylistIds = playlistIds.filter((playlistId) => !failedPlaylistIds.has(playlistId));
 
         selectedPlaylistIds.clear();
+        if (deletedPlaylistIds.length > 0) {
+            removePlaylistCardsFromDom(deletedPlaylistIds);
+            queueFullRescan();
+        }
 
         if (failedCount > 0) {
             setStatusMessage(`Deleted ${deletedCount} playlist(s). ${failedCount} failed.`, STATUS_KIND.ERROR);
+            showBottomNotification(`Deleted ${deletedCount} playlist(s). ${failedCount} failed.`, STATUS_KIND.ERROR);
         } else {
-            setStatusMessage(`Deleted ${deletedCount} playlist(s). Refreshing...`, STATUS_KIND.SUCCESS);
-            window.location.reload();
+            setStatusMessage(`Deleted ${deletedCount} playlist(s).`, STATUS_KIND.SUCCESS);
+            showBottomNotification(`Deleted ${deletedCount} playlist(s).`, STATUS_KIND.SUCCESS);
         }
 
     } catch (error) {
         logger.warn('Failed to delete playlists', error);
         hideSaveProgress();
         setStatusMessage(error instanceof Error ? error.message : 'Failed to delete playlists.', STATUS_KIND.ERROR);
+        showBottomNotification(error instanceof Error ? error.message : 'Failed to delete playlists.', STATUS_KIND.ERROR);
     } finally {
         submitting = false;
         updateActionUiState();
@@ -3139,7 +3886,6 @@ function handleSelectionClickCapture(event) {
     if (!selectionMode || !isEnabled || !isEligiblePage()) {
         return;
     }
-    logger.debug('handleSelectionClickCapture called');
 
     const target = event.target;
     if (!target || !(target instanceof Element)) {
@@ -3160,23 +3906,20 @@ function handleSelectionClickCapture(event) {
     }
 
     if (isPlaylistsPage()) {
-        logger.debug('Playlists page click detected', { targetTag: target.tagName, targetClass: target.className });
         const playlistRenderer = target.closest('ytd-rich-item-renderer, yt-lockup-view-model');
         if (playlistRenderer) {
-            logger.debug('Found playlist renderer');
             const link = playlistRenderer.querySelector('a[href*="list="]');
             if (link) {
                 try {
                     const url = new URL(link.href, location.origin);
                     const playlistId = url.searchParams.get('list');
-                    logger.debug('Got link with list param', { playlistId });
                     if (playlistId) {
                         event.preventDefault();
                         event.stopPropagation();
                         if (typeof event.stopImmediatePropagation === 'function') {
                             event.stopImmediatePropagation();
                         }
-                        handlePlaylistSelectionInteraction(playlistId, playlistRenderer);
+                        handlePlaylistSelectionInteraction(playlistId, playlistRenderer, event.shiftKey);
                         return;
                     }
                 } catch (_e) {}
@@ -3286,20 +4029,7 @@ function setupObserver() {
 
         const found = new Set();
         mutations.forEach((mutation) => {
-            if (mutation.type === 'childList') {
-                if (mutation.target instanceof Element) {
-                    const targetRenderer = mutation.target.matches(FEED_RENDERER_SELECTOR)
-                        ? mutation.target
-                        : mutation.target.closest(FEED_RENDERER_SELECTOR);
-                    if (targetRenderer) {
-                        found.add(targetRenderer);
-                    }
-                }
-                mutation.addedNodes.forEach((node) => collectRenderers(node, found));
-                return;
-            }
-
-            if (mutation.type === 'attributes' && mutation.target instanceof Element) {
+            if (mutation.target instanceof Element) {
                 const targetRenderer = mutation.target.matches(FEED_RENDERER_SELECTOR)
                     ? mutation.target
                     : mutation.target.closest(FEED_RENDERER_SELECTOR);
@@ -3307,6 +4037,7 @@ function setupObserver() {
                     found.add(targetRenderer);
                 }
             }
+            mutation.addedNodes.forEach((node) => collectRenderers(node, found));
         });
 
         queueContainers(found);
@@ -3314,9 +4045,7 @@ function setupObserver() {
 
     observer.observe(document.body, {
         childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['href', 'video-id', 'data-video-id']
+        subtree: true
     });
 }
 
@@ -3346,6 +4075,9 @@ function setupListeners() {
     
     let playlistScrollThrottle = null;
     const handlePlaylistScroll = () => {
+        if (!selectionMode || !isPlaylistsPage() || selectedPlaylistIds.size === 0) {
+            return;
+        }
         if (!playlistScrollThrottle) {
             playlistScrollThrottle = setTimeout(() => {
                 restorePlaylistSelectionState();
@@ -3378,7 +4110,11 @@ function initPlaylistMultiSelect() {
         return;
     }
 
-    loadPlaylistsDebounced = debounce(loadPlaylistsForPanel, 300);
+    loadPlaylistsDebounced = debounce(() => {
+        loadPlaylistsForPanel().catch((error) => {
+            logger.warn('Failed to refresh playlists', error);
+        });
+    }, 300);
 
     ensureMastheadButton();
     ensureActionUi();
@@ -3454,6 +4190,9 @@ function cleanup() {
     if (createBackdrop) {
         createBackdrop.remove();
     }
+    if (splitBackdrop) {
+        splitBackdrop.remove();
+    }
 
     actionBar = null;
     actionCount = null;
@@ -3473,6 +4212,11 @@ function cleanup() {
 
     createBackdrop = null;
     createModal = null;
+    splitBackdrop = null;
+    splitModal = null;
+    splitCountInput = null;
+    splitStatus = null;
+    splitSubmitting = false;
     createTitleInput = null;
     createVisibilityButton = null;
     createVisibilityValue = null;
@@ -3502,8 +4246,13 @@ function cleanup() {
     createSubmitting = false;
     createVisibility = 'PRIVATE';
     selectAllMode = false;
+    playlistSelectionAnchorId = '';
 
     lastPlaylistProbeVideoId = '';
+    cachedPageVideoCount = 0;
+    cachedPagePlaylistCount = 0;
+    nativeDrawerSession = null;
+    nativeDrawerApplying = false;
 
     document.documentElement.classList.remove(ROOT_SELECTION_CLASS);
 
