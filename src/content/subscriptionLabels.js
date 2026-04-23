@@ -919,18 +919,23 @@ function injectStyles() {
         .${LABEL_CLASS} {
             display: none;
             align-items: center;
-            padding: 4px 10px;
-            margin-left: 6px;
+            justify-content: center;
+            min-height: 22px;
+            padding: 0 11px;
+            margin-left: 9px;
             border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.22);
             font-size: 12px;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.4px;
-            background: rgba(255, 255, 255, 0.1);
-            color: #e2e8f0;
+            line-height: 1;
+            letter-spacing: 0.3px;
+            background: rgba(0, 0, 0, 0.36);
+            color: rgba(241, 241, 241, 0.96);
             white-space: nowrap;
             pointer-events: none;
             user-select: none;
+            box-sizing: border-box;
         }
 
         ytd-browse[page-subtype="home"] .${LABEL_CLASS},
@@ -939,9 +944,9 @@ function injectStyles() {
         }
 
         .${LABEL_CLASS}[${LABEL_KIND_ATTR}='${LABEL_KIND_SUBSCRIBED}'] {
-            background: rgba(46, 204, 113, 0.16);
-            color: #b8f2cd;
-            border: 1px solid rgba(46, 204, 113, 0.4);
+            background: rgba(22, 127, 74, 0.28);
+            color: #d9f9e7;
+            border-color: rgba(95, 220, 163, 0.5);
         }
     `;
 

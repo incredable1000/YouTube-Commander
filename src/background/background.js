@@ -1396,6 +1396,43 @@ async function seedSyncQueueFromHistoryInTab(tabId) {
     }
     return Number(response.seededCount) || 0;
 }
+
+/**
+ * Seed pending cloud queue from local watched history once.
+ * This prevents first-time sync from missing already-watched records.
+ * @param {string} accountKey
+ * @returns {Promise<number>}
+ */
+async function seedPendingQueueFromWatchedHistory(accountKey) {
+    let createdTab = false;
+    let tabId = 0;
+
+    try {
+        const tabInfo = await resolveYouTubeTabForHistory();
+        createdTab = tabInfo.created;
+        tabId = tabInfo.tabId;
+
+        const response = await sendMessageToTab(tabId, { type: 'GET_ALL_WATCHED_VIDEOS' }, 60000);
+        if (!response?.success) {
+            throw new Error(response?.error || 'Failed to read watched history for queue seed');
+        }
+
+        const watchedVideos = Array.isArray(response?.videos) ? response.videos : [];
+        const seedIds = normalizeVideoIds(watchedVideos.map((entry) => entry?.videoId));
+        const pendingCount = await enqueuePendingVideoIds(seedIds, accountKey);
+
+        await storageLocalSet({
+            [CLOUD_SYNC_STORAGE_KEYS.QUEUE_SEEDED]: true,
+            [CLOUD_SYNC_STORAGE_KEYS.PENDING_COUNT]: pendingCount
+        });
+
+        return seedIds.length;
+    } finally {
+        if (createdTab && tabId) {
+            await removeTab(tabId);
+        }
+    }
+}
 /**
  * Get subscription snapshot from content script.
  * @param {number} tabId
@@ -1786,8 +1823,28 @@ async function performCloudflareSync(options = {}) {
         };
     }
 
-    const pendingBefore = await readPendingQueue(syncAccountKey);
+    let pendingBefore = await readPendingQueue(syncAccountKey);
+    if (pendingBefore.length === 0 && state.queueSeeded !== true) {
+        try {
+            const seededCount = await seedPendingQueueFromWatchedHistory(syncAccountKey);
+            if (seededCount > 0) {
+                console.info('[YT-Commander][CloudSync] Seeded pending queue from watched history', {
+                    accountKey: syncAccountKey,
+                    seededCount
+                });
+            }
+        } catch (error) {
+            console.warn('[YT-Commander][CloudSync] Failed to seed pending queue from watched history', error);
+        }
+        pendingBefore = await readPendingQueue(syncAccountKey);
+    }
+
     if (pendingBefore.length === 0) {
+        if (state.queueSeeded !== true) {
+            await storageLocalSet({
+                [CLOUD_SYNC_STORAGE_KEYS.QUEUE_SEEDED]: true
+            });
+        }
         await storageLocalSet({
             [CLOUD_SYNC_STORAGE_KEYS.STATUS]: 'idle',
             [CLOUD_SYNC_STORAGE_KEYS.ERROR]: '',
@@ -2851,6 +2908,49 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         requestGeminiAutoCategorize(message)
             .then((data) => sendResponse({ success: true, data }))
             .catch((error) => sendResponse({ success: false, error: error.message }));
+        return true;
+    }
+
+    if (message.type === 'OPEN_URLS_IN_BACKGROUND') {
+        const requestedUrls = Array.isArray(message.urls) ? message.urls : [];
+        const urls = requestedUrls
+            .map((url) => (typeof url === 'string' ? url.trim() : ''))
+            .filter((url) => /^https:\/\/www\.youtube\.com\//.test(url))
+            .slice(0, 500);
+
+        (async () => {
+            if (urls.length === 0) {
+                sendResponse({ success: false, error: 'No valid URLs provided.' });
+                return;
+            }
+
+            const createdTabs = [];
+            for (const url of urls) {
+                const createProperties = {
+                    url,
+                    active: false
+                };
+                if (typeof sender?.tab?.windowId === 'number') {
+                    createProperties.windowId = sender.tab.windowId;
+                }
+
+                const tab = await createTab(createProperties);
+                if (tab) {
+                    createdTabs.push(tab);
+                }
+            }
+
+            sendResponse({
+                success: true,
+                openedCount: createdTabs.length
+            });
+        })().catch((error) => {
+            sendResponse({
+                success: false,
+                error: error?.message || 'Failed to open background tabs.'
+            });
+        });
+
         return true;
     }
 

@@ -29,10 +29,10 @@ const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{10,15}$/;
 const PLAYLIST_ID_PATTERN = /^[A-Za-z0-9_-]{2,120}$/;
 const MAX_BATCH_SIZE = 45;
 const REMOVE_LOOKUP_CONCURRENCY = 4;
-const EDIT_PLAYLIST_RETRY_ATTEMPTS = 2;
+const EDIT_PLAYLIST_RETRY_ATTEMPTS = 3;
 const EDIT_PLAYLIST_RETRY_DELAY_MS = 420;
 const EDIT_PLAYLIST_BATCH_CONCURRENCY = 2;
-const EDIT_PLAYLIST_SINGLE_VIDEO_RETRY_ATTEMPTS = 18;
+const EDIT_PLAYLIST_SINGLE_VIDEO_RETRY_ATTEMPTS = 24;
 const DELETE_PLAYLIST_CONCURRENCY = 4;
 const SHORTS_TIMESTAMP_RESOLVE_CONCURRENCY = 6;
 const SUBSCRIPTION_BROWSE_ID = 'FEchannels';
@@ -259,6 +259,27 @@ function readApiError(responseText) {
     }
 
     return String(responseText).slice(0, 240);
+}
+
+/**
+ * Check if an error likely means video was already present in playlist.
+ * @param {any} error
+ * @returns {boolean}
+ */
+function isAlreadyInPlaylistError(error) {
+    const message = error instanceof Error
+        ? error.message
+        : (typeof error === 'string' ? error : '');
+    if (!message) {
+        return false;
+    }
+
+    const normalized = message.toLowerCase();
+    return (
+        (normalized.includes('already') && normalized.includes('playlist'))
+        || normalized.includes('already exists')
+        || normalized.includes('duplicate')
+    );
 }
 
 /**
@@ -1139,6 +1160,11 @@ function isElementVisible(element) {
         return false;
     }
 
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+        return false;
+    }
+
     return true;
 }
 
@@ -1195,7 +1221,8 @@ function collectVideoProbeElements(videoId) {
         addElement(element);
         addElement(element.closest(
             'ytd-playlist-video-renderer, ytd-video-renderer, ytd-rich-item-renderer, '
-            + 'ytd-grid-video-renderer, ytd-compact-video-renderer, ytd-reel-item-renderer, ytd-watch-flexy'
+            + 'ytd-grid-video-renderer, ytd-compact-video-renderer, ytd-reel-item-renderer, '
+            + 'ytd-playlist-video-list-renderer, ytd-watch-flexy'
         ));
     });
 
@@ -1203,7 +1230,8 @@ function collectVideoProbeElements(videoId) {
         addElement(link);
         addElement(link.closest(
             'ytd-playlist-video-renderer, ytd-video-renderer, ytd-rich-item-renderer, '
-            + 'ytd-grid-video-renderer, ytd-compact-video-renderer, ytd-reel-item-renderer, ytd-watch-flexy'
+            + 'ytd-grid-video-renderer, ytd-compact-video-renderer, ytd-reel-item-renderer, '
+            + 'ytd-playlist-video-list-renderer, ytd-watch-flexy'
         ));
     });
 
@@ -1235,7 +1263,20 @@ function isActionableSaveButton(element) {
     ].join(' ').replace(/\s+/g, ' ').trim().toLowerCase();
 
     if (!label) {
-        return false;
+        const parentWithLabel = element.closest('[aria-label], [title], [data-tooltip]');
+        const parentLabel = parentWithLabel instanceof Element
+            ? [
+                parentWithLabel.getAttribute('aria-label') || '',
+                parentWithLabel.getAttribute('title') || '',
+                parentWithLabel.getAttribute('data-tooltip') || ''
+            ].join(' ').replace(/\s+/g, ' ').trim().toLowerCase()
+            : '';
+        if (!parentLabel) {
+            return false;
+        }
+        return parentLabel.includes('save to playlist')
+            || parentLabel === 'save'
+            || parentLabel.startsWith('save ');
     }
 
     if (label.includes('save to playlist')) {
@@ -1274,6 +1315,31 @@ function triggerElementClick(element) {
 }
 
 /**
+ * Prime a renderer so hover-only controls (save/menu buttons) become actionable.
+ * @param {Element} probe
+ */
+function primeProbeForActionButtons(probe) {
+    if (!(probe instanceof Element)) {
+        return;
+    }
+
+    try {
+        probe.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    } catch (_error) {
+        // Ignore scroll failures.
+    }
+
+    ['mouseenter', 'mouseover', 'mousemove'].forEach((type) => {
+        probe.dispatchEvent(new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            view: window
+        }));
+    });
+}
+
+/**
  * Try opening save drawer by clicking YouTube's native Save control.
  * @param {string} videoId
  * @returns {Promise<boolean>}
@@ -1286,15 +1352,20 @@ async function openNativePlaylistDrawerViaNativeButton(videoId) {
     const probeElements = collectVideoProbeElements(videoId);
     const buttonSelectors = [
         'button[aria-label*="Save to playlist"]',
+        'button[aria-label*="Save to"]',
         'button[aria-label*="Save"]',
         '[role="button"][aria-label*="Save to playlist"]',
         '[role="button"][aria-label*="Save"]',
         'yt-button-view-model button[aria-label*="Save"]',
         'ytd-menu-renderer button[aria-label*="Save"]',
+        'button[aria-haspopup="menu"][aria-label*="Save"]',
+        'yt-icon-button button[aria-label*="Save"]',
         'button[title*="Save"]'
     ];
 
     for (const probe of probeElements) {
+        primeProbeForActionButtons(probe);
+        await delay(20);
         for (const selector of buttonSelectors) {
             const candidates = probe.querySelectorAll(selector);
             for (const candidate of candidates) {
@@ -1306,6 +1377,213 @@ async function openNativePlaylistDrawerViaNativeButton(videoId) {
                 if (await waitForNativeAddToPlaylistDrawerOpen(1300)) {
                     return true;
                 }
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Check if element behaves as an actionable overflow menu button.
+ * @param {Element|null|undefined} element
+ * @returns {boolean}
+ */
+function isActionableOverflowMenuButton(element) {
+    if (!(element instanceof Element) || !isElementVisible(element)) {
+        return false;
+    }
+    if (element.getAttribute('aria-disabled') === 'true' || element.hasAttribute('disabled')) {
+        return false;
+    }
+
+    const label = [
+        element.getAttribute('aria-label') || '',
+        element.getAttribute('title') || '',
+        element.getAttribute('data-tooltip') || '',
+        element.textContent || ''
+    ].join(' ').replace(/\s+/g, ' ').trim().toLowerCase();
+
+    const hasMenuSemantics = ['true', 'menu'].includes((element.getAttribute('aria-haspopup') || '').toLowerCase())
+        || element.hasAttribute('aria-expanded')
+        || Boolean(element.closest('ytd-menu-renderer, ytd-menu-popup-renderer, yt-icon-button'));
+
+    if (!label) {
+        return hasMenuSemantics;
+    }
+
+    return label.includes('action menu')
+        || label.includes('more actions')
+        || label === 'more'
+        || label.startsWith('more ')
+        || (hasMenuSemantics && label.includes('more'));
+}
+
+/**
+ * Resolve one visible action-menu popup.
+ * @returns {Element|null}
+ */
+function findVisibleActionMenuPopup() {
+    const selectors = [
+        'ytd-popup-container ytd-menu-popup-renderer',
+        'ytd-popup-container tp-yt-paper-dialog ytd-menu-popup-renderer',
+        'ytd-popup-container tp-yt-paper-listbox',
+        'ytd-popup-container [role="menu"]',
+        'tp-yt-iron-dropdown [role="menu"]',
+        'yt-popup-container [role="menu"]'
+    ];
+
+    for (const selector of selectors) {
+        const nodes = document.querySelectorAll(selector);
+        for (const node of nodes) {
+            if (isElementVisible(node) && node.getClientRects().length > 0) {
+                return node;
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Wait for action-menu popup visibility.
+ * @param {number} timeoutMs
+ * @returns {Promise<Element|null>}
+ */
+async function waitForActionMenuPopupOpen(timeoutMs = 900) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt <= timeoutMs) {
+        const popup = findVisibleActionMenuPopup();
+        if (popup) {
+            return popup;
+        }
+        await delay(60);
+    }
+    return findVisibleActionMenuPopup();
+}
+
+/**
+ * Resolve "Save to playlist" item from one menu popup.
+ * @param {Element} popup
+ * @returns {Element|null}
+ */
+function findSaveToPlaylistMenuItem(popup) {
+    if (!(popup instanceof Element)) {
+        return null;
+    }
+
+    const itemSelectors = [
+        'ytd-menu-service-item-renderer',
+        'ytd-menu-navigation-item-renderer',
+        '[role="menuitem"]',
+        'tp-yt-paper-item',
+        'yt-list-item-view-model'
+    ];
+
+    const nodes = popup.querySelectorAll(itemSelectors.join(', '));
+    for (const node of nodes) {
+        if (!(node instanceof Element) || !isElementVisible(node)) {
+            continue;
+        }
+
+        const label = [
+            node.getAttribute('aria-label') || '',
+            node.getAttribute('title') || '',
+            node.textContent || ''
+        ].join(' ').replace(/\s+/g, ' ').trim().toLowerCase();
+
+        if (!label) {
+            continue;
+        }
+
+        if (!label.includes('save to playlist') && label !== 'save' && !label.startsWith('save ')) {
+            continue;
+        }
+
+        const clickable = node.querySelector(
+            'button, [role="menuitem"], yt-button-shape button, tp-yt-paper-item, yt-list-item-view-model'
+        );
+        return clickable instanceof Element ? clickable : node;
+    }
+
+    return null;
+}
+
+/**
+ * Close currently opened action menu popup with Escape.
+ */
+function closeActionMenuPopup() {
+    const popup = findVisibleActionMenuPopup();
+    if (!popup) {
+        return;
+    }
+
+    const event = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        code: 'Escape',
+        bubbles: true,
+        cancelable: true,
+        composed: true
+    });
+    document.dispatchEvent(event);
+}
+
+/**
+ * Try opening save drawer through overflow menu > "Save to playlist".
+ * This follows YouTube's native UI path so modern drawer experiments are respected.
+ * @param {string} videoId
+ * @returns {Promise<boolean>}
+ */
+async function openNativePlaylistDrawerViaOverflowMenu(videoId) {
+    if (!VIDEO_ID_PATTERN.test(videoId)) {
+        return false;
+    }
+
+    const probeElements = collectVideoProbeElements(videoId);
+    const menuButtonSelectors = [
+        'button[aria-label*="Action menu"]',
+        'button[aria-label*="More actions"]',
+        'button[aria-label*="More"]',
+        '[role="button"][aria-label*="Action menu"]',
+        '[role="button"][aria-label*="More actions"]',
+        'button[aria-haspopup="menu"]',
+        '[role="button"][aria-haspopup="menu"]',
+        'yt-icon-button button[aria-haspopup="menu"]',
+        'ytd-menu-renderer button'
+    ];
+
+    for (const probe of probeElements) {
+        primeProbeForActionButtons(probe);
+        await delay(20);
+        for (const selector of menuButtonSelectors) {
+            const candidates = probe.querySelectorAll(selector);
+            for (const candidate of candidates) {
+                if (!isActionableOverflowMenuButton(candidate)) {
+                    continue;
+                }
+
+                closeActionMenuPopup();
+                await delay(40);
+                triggerElementClick(candidate);
+                const popup = await waitForActionMenuPopupOpen(1200);
+                if (!popup) {
+                    continue;
+                }
+
+                const saveItem = findSaveToPlaylistMenuItem(popup);
+                if (!saveItem) {
+                    closeActionMenuPopup();
+                    await delay(70);
+                    continue;
+                }
+
+                triggerElementClick(saveItem);
+                if (await waitForNativeAddToPlaylistDrawerOpen(1800)) {
+                    return true;
+                }
+
+                closeActionMenuPopup();
+                await delay(70);
             }
         }
     }
@@ -2058,6 +2336,14 @@ async function openNativePlaylistDrawer(payload) {
         };
     }
 
+    const openedViaOverflowMenu = await openNativePlaylistDrawerViaOverflowMenu(videoId);
+    if (openedViaOverflowMenu) {
+        return {
+            opened: true,
+            popupType: 'OVERFLOW_MENU'
+        };
+    }
+
     const openedViaServiceCommand = await openNativePlaylistDrawerViaServiceCommand(videoId, anchor);
     if (openedViaServiceCommand) {
         return {
@@ -2066,9 +2352,41 @@ async function openNativePlaylistDrawer(payload) {
         };
     }
 
+    const config = await getInnertubeConfig();
+    const requestPayload = buildGetAddToPlaylistPayload(config.context, videoId);
+    const response = await postInnertube('playlist/get_add_to_playlist', requestPayload, config);
+    const renderer = findAddToPlaylistRenderer(response?.body);
+    if (!renderer) {
+        throw new Error('Could not resolve native playlist drawer payload.');
+    }
+
+    const preferredPopupType = resolveAddToPlaylistPopupType();
+    const popupTypes = preferredPopupType === 'DIALOG'
+        ? ['DIALOG', 'RESPONSIVE_DROPDOWN']
+        : ['RESPONSIVE_DROPDOWN', 'DIALOG'];
+
+    for (const popupType of popupTypes) {
+        const command = {
+            openPopupAction: {
+                popupType,
+                popup: {
+                    addToPlaylistRenderer: renderer
+                }
+            }
+        };
+
+        dispatchYtAction(anchor, 'yt-open-popup-action', [command, anchor]);
+        if (await waitForNativeAddToPlaylistDrawerOpen(900)) {
+            return {
+                opened: true,
+                popupType
+            };
+        }
+    }
+
     return {
         opened: false,
-        popupType: 'SERVICE_REQUEST'
+        popupType: 'LEGACY_FALLBACK'
     };
 }
 
@@ -2494,6 +2812,11 @@ async function addVideosToSinglePlaylist(playlistId, videoIds, config, options =
             }
         }
 
+        if (!success && batch.length === 1 && isAlreadyInPlaylistError(lastError)) {
+            // Treat duplicate/add-existing responses as applied work.
+            success = true;
+        }
+
         if (success) {
             progress.processed += batch.length;
             addedCount += batch.length;
@@ -2572,7 +2895,8 @@ async function addToPlaylists(payload, options = {}) {
         const playlistId = playlistIds[i];
         const playlistTitle = playlistTitles[i] || playlistId;
         try {
-            await addVideosToSinglePlaylist(playlistId, videoIds, config, {
+            const addResult = await addVideosToSinglePlaylist(playlistId, videoIds, config, {
+                throwOnFailure: false,
                 onProgress: (processed, total) => {
                     if (typeof options?.onProgress === 'function') {
                         options.onProgress({
@@ -2583,7 +2907,25 @@ async function addToPlaylists(payload, options = {}) {
                     }
                 }
             });
-            successCount += 1;
+
+            const addedCount = Number(addResult?.addedCount) || 0;
+            const failedCount = Array.isArray(addResult?.failures) ? addResult.failures.length : 0;
+
+            if (addedCount > 0) {
+                successCount += 1;
+            }
+
+            if (failedCount > 0 && addedCount === 0) {
+                failures.push({
+                    playlistId,
+                    error: addResult?.failures?.[0]?.error || 'Failed to add videos to playlist.'
+                });
+            } else if (failedCount > 0) {
+                failures.push({
+                    playlistId,
+                    error: `Partially saved ${addedCount}/${videoIds.length} video(s). ${failedCount} item(s) failed.`
+                });
+            }
         } catch (error) {
             failures.push({
                 playlistId,
@@ -2793,67 +3135,54 @@ async function removeFromPlaylist(payload, options = {}) {
         throw new Error('No valid selected videos found.');
     }
 
-    const removedVideoIds = new Set();
+    const config = await getInnertubeConfig();
+    const primaryResult = await executeRemoveEntriesBatched(
+        playlistId,
+        buildDirectRemoveEntries(videoIds, 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID'),
+        config,
+        {
+            batchSize: MAX_BATCH_SIZE,
+            retryAttempts: EDIT_PLAYLIST_RETRY_ATTEMPTS,
+            onProgress: options.onProgress
+        }
+    );
+    const removedVideoIds = new Set(primaryResult.appliedVideoIds);
     const failures = [];
+    const unresolvedVideoIds = videoIds.filter((videoId) => !removedVideoIds.has(videoId));
+    const failureByVideoId = new Map();
 
-    const nativeResult = await removeFromPlaylistViaNativeCommands(playlistId, videoIds, {
-        onProgress: options.onProgress
-    });
-    nativeResult.removedVideoIds.forEach((videoId) => {
-        if (VIDEO_ID_PATTERN.test(videoId)) {
-            removedVideoIds.add(videoId);
+    primaryResult.failedEntries.forEach((entry) => {
+        if (!removedVideoIds.has(entry.videoId) && !failureByVideoId.has(entry.videoId)) {
+            failureByVideoId.set(entry.videoId, entry.error || 'Failed to remove video.');
         }
     });
 
-    const pendingVideoIds = videoIds.filter((videoId) => !removedVideoIds.has(videoId));
-    if (pendingVideoIds.length > 0) {
-        const config = await getInnertubeConfig();
-        const primaryResult = await executeRemoveEntriesBatched(
-            playlistId,
-            buildDirectRemoveEntries(pendingVideoIds, 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID'),
-            config,
-            {
-                batchSize: MAX_BATCH_SIZE,
-                retryAttempts: EDIT_PLAYLIST_RETRY_ATTEMPTS,
-                onProgress: (progress) => {
-                    if (typeof options.onProgress !== 'function') {
-                        return;
-                    }
-                    const nativeProcessed = videoIds.length - pendingVideoIds.length;
-                    options.onProgress({
-                        processed: nativeProcessed + (Number(progress?.processed) || 0),
-                        total: videoIds.length
-                    });
-                }
-            }
-        );
-        primaryResult.appliedVideoIds.forEach((videoId) => {
+    if (unresolvedVideoIds.length > 0) {
+        const fallbackResult = await removeWithResolvedActions(playlistId, unresolvedVideoIds, config);
+        fallbackResult.appliedVideoIds.forEach((videoId) => {
             removedVideoIds.add(videoId);
         });
+        fallbackResult.failures.forEach((failure) => {
+            if (!failureByVideoId.has(failure.videoId)) {
+                failureByVideoId.set(failure.videoId, failure.error || 'Failed to remove video.');
+            }
+        });
+    }
 
-        if (primaryResult.appliedVideoIds.size === 0) {
-            const fallback = await removeWithResolvedActions(playlistId, pendingVideoIds, config);
-            fallback.appliedVideoIds.forEach((videoId) => {
-                removedVideoIds.add(videoId);
+    videoIds
+        .filter((videoId) => !removedVideoIds.has(videoId))
+        .forEach((videoId) => {
+            failures.push({
+                videoId,
+                error: failureByVideoId.get(videoId) || 'Failed to remove video.'
             });
-            failures.push(...fallback.failures);
-        } else {
-            const failureByVideoId = new Map();
-            primaryResult.failedEntries.forEach((entry) => {
-                if (!removedVideoIds.has(entry.videoId) && !failureByVideoId.has(entry.videoId)) {
-                    failureByVideoId.set(entry.videoId, entry.error || 'Failed to remove video.');
-                }
-            });
+        });
 
-            pendingVideoIds
-                .filter((videoId) => !removedVideoIds.has(videoId))
-                .forEach((videoId) => {
-                    failures.push({
-                        videoId,
-                        error: failureByVideoId.get(videoId) || 'Failed to remove video.'
-                    });
-                });
-        }
+    if (typeof options?.onProgress === 'function') {
+        options.onProgress({
+            processed: videoIds.length,
+            total: videoIds.length
+        });
     }
 
     if (removedVideoIds.size === 0) {

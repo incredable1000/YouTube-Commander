@@ -244,12 +244,6 @@ function navigateToPlaylists() {
         }
     }
 
-    const guideLink = document.querySelector('ytd-guide-entry-renderer a[href*="/feed/playlists"]');
-    if (guideLink instanceof HTMLElement) {
-        guideLink.click();
-        return;
-    }
-
     const app = document.querySelector('ytd-app');
     if (endpoint && app && typeof app.navigate_ === 'function') {
         app.navigate_(endpoint);
@@ -270,6 +264,26 @@ function navigateToPlaylists() {
     if (window.yt && typeof window.yt.navigateTo === 'function') {
         window.yt.navigateTo(PLAYLIST_PATH);
         return;
+    }
+
+    const guideLink = document.querySelector('ytd-guide-entry-renderer a[href*="/feed/playlists"]');
+    if (guideLink instanceof HTMLElement) {
+        try {
+            const clickEvent = new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                composed: true,
+                button: 0,
+                view: window
+            });
+            guideLink.dispatchEvent(clickEvent);
+            if (!clickEvent.defaultPrevented) {
+                guideLink.click();
+            }
+            return;
+        } catch (_error) {
+            // Continue with final hard navigation fallback.
+        }
     }
 
     window.location.assign(PLAYLIST_PATH);

@@ -102,6 +102,7 @@ let progressBar = null;
 let progressBarLabel = null;
 let progressBarFill = null;
 let progressBarCount = null;
+let progressBarDetail = null;
 
 let playlistPanel = null;
 let playlistPanelCount = null;
@@ -116,6 +117,7 @@ let splitBackdrop = null;
 let splitModal = null;
 let splitCountInput = null;
 let splitStatus = null;
+let splitPreview = null;
 let splitSubmitting = false;
 let createTitleInput = null;
 let createVisibilityButton = null;
@@ -143,6 +145,9 @@ let playlistSelectionAnchorId = '';
 let isDragging = false;
 let dragOffsetX = 0;
 let dragOffsetY = 0;
+let dragPointerX = 0;
+let dragPointerY = 0;
+let dragFrameId = 0;
 let isDragPositioned = false;
 const WATCH_LATER_PLAYLIST_ID = 'WL';
 
@@ -153,6 +158,8 @@ const playlistMap = new Map();
 const selectionRangeController = createSelectionRangeController();
 let decorateRetryCounts = new WeakMap();
 let countedContainers = new WeakSet();
+let countedVideoIds = new Set();
+let countedPlaylistIds = new Set();
 let cachedPageVideoCount = 0;
 let cachedPagePlaylistCount = 0;
 let nativeDrawerSession = null;
@@ -539,6 +546,10 @@ function ensureActionBar() {
     progressBarLabel.className = 'yt-commander-playlist-progress__label';
     progressBarLabel.textContent = 'Saving...';
 
+    progressBarDetail = document.createElement('div');
+    progressBarDetail.className = 'yt-commander-playlist-progress__detail';
+    progressBarDetail.textContent = '';
+
     const progressBarElement = document.createElement('div');
     progressBarElement.className = 'yt-commander-playlist-progress__bar';
 
@@ -551,6 +562,7 @@ function ensureActionBar() {
 
     progressBarElement.appendChild(progressBarFill);
     progressBar.appendChild(progressBarLabel);
+    progressBar.appendChild(progressBarDetail);
     progressBar.appendChild(progressBarElement);
     progressBar.appendChild(progressBarCount);
 
@@ -1084,16 +1096,22 @@ function showBottomNotification(message, kind = STATUS_KIND.INFO, options = {}) 
  * @param {number} processed Number of videos processed
  * @param {number} total Total number of videos
  * @param {string} label Current operation label
+ * @param {string} [detail] Optional secondary progress detail text
  */
-function showSaveProgress(processed, total, label) {
+function showSaveProgress(processed, total, label, detail = '') {
     if (!progressBar || !progressBarFill || !progressBarLabel || !progressBarCount) {
         return;
     }
 
     const percentage = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+    const detailText = typeof detail === 'string' ? detail.trim() : '';
 
     progressBar.hidden = false;
     progressBarLabel.textContent = label || 'Saving...';
+    if (progressBarDetail) {
+        progressBarDetail.textContent = detailText;
+        progressBarDetail.hidden = detailText.length === 0;
+    }
     progressBarFill.style.width = `${percentage}%`;
     progressBarCount.textContent = `${processed} / ${total}`;
 }
@@ -1107,6 +1125,10 @@ function hideSaveProgress() {
     }
 
     progressBar.hidden = true;
+    if (progressBarDetail) {
+        progressBarDetail.hidden = true;
+        progressBarDetail.textContent = '';
+    }
 }
 
 function resolveActivePageRoot() {
@@ -1153,6 +1175,25 @@ function collectRenderedVideoIds() {
 }
 
 /**
+ * Resolve current rendered video count with a cache-first strategy.
+ * Falls back to a one-time DOM scan when cache has not warmed yet.
+ * @returns {number}
+ */
+function getRenderedVideoCountForActionUi() {
+    if (cachedPageVideoCount > 0) {
+        return cachedPageVideoCount;
+    }
+
+    const renderedIds = collectRenderedVideoIds();
+    const measured = renderedIds.length;
+    if (measured > 0) {
+        countedVideoIds = new Set(renderedIds);
+        cachedPageVideoCount = measured;
+    }
+    return measured;
+}
+
+/**
  * Reset action-bar counters to zero.
  */
 function resetActionCounters() {
@@ -1167,6 +1208,8 @@ function resetActionCounters() {
     cachedPageVideoCount = 0;
     cachedPagePlaylistCount = 0;
     countedContainers = new WeakSet();
+    countedVideoIds.clear();
+    countedPlaylistIds.clear();
 }
 
 /**
@@ -1196,9 +1239,10 @@ function updateActionUiState() {
     const isPlaylistPage = isPlaylistsPage();
     const selectedVideoCount = selectedVideoIds.size;
     const selectedPlaylistCount = selectedPlaylistIds.size;
-    const pageVideoCount = collectRenderedVideoIds().length;
+    const pageVideoCount = getRenderedVideoCountForActionUi();
     const pagePlaylistCount = isPlaylistPage ? collectRenderedPlaylistIds().length : cachedPagePlaylistCount;
     const nativeDrawerBusy = nativeDrawerApplying || Boolean(nativeDrawerSession);
+    const hasPendingDecorations = pendingContainers.size > 0;
 
     const selectedCount = isPlaylistPage ? selectedPlaylistCount : selectedVideoCount;
     const pageCount = isPlaylistPage ? pagePlaylistCount : pageVideoCount;
@@ -1208,7 +1252,11 @@ function updateActionUiState() {
     }
 
     if (actionTotalCount) {
-        actionTotalCount.textContent = pageCount > 9999 ? '9999+' : String(pageCount);
+        if (pageCount === 0 && hasPendingDecorations) {
+            actionTotalCount.textContent = '...';
+        } else {
+            actionTotalCount.textContent = pageCount > 9999 ? '9999+' : String(pageCount);
+        }
     }
 
     if (playlistPanelCount) {
@@ -1248,17 +1296,22 @@ function updateActionUiState() {
     }
 
     if (actionSelectAllButton) {
-        actionSelectAllButton.hidden = isPlaylistPage;
-        actionSelectAllButton.disabled = pageCount === 0
+        actionSelectAllButton.hidden = false;
+        actionSelectAllButton.disabled = (pageCount === 0 && !hasPendingDecorations)
             || loadingPlaylists
             || submitting
             || createSubmitting
             || nativeDrawerBusy;
-        actionSelectAllButton.classList.toggle('is-active', selectAllMode);
+        actionSelectAllButton.classList.toggle(
+            'is-active',
+            isPlaylistPage
+                ? (selectedPlaylistCount > 0 && selectedPlaylistCount >= pageCount && pageCount > 0)
+                : selectAllMode
+        );
     }
 
     if (actionUnselectAllButton) {
-        actionUnselectAllButton.hidden = isPlaylistPage;
+        actionUnselectAllButton.hidden = false;
         actionUnselectAllButton.disabled = selectedCount === 0
             || loadingPlaylists
             || submitting
@@ -1980,7 +2033,29 @@ async function openNativePlaylistDrawerForSelection() {
         return;
     }
 
-    const anchorVideoId = selectedIds[0];
+    const isVisibleInViewport = (element) => {
+        if (!(element instanceof Element) || !element.isConnected) {
+            return false;
+        }
+
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return false;
+        }
+
+        return rect.bottom > 0
+            && rect.right > 0
+            && rect.top < window.innerHeight
+            && rect.left < window.innerWidth;
+    };
+
+    const anchorVideoId = selectedIds.find((videoId) => {
+        const host = document.querySelector(`.${HOST_CLASS}[data-yt-commander-video-id="${videoId}"]`);
+        return isVisibleInViewport(host);
+    }) || selectedIds.find((videoId) => {
+        const host = document.querySelector(`.${HOST_CLASS}[data-yt-commander-video-id="${videoId}"]`);
+        return host instanceof Element && host.isConnected;
+    }) || selectedIds[0];
     nativeDrawerApplying = true;
     updateActionUiState();
 
@@ -2056,22 +2131,39 @@ function removeSelectedCardsFromDom(videoIds) {
     }
 
     const nodesToRemove = new Set();
+    const rendererSelector = [
+        FEED_RENDERER_SELECTOR,
+        'ytd-playlist-video-renderer',
+        'ytd-playlist-video-list-renderer',
+        'ytd-playlist-panel-video-renderer',
+        'ytd-rich-item-renderer',
+        'ytd-video-renderer',
+        'yt-lockup-view-model'
+    ].join(', ');
+
     videoIds.forEach((videoId) => {
         if (!VIDEO_ID_PATTERN.test(videoId)) {
             return;
         }
 
         selectedVideoIds.delete(videoId);
-        document
-            .querySelectorAll(`.${HOST_CLASS}[data-yt-commander-video-id="${videoId}"]`)
-            .forEach((host) => {
-                if (!(host instanceof Element)) {
-                    return;
-                }
+        countedVideoIds.delete(videoId);
+        const selector = [
+            `.${HOST_CLASS}[data-yt-commander-video-id="${videoId}"]`,
+            `[data-video-id="${videoId}"]`,
+            `[video-id="${videoId}"]`,
+            `a[href*="watch?v=${videoId}"]`,
+            `a[href*="/shorts/${videoId}"]`
+        ].join(', ');
 
-                const renderer = host.closest(FEED_RENDERER_SELECTOR) || host;
-                nodesToRemove.add(renderer);
-            });
+        document.querySelectorAll(selector).forEach((node) => {
+            if (!(node instanceof Element)) {
+                return;
+            }
+
+            const renderer = node.closest(rendererSelector) || node;
+            nodesToRemove.add(renderer);
+        });
     });
 
     let removedCount = 0;
@@ -2084,9 +2176,9 @@ function removeSelectedCardsFromDom(videoIds) {
 
     if (removedCount > 0) {
         if (isPlaylistsPage()) {
-            cachedPagePlaylistCount = Math.max(0, cachedPagePlaylistCount - removedCount);
+            cachedPagePlaylistCount = countedPlaylistIds.size;
         } else {
-            cachedPageVideoCount = Math.max(0, cachedPageVideoCount - removedCount);
+            cachedPageVideoCount = countedVideoIds.size;
         }
     }
 
@@ -2105,18 +2197,28 @@ function removePlaylistCardsFromDom(playlistIds) {
     }
 
     const nodesToRemove = new Set();
+    const rendererSelector = [
+        'ytd-rich-item-renderer',
+        'yt-lockup-view-model',
+        'ytd-grid-playlist-renderer',
+        'ytd-playlist-renderer',
+        'ytd-playlist-video-list-renderer'
+    ].join(', ');
+
     playlistIds.forEach((playlistId) => {
         if (!PLAYLIST_ID_PATTERN.test(playlistId)) {
             return;
         }
 
         selectedPlaylistIds.delete(playlistId);
-        document.querySelectorAll(`a[href*="list=${playlistId}"]`).forEach((link) => {
-            if (!(link instanceof HTMLAnchorElement)) {
+        countedPlaylistIds.delete(playlistId);
+        document.querySelectorAll(rendererSelector).forEach((renderer) => {
+            if (!(renderer instanceof Element) || !renderer.isConnected) {
                 return;
             }
-            const renderer = link.closest('ytd-rich-item-renderer, yt-lockup-view-model');
-            if (renderer instanceof Element) {
+
+            const link = renderer.querySelector(`a[href*="list=${playlistId}"]`);
+            if (link instanceof HTMLAnchorElement) {
                 nodesToRemove.add(renderer);
             }
         });
@@ -2131,7 +2233,7 @@ function removePlaylistCardsFromDom(playlistIds) {
     });
 
     if (removedCount > 0) {
-        cachedPagePlaylistCount = Math.max(0, cachedPagePlaylistCount - removedCount);
+        cachedPagePlaylistCount = countedPlaylistIds.size;
     }
 
     updateActionUiState();
@@ -2841,6 +2943,71 @@ function sendBridgeRequest(action, payload, onProgress) {
 }
 
 /**
+ * Return true only for top-level renderer containers.
+ * Nested renderers can otherwise be processed twice.
+ * @param {Element} element
+ * @returns {boolean}
+ */
+function isPrimaryRendererContainer(element) {
+    if (!(element instanceof Element)) {
+        return false;
+    }
+    const parent = element.parentElement;
+    const parentRenderer = parent ? parent.closest(FEED_RENDERER_SELECTOR) : null;
+    return !(parentRenderer instanceof Element);
+}
+
+/**
+ * Resolve playlist ID from one renderer container.
+ * @param {Element} container
+ * @returns {string}
+ */
+function getPlaylistIdFromContainer(container) {
+    if (!(container instanceof Element)) {
+        return '';
+    }
+
+    const link = container.querySelector('a[href*="list="]');
+    if (!(link instanceof HTMLAnchorElement) || !link.href) {
+        return '';
+    }
+
+    try {
+        const url = new URL(link.href, location.origin);
+        const playlistId = url.searchParams.get('list') || '';
+        return PLAYLIST_ID_PATTERN.test(playlistId) ? playlistId : '';
+    } catch (_error) {
+        return '';
+    }
+}
+
+/**
+ * Open URLs as background tabs via extension background worker.
+ * @param {string[]} urls
+ * @returns {Promise<boolean>}
+ */
+async function openUrlsInBackgroundTabs(urls) {
+    const safeUrls = Array.isArray(urls)
+        ? urls
+            .filter((url) => typeof url === 'string' && /^https:\/\/www\.youtube\.com\//.test(url))
+            .slice(0, 500)
+        : [];
+    if (safeUrls.length === 0 || !chrome?.runtime?.sendMessage) {
+        return false;
+    }
+
+    try {
+        const response = await chrome.runtime.sendMessage({
+            type: 'OPEN_URLS_IN_BACKGROUND',
+            urls: safeUrls
+        });
+        return response?.success === true;
+    } catch (_error) {
+        return false;
+    }
+}
+
+/**
  * Decorate one renderer container with click overlay.
  * @param {Element} container
  * @returns {boolean}
@@ -2929,7 +3096,7 @@ function collectRenderers(node, output) {
         return;
     }
 
-    if (node.matches(FEED_RENDERER_SELECTOR)) {
+    if (node.matches(FEED_RENDERER_SELECTOR) && isPrimaryRendererContainer(node)) {
         output.add(node);
     }
 
@@ -2938,7 +3105,11 @@ function collectRenderers(node, output) {
         return;
     }
 
-    nested.forEach((item) => output.add(item));
+    nested.forEach((item) => {
+        if (isPrimaryRendererContainer(item)) {
+            output.add(item);
+        }
+    });
 }
 
 /**
@@ -2971,8 +3142,10 @@ function queueFullRescan() {
     }
 
     countedContainers = new WeakSet();
+    countedVideoIds.clear();
+    countedPlaylistIds.clear();
     if (isPlaylistsPage()) {
-        cachedPagePlaylistCount = collectRenderedPlaylistIds().length;
+        cachedPagePlaylistCount = 0;
     } else {
         cachedPageVideoCount = 0;
     }
@@ -2980,7 +3153,9 @@ function queueFullRescan() {
     const all = new Set();
     const root = resolveActivePageRoot();
     root.querySelectorAll(FEED_RENDERER_SELECTOR).forEach((container) => {
-        all.add(container);
+        if (isPrimaryRendererContainer(container)) {
+            all.add(container);
+        }
     });
     queueContainers(all);
 }
@@ -3017,14 +3192,25 @@ function processPendingContainers() {
             if (decorated && !countedContainers.has(container)) {
                 countedContainers.add(container);
                 if (playlistPage) {
-                    cachedPagePlaylistCount += 1;
+                    const playlistId = getPlaylistIdFromContainer(container);
+                    if (PLAYLIST_ID_PATTERN.test(playlistId) && !countedPlaylistIds.has(playlistId)) {
+                        countedPlaylistIds.add(playlistId);
+                    }
+                    cachedPagePlaylistCount = countedPlaylistIds.size;
                 } else {
-                    cachedPageVideoCount += 1;
-                }
-                const videoId = container.getAttribute('data-yt-commander-video-id') || '';
-                if (selectAllMode && VIDEO_ID_PATTERN.test(videoId) && !selectedVideoIds.has(videoId)) {
-                    selectedVideoIds.add(videoId);
-                    autoSelectedIds.add(videoId);
+                    const host = container.matches(`.${HOST_CLASS}`)
+                        ? container
+                        : container.querySelector(`.${HOST_CLASS}[data-yt-commander-video-id]`);
+                    const videoId = host?.getAttribute?.('data-yt-commander-video-id') || '';
+                    if (VIDEO_ID_PATTERN.test(videoId) && !countedVideoIds.has(videoId)) {
+                        countedVideoIds.add(videoId);
+                    }
+                    cachedPageVideoCount = countedVideoIds.size;
+
+                    if (selectAllMode && VIDEO_ID_PATTERN.test(videoId) && !selectedVideoIds.has(videoId)) {
+                        selectedVideoIds.add(videoId);
+                        autoSelectedIds.add(videoId);
+                    }
                 }
             }
             decorateRetryCounts.delete(container);
@@ -3175,6 +3361,24 @@ function handleActionExitButtonClick(event) {
 }
 
 /**
+ * Apply one drag frame for action bar.
+ */
+function applyDragFrame() {
+    dragFrameId = 0;
+    if (!isDragging || !actionBar) {
+        return;
+    }
+
+    const maxLeft = Math.max(0, window.innerWidth - actionBar.offsetWidth);
+    const maxTop = Math.max(0, window.innerHeight - actionBar.offsetHeight);
+    const x = clamp(dragPointerX - dragOffsetX, 0, maxLeft);
+    const y = clamp(dragPointerY - dragOffsetY, 0, maxTop);
+
+    actionBar.style.left = `${x}px`;
+    actionBar.style.top = `${y}px`;
+}
+
+/**
  * Handle drag start on action bar.
  * @param {MouseEvent} event
  */
@@ -3194,11 +3398,15 @@ function handleDragStart(event) {
     const rect = actionBar.getBoundingClientRect();
     dragOffsetX = event.clientX - rect.left;
     dragOffsetY = event.clientY - rect.top;
+    dragPointerX = event.clientX;
+    dragPointerY = event.clientY;
 
     actionBar.style.left = `${rect.left}px`;
+    actionBar.style.top = `${rect.top}px`;
     actionBar.style.transform = 'none';
     actionBar.style.bottom = 'auto';
     isDragPositioned = true;
+    event.preventDefault();
 }
 
 /**
@@ -3210,11 +3418,11 @@ function handleDragMove(event) {
         return;
     }
 
-    const x = event.clientX - dragOffsetX;
-    const y = event.clientY - dragOffsetY;
-
-    actionBar.style.left = `${Math.max(0, x)}px`;
-    actionBar.style.top = `${Math.max(0, y)}px`;
+    dragPointerX = event.clientX;
+    dragPointerY = event.clientY;
+    if (!dragFrameId) {
+        dragFrameId = window.requestAnimationFrame(applyDragFrame);
+    }
 }
 
 /**
@@ -3227,6 +3435,10 @@ function handleDragEnd(event) {
     }
 
     isDragging = false;
+    if (dragFrameId) {
+        window.cancelAnimationFrame(dragFrameId);
+        dragFrameId = 0;
+    }
     actionBar?.classList.remove('is-dragging');
 }
 
@@ -3308,7 +3520,11 @@ function ensureSplitModal() {
 
     const infoText = document.createElement('p');
     infoText.className = 'yt-commander-split-modal__info';
-    infoText.textContent = 'Videos per playlist:';
+    infoText.textContent = 'Choose how many videos go into each playlist.';
+
+    const inputLabel = document.createElement('label');
+    inputLabel.className = 'yt-commander-split-modal__input-label';
+    inputLabel.textContent = 'Videos per playlist';
 
     splitCountInput = document.createElement('input');
     splitCountInput.type = 'number';
@@ -3321,6 +3537,10 @@ function ensureSplitModal() {
             submitSplit();
         }
     });
+
+    splitPreview = document.createElement('div');
+    splitPreview.className = 'yt-commander-split-modal__preview';
+    splitPreview.textContent = 'No videos selected.';
 
     splitStatus = document.createElement('div');
     splitStatus.className = 'yt-commander-split-modal__status';
@@ -3346,7 +3566,9 @@ function ensureSplitModal() {
 
     splitModal.appendChild(modalTitle);
     splitModal.appendChild(infoText);
+    splitModal.appendChild(inputLabel);
     splitModal.appendChild(splitCountInput);
+    splitModal.appendChild(splitPreview);
     splitModal.appendChild(splitStatus);
     splitModal.appendChild(actions);
 
@@ -3378,9 +3600,23 @@ function updateSplitModalState() {
     const videoIds = Array.from(selectedVideoIds);
     const count = parseInt(splitCountInput?.value, 10) || 0;
     const canSplit = videoIds.length > 0 && count > 0 && !splitSubmitting;
+    const plannedPlaylists = count > 0 ? Math.ceil(videoIds.length / count) : 0;
     const modal = splitModal?.querySelector('.yt-commander-split-modal__button--primary');
     if (modal) {
         modal.disabled = !canSplit;
+        modal.textContent = splitSubmitting
+            ? 'Splitting...'
+            : (plannedPlaylists > 0 ? `Split into ${plannedPlaylists}` : 'Split');
+    }
+
+    if (splitPreview) {
+        if (videoIds.length === 0) {
+            splitPreview.textContent = 'No videos selected.';
+        } else if (count <= 0) {
+            splitPreview.textContent = `${videoIds.length} videos selected. Enter a size to preview split.`;
+        } else {
+            splitPreview.textContent = `${videoIds.length} videos will be split into ${plannedPlaylists} playlist(s).`;
+        }
     }
 }
 
@@ -3407,7 +3643,7 @@ async function submitSplit() {
     updateSplitModalState();
     closeSplitModal(true);
 
-    showSaveProgress(0, numPlaylists, 'Splitting into playlists...');
+    showSaveProgress(0, numPlaylists, 'Splitting into playlists...', `Preparing ${numPlaylists} playlist(s)...`);
 
     try {
         let maxNum = 0;
@@ -3438,12 +3674,32 @@ async function submitSplit() {
             const batch = videoIds.slice(start, end);
 
             const title = `Playlist ${maxNum + 1 + i}`;
+            const playlistIndex = i + 1;
+            showSaveProgress(
+                i,
+                numPlaylists,
+                `Creating playlist ${playlistIndex}/${numPlaylists}`,
+                `${title}: 0/${batch.length} saved`
+            );
 
             const playlistResponse = await sendBridgeRequest(ACTIONS.CREATE_PLAYLIST_AND_ADD, {
                 title,
                 privacyStatus: 'PRIVATE',
                 collaborate: false,
                 videoIds: batch
+            }, (progress) => {
+                if (!progress) {
+                    return;
+                }
+                const processed = Number(progress.processed) || 0;
+                const total = Number(progress.total) || batch.length;
+                const boundedProcessed = clamp(processed, 0, total);
+                showSaveProgress(
+                    i,
+                    numPlaylists,
+                    `Creating playlist ${playlistIndex}/${numPlaylists}`,
+                    `${title}: ${boundedProcessed}/${total} saved`
+                );
             });
 
             let addedCount = Number(playlistResponse?.addedCount) || 0;
@@ -3481,7 +3737,12 @@ async function submitSplit() {
             totalAdded += addedCount;
             created++;
 
-            showSaveProgress(created, numPlaylists, `Creating playlists...`);
+            showSaveProgress(
+                created,
+                numPlaylists,
+                `Created ${created}/${numPlaylists} playlists`,
+                `${title}: ${addedCount}/${batch.length} saved (overall ${totalAdded}/${videoIds.length})`
+            );
         }
 
         hideSaveProgress();
@@ -3679,7 +3940,7 @@ async function handleActionDeletePlaylistsClick(event) {
  * Handle "open in new tab" click - opens all selected videos in new tabs.
  * @param {MouseEvent} event
  */
-function handleOpenInNewTab(event) {
+async function handleOpenInNewTab(event) {
     event.preventDefault();
     event.stopPropagation();
 
@@ -3688,10 +3949,13 @@ function handleOpenInNewTab(event) {
         return;
     }
 
-    videoIds.forEach((videoId) => {
-        const url = `https://www.youtube.com/watch?v=${videoId}`;
-        window.open(url, '_blank', 'noopener,noreferrer');
-    });
+    const urls = videoIds.map((videoId) => `https://www.youtube.com/watch?v=${videoId}`);
+    const openedInBackground = await openUrlsInBackgroundTabs(urls);
+    if (!openedInBackground) {
+        urls.forEach((url) => {
+            window.open(url, '_blank', 'noopener,noreferrer');
+        });
+    }
 
     resetSelectionOnly();
 }
@@ -3703,6 +3967,18 @@ function handleOpenInNewTab(event) {
 function handleActionSelectAllClick(event) {
     event.preventDefault();
     event.stopPropagation();
+
+    if (isPlaylistsPage()) {
+        const playlistIds = collectRenderedPlaylistIds();
+        if (playlistIds.length === 0) {
+            return;
+        }
+        selectedPlaylistIds.clear();
+        playlistIds.forEach((playlistId) => selectedPlaylistIds.add(playlistId));
+        restorePlaylistSelectionState();
+        updateActionUiState();
+        return;
+    }
 
     selectAllMode = true;
     selectVideoIds(collectRenderedVideoIds());
@@ -3716,6 +3992,13 @@ function handleActionSelectAllClick(event) {
 function handleActionUnselectAllClick(event) {
     event.preventDefault();
     event.stopPropagation();
+
+    if (isPlaylistsPage()) {
+        selectedPlaylistIds.clear();
+        restorePlaylistSelectionState();
+        updateActionUiState();
+        return;
+    }
 
     selectAllMode = false;
     clearSelectedVideos();
