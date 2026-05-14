@@ -89,6 +89,8 @@ const SQL_EXPORT_TABLE_NAME = 'watched_videos';
 const SQL_EXPORT_IDS_PER_FILE = 200000;
 const SQL_EXPORT_VALUES_PER_STATEMENT = 300;
 const SQL_EXPORT_DOWNLOAD_DELAY_MS = 250;
+const HISTORY_IMPORT_BATCH_SIZE = 5000;
+const HISTORY_SEED_SYNC_TIMEOUT_MS = 10 * 60 * 1000;
 const POPUP_UI_V2_CLASS = 'yt-commander-popup-v2';
 const POPUP_UI_V2_DEFAULT_FEATURE = 'history';
 const POPUP_UI_V2_TONES = ['red', 'cyan', 'green', 'amber'];
@@ -3111,133 +3113,103 @@ function importHistory() {
 }
 
 async function handleFileImport(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    
+    const input = event.target;
+    const file = input?.files?.[0];
+    if (input) {
+        input.value = '';
+    }
+    if (!file) {
+        return;
+    }
+
     try {
-        const content = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve(e.target.result);
-            reader.onerror = reject;
-            reader.readAsText(file);
-        });
-        
-        // Parse video IDs based on file type
-        let videoIds = [];
-        const fileName = file.name.toLowerCase();
-        
-        console.log('Import file:', fileName, 'Content length:', content.length);
-        console.log('First 200 chars:', content.substring(0, 200));
-        
-        if (fileName.endsWith('.csv')) {
-            // Parse CSV format
-            const lines = content.split('\n').filter(line => line.trim());
-            // Skip header if present
-            const dataLines = lines[0].includes('Video ID') ? lines.slice(1) : lines;
-            
-            videoIds = dataLines.map(line => {
-                // Extract video ID from first column (handle quoted values)
-                const match = line.match(/^"?([^",]+)"?/);
-                return match ? match[1].trim() : null;
-            }).filter(id => id && id.length === 11); // YouTube video IDs are 11 characters
-            
-        } else {
-            // Parse TXT format (legacy - one video ID per line)
-            videoIds = content.split('\n')
-                .map(line => line.trim())
-                .filter(id => id && id.length >= 10 && id.length <= 12); // Be more flexible with ID length
-        }
-        
-        console.log('Parsed video IDs:', videoIds.length, videoIds.slice(0, 5));
-        
+        const content = await readFileText(file);
+        const videoIds = parseWatchedVideoIdsFromFileText(content, file.name);
         if (videoIds.length === 0) {
             showStatus('No valid video IDs found in file', 'error');
-            console.log('No video IDs found. File content:', content);
             return;
         }
-        
-        // Get the active tab specifically for better permission handling
-        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!activeTab || !activeTab.url.includes('youtube.com')) {
-            showStatus('Please make sure you are on a YouTube page and try again', 'error');
-            return;
-        }
-        
-        // For large imports, process in smaller batches to avoid memory issues
-        const batchSize = 5000; // Process 5k at a time to avoid memory issues
-        let totalImported = 0;
-        let currentIndex = 0;
-        
-        showStatus(`Processing ${videoIds.length} video IDs in batches...`, 'info');
-        
-        while (currentIndex < videoIds.length) {
-            const batch = videoIds.slice(currentIndex, currentIndex + batchSize);
-            const progress = Math.round((currentIndex / videoIds.length) * 100);
-            
-            showStatus(`Processing batch ${Math.floor(currentIndex/batchSize) + 1}... (${progress}%)`, 'info');
-            
-            try {
-                let batchImported = 0;
-                
-                // Use content script message approach since script injection is blocked
-                console.log(`[Import] Processing batch ${Math.floor(currentIndex / batchSize) + 1} with ${batch.length} IDs via content script`);
-                
-                try {
-                    // Try content script first
-                    const response = await chrome.tabs.sendMessage(activeTab.id, {
-                        type: 'IMPORT_WATCHED_VIDEOS',
-                        videoIds: batch
-                    });
-                    
-                    if (response && response.success) {
-                        batchImported = response.count || 0;
-                        console.log(`[Import] Batch ${Math.floor(currentIndex / batchSize) + 1} imported ${batchImported} videos via content script`);
-                    } else {
-                        throw new Error(response?.error || 'Content script import failed');
-                    }
-                } catch (messageError) {
-                    console.warn('Content script import failed, trying storage fallback:', messageError);
-                    
-                    // Fallback: Store in chrome.storage and let background script handle it
-                    const storageKey = `import_batch_${Date.now()}_${Math.random()}`;
-                    await chrome.storage.local.set({
-                        [storageKey]: {
-                            videoIds: batch,
-                            timestamp: Date.now()
-                        }
-                    });
-                    
-                    // Notify background script to process the batch
-                    const bgResponse = await chrome.runtime.sendMessage({
-                        type: 'PROCESS_IMPORT_BATCH',
-                        storageKey: storageKey,
-                        tabId: activeTab.id
-                    });
-                    
-                    batchImported = bgResponse?.count || 0;
-                    console.log(`[Import] Batch ${Math.floor(currentIndex / batchSize) + 1} imported ${batchImported} videos via background script`);
-                }
-                console.log(`[Import] Batch ${Math.floor(currentIndex / batchSize) + 1} imported ${batchImported} videos`);
-                
-                totalImported += batchImported;
-                currentIndex += batchSize;
-                
-                // Small delay between batches to prevent overwhelming the system
-                await new Promise(resolve => setTimeout(resolve, 100));
-                
-            } catch (error) {
-                console.error('Error processing batch:', error);
-                showStatus(`Error processing batch at ${currentIndex}. Continuing...`, 'warning');
-                currentIndex += batchSize; // Skip this batch and continue
-            }
-        }
-        
-        showStatus(`Successfully imported ${totalImported} videos!`, 'success');
-        loadWatchedHistoryStats(); // Refresh stats
-        
+
+        const targetTab = await resolveYouTubeTabForHistory();
+        const totalImported = await importWatchedVideoIdsInBatches(targetTab.id, videoIds, {
+            progressLabel: 'Importing to local history'
+        });
+
+        showStatus(`Imported ${totalImported} new IDs to local history.`, 'success');
+        await loadWatchedHistoryStats();
+        await refreshCloudflareSyncStatus();
     } catch (error) {
-        console.error('Import error:', error);
-        showStatus('Error importing file', 'error');
+        showStatus(error?.message || 'Error importing file', 'error');
+    }
+}
+
+/**
+ * Seed missing watched IDs from file to local IndexedDB + Cloudflare D1.
+ */
+async function seedHistoryToLocalAndCloudflare() {
+    const button = document.getElementById('seedHistoryLocalCloudflare');
+    const fileInput = document.getElementById('historySeedFileInput');
+    const file = fileInput?.files?.[0];
+
+    if (!button || !fileInput) {
+        return;
+    }
+
+    if (!file) {
+        showStatus('Choose a TXT or CSV file first', 'error');
+        return;
+    }
+
+    const initialLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Seeding...';
+
+    try {
+        const content = await readFileText(file);
+        const videoIds = parseWatchedVideoIdsFromFileText(content, file.name);
+
+        if (videoIds.length === 0) {
+            throw new Error('No valid video IDs found in selected file');
+        }
+
+        const [activeTab] = await chrome.tabs.query({
+            active: true,
+            currentWindow: true,
+            url: '*://*.youtube.com/*'
+        });
+
+        const { endpointUrl, apiToken } = await saveCloudflareSyncSettings();
+
+        showStatus(`Seeding ${videoIds.length} IDs to local + Cloudflare...`, 'info');
+
+        const response = await sendRuntimeMessage({
+            type: 'SEED_HISTORY_TO_LOCAL_AND_CLOUDFLARE',
+            videoIds,
+            endpointUrl,
+            apiToken,
+            activeTabId: activeTab?.id
+        }, HISTORY_SEED_SYNC_TIMEOUT_MS);
+
+        if (!response?.success) {
+            throw new Error(response?.error || 'Failed to seed missing history IDs');
+        }
+
+        const importedCount = Number(response.importedCount) || 0;
+        const syncedCount = Number(response.syncedCount) || 0;
+        const pendingCount = Number(response.pendingCount) || 0;
+
+        showStatus(
+            `Seed complete. Local imported: ${importedCount}. Cloudflare synced: ${syncedCount}. Pending: ${pendingCount}.`,
+            'success'
+        );
+
+        await loadWatchedHistoryStats();
+        await refreshCloudflareSyncStatus();
+    } catch (error) {
+        showStatus(error?.message || 'Failed to seed missing data', 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = initialLabel;
     }
 }
 
@@ -3267,6 +3239,161 @@ function getBoundDropdownControl(dropdown) {
     }
 
     return null;
+}
+
+/**
+ * Check whether a string looks like a valid YouTube video ID.
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isValidVideoId(value) {
+    return /^[A-Za-z0-9_-]{10,15}$/.test(value);
+}
+
+/**
+ * Extract one YouTube video ID from a raw cell/token.
+ * Supports direct IDs and common YouTube URL formats.
+ * @param {string} rawValue
+ * @returns {string}
+ */
+function extractVideoIdFromText(rawValue) {
+    const value = typeof rawValue === 'string' ? rawValue.trim().replace(/^['"]|['"]$/g, '') : '';
+    if (!value) {
+        return '';
+    }
+
+    if (isValidVideoId(value)) {
+        return value;
+    }
+
+    const urlPattern = /(?:v=|\/shorts\/|\/embed\/|\/live\/|youtu\.be\/)([A-Za-z0-9_-]{10,15})/i;
+    const quickMatch = value.match(urlPattern);
+    if (quickMatch?.[1] && isValidVideoId(quickMatch[1])) {
+        return quickMatch[1];
+    }
+
+    try {
+        const parsed = new URL(value, 'https://www.youtube.com');
+        const watchId = parsed.searchParams.get('v');
+        if (watchId && isValidVideoId(watchId)) {
+            return watchId;
+        }
+
+        const host = parsed.hostname.toLowerCase();
+        const segments = parsed.pathname.split('/').filter(Boolean);
+
+        if (host.includes('youtu.be') && segments[0] && isValidVideoId(segments[0])) {
+            return segments[0];
+        }
+
+        for (let i = 0; i < segments.length - 1; i += 1) {
+            const segment = segments[i].toLowerCase();
+            const next = segments[i + 1];
+            if ((segment === 'shorts' || segment === 'embed' || segment === 'live' || segment === 'v')
+                && isValidVideoId(next)) {
+                return next;
+            }
+        }
+    } catch (_error) {
+        return '';
+    }
+
+    return '';
+}
+
+/**
+ * Parse watched-history IDs from TXT/CSV content.
+ * Keeps only unique video IDs.
+ * @param {string} text
+ * @param {string} fileName
+ * @returns {string[]}
+ */
+function parseWatchedVideoIdsFromFileText(text, fileName) {
+    const rawLines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/);
+    const rawLowerName = typeof fileName === 'string' ? fileName.toLowerCase() : '';
+    const looksLikeCsv = rawLowerName.endsWith('.csv');
+    const collected = [];
+
+    rawLines.forEach((line) => {
+        const trimmedLine = typeof line === 'string' ? line.trim() : '';
+        if (!trimmedLine) {
+            return;
+        }
+
+        const candidates = looksLikeCsv
+            ? parseCsvLine(trimmedLine)
+            : trimmedLine.split(/[,\t;| ]+/).filter(Boolean);
+
+        candidates.forEach((candidate) => {
+            const videoId = extractVideoIdFromText(candidate);
+            if (videoId) {
+                collected.push(videoId);
+            }
+        });
+    });
+
+    return normalizeVideoIdList(collected);
+}
+
+/**
+ * Import watched IDs in batches into local history via content script.
+ * @param {number} tabId
+ * @param {string[]} videoIds
+ * @param {{progressLabel?: string}} [options]
+ * @returns {Promise<number>}
+ */
+async function importWatchedVideoIdsInBatches(tabId, videoIds, options = {}) {
+    const progressLabel = typeof options?.progressLabel === 'string' && options.progressLabel.trim()
+        ? options.progressLabel.trim()
+        : 'Importing watched IDs';
+
+    let totalImported = 0;
+    let currentIndex = 0;
+
+    while (currentIndex < videoIds.length) {
+        const batch = videoIds.slice(currentIndex, currentIndex + HISTORY_IMPORT_BATCH_SIZE);
+        const batchNumber = Math.floor(currentIndex / HISTORY_IMPORT_BATCH_SIZE) + 1;
+        const progress = Math.min(100, Math.round((currentIndex / videoIds.length) * 100));
+
+        showStatus(`${progressLabel}: batch ${batchNumber} (${progress}%)`, 'info');
+
+        let batchImported = 0;
+        try {
+            const response = await chrome.tabs.sendMessage(tabId, {
+                type: 'IMPORT_WATCHED_VIDEOS',
+                videoIds: batch
+            });
+
+            if (!response?.success) {
+                throw new Error(response?.error || 'Content script import failed');
+            }
+            batchImported = Number(response.count) || 0;
+        } catch (_messageError) {
+            const storageKey = `import_batch_${Date.now()}_${Math.random()}`;
+            await chrome.storage.local.set({
+                [storageKey]: {
+                    videoIds: batch,
+                    timestamp: Date.now()
+                }
+            });
+
+            const bgResponse = await sendRuntimeMessage({
+                type: 'PROCESS_IMPORT_BATCH',
+                storageKey,
+                tabId
+            }, 120000);
+
+            batchImported = Number(bgResponse?.count) || 0;
+        }
+
+        totalImported += batchImported;
+        currentIndex += HISTORY_IMPORT_BATCH_SIZE;
+
+        // Keep popup responsive during large imports.
+        await new Promise((resolve) => setTimeout(resolve, 75));
+    }
+
+    return totalImported;
 }
 
 /**
@@ -3438,6 +3565,17 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const historyFileInput = document.getElementById('historyFileInput');
     if (historyFileInput) historyFileInput.addEventListener('change', handleFileImport);
+    const seedHistoryBtn = document.getElementById('seedHistoryLocalCloudflare');
+    if (seedHistoryBtn) seedHistoryBtn.addEventListener('click', seedHistoryToLocalAndCloudflare);
+    const historySeedFileInput = document.getElementById('historySeedFileInput');
+    if (historySeedFileInput) {
+        historySeedFileInput.addEventListener('change', () => {
+            const selected = historySeedFileInput.files?.[0];
+            if (selected) {
+                showStatus(`Ready to seed: ${selected.name}`, 'info');
+            }
+        });
+    }
     
     // Subscription buttons
     const exportCsvBtn = document.getElementById('exportSubscriptionCsv');

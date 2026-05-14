@@ -13,6 +13,7 @@ const AUTO_SYNC_CHECK_PERIOD_MINUTES = 1;
 const AUTO_SYNC_CHUNK_SIZE = 300;
 const AUTO_SYNC_MAX_IDS_PER_RUN = 1200;
 const MANUAL_SYNC_MAX_IDS_PER_RUN = 6000;
+const FILE_SEED_IMPORT_BATCH_SIZE = 2000;
 
 const CLOUD_SYNC_STORAGE_KEYS = {
     ENDPOINT: 'cloudflareSyncEndpoint',
@@ -1677,13 +1678,15 @@ async function fetchCloudflarePullPage(pullEndpoint, apiToken, cursor, limit, ac
  * Import IDs into local watched IndexedDB through content script.
  * @param {number} tabId
  * @param {string[]} videoIds
+ * @param {{skipSyncQueue?: boolean}} [options]
  * @returns {Promise<number>}
  */
-async function importVideoIdsIntoLocalHistory(tabId, videoIds) {
+async function importVideoIdsIntoLocalHistory(tabId, videoIds, options = {}) {
+    const skipSyncQueue = options?.skipSyncQueue === true;
     const response = await sendMessageToTab(tabId, {
         type: 'IMPORT_WATCHED_VIDEOS',
         videoIds,
-        options: { skipSyncQueue: true }
+        options: { skipSyncQueue }
     }, 45000);
 
     if (!response?.success) {
@@ -1744,7 +1747,9 @@ async function downloadFromCloudflare(options = {}) {
             }
 
             pulledCount += page.videoIds.length;
-            importedCount += await importVideoIdsIntoLocalHistory(tabId, page.videoIds);
+            importedCount += await importVideoIdsIntoLocalHistory(tabId, page.videoIds, {
+                skipSyncQueue: true
+            });
 
             console.info('[YT-Commander][CloudSync] Pulled page from Cloudflare', {
                 page: pageCount,
@@ -1770,6 +1775,89 @@ async function downloadFromCloudflare(options = {}) {
             await removeTab(tabId);
         }
         cloudSyncInProgress = false;
+    }
+}
+
+/**
+ * Seed missing watched IDs from imported file into local IndexedDB and Cloudflare.
+ * @param {{videoIds?: string[], endpointUrl?: string, apiToken?: string, activeTabId?: number}} options
+ * @returns {Promise<{providedCount: number, importedCount: number, syncedCount: number, pendingCount: number, endpointHost: string, skipped?: boolean, reason?: string}>}
+ */
+async function seedHistoryToLocalAndCloudflare(options = {}) {
+    const rawVideoIds = Array.isArray(options.videoIds) ? options.videoIds : [];
+    const videoIds = normalizeVideoIds(rawVideoIds);
+    if (videoIds.length === 0) {
+        throw new Error('No valid video IDs were provided');
+    }
+
+    const state = await readCloudSyncState();
+    const endpointRaw = typeof options.endpointUrl === 'string' && options.endpointUrl.trim()
+        ? options.endpointUrl.trim()
+        : state.endpointUrl;
+    const apiToken = typeof options.apiToken === 'string'
+        ? options.apiToken.trim()
+        : state.apiToken;
+
+    if (!endpointRaw) {
+        throw new Error('Cloudflare Worker URL is required');
+    }
+
+    const endpoint = parseCloudflareEndpoint(endpointRaw);
+
+    let createdTab = false;
+    let tabId = 0;
+    const preferredTabId = Number.isFinite(options.activeTabId) ? Number(options.activeTabId) : 0;
+
+    try {
+        if (preferredTabId > 0 && await hasWatchedHistoryReceiver(preferredTabId, 1)) {
+            tabId = preferredTabId;
+        } else {
+            const tabInfo = await resolveYouTubeTabForHistory();
+            tabId = tabInfo.tabId;
+            createdTab = tabInfo.created === true;
+        }
+
+        let importedCount = 0;
+        for (let index = 0; index < videoIds.length; index += FILE_SEED_IMPORT_BATCH_SIZE) {
+            const batch = videoIds.slice(index, index + FILE_SEED_IMPORT_BATCH_SIZE);
+            importedCount += await importVideoIdsIntoLocalHistory(tabId, batch, {
+                skipSyncQueue: false
+            });
+        }
+
+        try {
+            const syncResult = await performCloudflareSync({
+                manual: true,
+                endpointUrl: endpoint.toString(),
+                apiToken,
+                source: 'seed-history-from-file',
+                activeTabId: tabId
+            });
+            const fallbackStatus = Number.isFinite(Number(syncResult?.pendingCount))
+                ? null
+                : await getCloudSyncStatus();
+
+            return {
+                providedCount: videoIds.length,
+                importedCount,
+                syncedCount: Number(syncResult?.syncedCount) || 0,
+                pendingCount: Number(syncResult?.pendingCount)
+                    || Number(fallbackStatus?.pendingCount)
+                    || 0,
+                endpointHost: typeof syncResult?.endpointHost === 'string' && syncResult.endpointHost
+                    ? syncResult.endpointHost
+                    : endpoint.host,
+                skipped: syncResult?.skipped === true,
+                reason: typeof syncResult?.reason === 'string' ? syncResult.reason : ''
+            };
+        } catch (error) {
+            const message = error?.message || 'Cloudflare sync failed';
+            throw new Error(`${message}. Local import completed for ${importedCount} new IDs.`);
+        }
+    } finally {
+        if (createdTab && tabId) {
+            await removeTab(tabId);
+        }
     }
 }
 
@@ -2893,6 +2981,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         downloadFromCloudflare({
             endpointUrl: message.endpointUrl,
             apiToken: message.apiToken
+        })
+            .then((result) => sendResponse({ success: true, ...result }))
+            .catch((error) => sendResponse({ success: false, error: error.message }));
+        return true;
+    }
+
+    if (message.type === 'SEED_HISTORY_TO_LOCAL_AND_CLOUDFLARE') {
+        seedHistoryToLocalAndCloudflare({
+            videoIds: message.videoIds,
+            endpointUrl: message.endpointUrl,
+            apiToken: message.apiToken,
+            activeTabId: message.activeTabId
         })
             .then((result) => sendResponse({ success: true, ...result }))
             .catch((error) => sendResponse({ success: false, error: error.message }));

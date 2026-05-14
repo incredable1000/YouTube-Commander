@@ -1248,6 +1248,19 @@ npx wrangler d1 execute YOUR_DB --file=youtube-watched-history-d1.sql
                 <button class="btn btn-secondary" id="importSubscriptionCsv">Import CSV</button>
             </div>
         </div>
+        <div class="ytc-v2-section">
+            <div class="ytc-v2-section-title">Seed Missing Data (Local + D1)</div>
+            <div class="setting-row" style="display: block;">
+                <div class="setting-label" style="margin-bottom: 6px;">TXT/CSV file</div>
+                <input type="file" id="historySeedFileInput" class="setting-input setting-input-wide" accept=".txt,.csv,text/plain,text/csv">
+            </div>
+            <div style="margin-top: 10px;">
+                <button class="btn" id="seedHistoryLocalCloudflare" style="width:100%;">Seed Missing IDs</button>
+            </div>
+            <div class="note" style="margin-top: 10px;">
+                Imports only missing IDs into local IndexedDB, then syncs them to Cloudflare D1.
+            </div>
+        </div>
         <div id="status" class="status"></div>
     </div>
 
