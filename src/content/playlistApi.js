@@ -153,45 +153,6 @@ function cloneSerializable(value) {
 }
 
 /**
- * Read trimmed string from ytcfg.
- * @param {string} key
- * @returns {string}
- */
-function getYtCfgString(key) {
-    const value = getYtCfgValue(key);
-    return typeof value === 'string' ? value.trim() : '';
-}
-
-/**
- * Parse DATASYNC_ID into delegated/user session ids.
- * Expected format: "<delegated_session_id>||<user_session_id>".
- * @param {string} rawDataSyncId
- * @returns {{delegatedSessionId: string, userSessionId: string}}
- */
-function parseDataSyncId(rawDataSyncId) {
-    if (typeof rawDataSyncId !== 'string') {
-        return {
-            delegatedSessionId: '',
-            userSessionId: ''
-        };
-    }
-
-    const value = rawDataSyncId.trim();
-    if (!value || !value.includes('||')) {
-        return {
-            delegatedSessionId: '',
-            userSessionId: ''
-        };
-    }
-
-    const [delegatedPart = '', userPart = ''] = value.split('||', 2);
-    return {
-        delegatedSessionId: delegatedPart.trim(),
-        userSessionId: userPart.trim()
-    };
-}
-
-/**
  * Build innertube config and headers.
  * @returns {{apiKey: string, context: object, headers: Record<string, string>}}
  */
@@ -225,12 +186,10 @@ async function getInnertubeConfig() {
         || context?.client?.clientVersion
         || getYtCfgValue('INNERTUBE_CLIENT_VERSION')
         || '';
-    const dataSync = parseDataSyncId(getYtCfgString('DATASYNC_ID'));
-    const delegatedSessionId = getYtCfgString('DELEGATED_SESSION_ID') || dataSync.delegatedSessionId;
-    const identityToken = getYtCfgString('ID_TOKEN');
+    const identityToken = getYtCfgValue('ID_TOKEN') || getYtCfgValue('DELEGATED_SESSION_ID');
     const visitorData = getYtCfgValue('VISITOR_DATA') || context?.client?.visitorData;
     const sessionIndex = getYtCfgValue('SESSION_INDEX') ?? 0;
-    const pageId = delegatedSessionId;
+    const pageId = getYtCfgValue('DELEGATED_SESSION_ID') || getYtCfgValue('DATASYNC_ID') || '';
     const authorizationHeader = await buildSapisidAuthorization();
 
     const headers = {
